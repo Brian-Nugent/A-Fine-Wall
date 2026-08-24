@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 
 const title = "A Fine Wall";
-const description = "A quiet digital study in structure, surface, and light.";
+const description = "Browse climbs set on A Fine Wall and see every hold in the problem.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
     ?.trim();
   const protocol = forwardedProtocol || (host.startsWith("localhost") ? "http" : "https");
   const origin = new URL(`${protocol}://${host}`).origin;
-  const socialImage = `${origin}/og.png`;
+  const socialImage = `${origin}/og-climbs.png`;
 
   return {
     title,
@@ -43,7 +43,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#e8e0d4",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({
