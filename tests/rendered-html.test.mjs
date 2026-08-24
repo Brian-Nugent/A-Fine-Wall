@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import {
   addSavedClimb,
@@ -264,7 +264,7 @@ test("renders the climb setter with the wall and selectable holds", async () => 
 
   const html = await response.text();
   assert.match(html, /Choose your holds/);
-  assert.match(html, /Tap a preset circle for a blue climb hold/);
+  assert.match(html, /Tap a hold for a blue circle/);
   assert.match(html, /A fourth tap clears it/);
   assert.match(html, /src="\/api\/wall-photo"/);
   assert.match(html, /href="\/wall-photo"/);
@@ -885,6 +885,22 @@ test("includes the wall and social preview image assets", async () => {
     assert.ok(asset.isFile());
     assert.ok(asset.size > 100_000);
   }
+});
+
+test("shows only clean colored circles for selected route holds", async () => {
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  const markerRule = css.match(/\.hold-marker\s*\{([^}]*)\}/)?.[1] ?? "";
+  const choiceRule = css.match(/\.hold-choice::after\s*\{([^}]*)\}/)?.[1] ?? "";
+  const availableRule =
+    css.match(/\.hold-choice--available::after\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.doesNotMatch(markerRule, /box-shadow/);
+  assert.match(choiceRule, /background:\s*transparent/);
+  assert.doesNotMatch(choiceRule, /box-shadow/);
+  assert.match(availableRule, /opacity:\s*0/);
 });
 
 test("safely parses and stores device-local climbs", () => {

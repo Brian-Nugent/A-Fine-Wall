@@ -360,7 +360,6 @@ select:focus-visible {
   transform: translate(-50%, -50%);
   border: clamp(2px, 0.7vw, 4px) solid currentColor;
   border-radius: 50%;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 1px 5px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
 
@@ -531,8 +530,7 @@ select:focus-visible {
   transform: translate(-50%, -50%);
   border: clamp(2px, 0.7vw, 4px) solid currentColor;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 1px 5px rgba(0, 0, 0, 0.45);
+  background: transparent;
   content: "";
   pointer-events: none;
 }
@@ -553,12 +551,11 @@ select:focus-visible {
 }
 
 .hold-choice--available {
-  color: rgba(17, 17, 17, 0.48);
+  color: transparent;
 }
 
 .hold-choice--available::after {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.78), 0 1px 4px rgba(0, 0, 0, 0.3);
+  opacity: 0;
 }
 
 .set-wall-notice {

@@ -193,8 +193,8 @@ export default function SetClimbPage() {
             <p className="step-label">Step 1 of 2</p>
             <h1 id="set-climb-heading">Choose your holds</h1>
             <p>
-              Tap a preset circle for a blue climb hold, again for a green
-              start, and again for a red finish. A fourth tap clears it.
+              Tap a hold for a blue circle, again for a green start, and again
+              for a red finish. A fourth tap clears it.
             </p>
             <a
               className="change-photo-link"
