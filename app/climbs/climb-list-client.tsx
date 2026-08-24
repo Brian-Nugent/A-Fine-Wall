@@ -48,9 +48,14 @@ export default function ClimbListClient() {
         <a className="small-brand" href="/">
           A Fine Wall
         </a>
-        <a className="set-climb-link" href="/set-climb">
-          Set Climb
-        </a>
+        <div className="list-header-actions">
+          <a className="wall-photo-link" href="/wall-photo">
+            Wall Photo
+          </a>
+          <a className="set-climb-link" href="/set-climb">
+            Set Climb
+          </a>
+        </div>
       </header>
 
       <section aria-labelledby="climbs-heading">

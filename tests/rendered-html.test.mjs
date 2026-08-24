@@ -10,24 +10,69 @@ import {
 } from "../app/climbs/saved-climbs.ts";
 
 async function render(pathname = "/") {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+  const worker = await loadWorker();
 
   return worker.fetch(
     new Request(`http://localhost${pathname}`, {
       headers: { accept: "text/html" },
     }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
+    createEnvironment(),
+    createContext(),
   );
+}
+
+async function loadWorker() {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  return worker;
+}
+
+function createEnvironment(overrides = {}) {
+  return {
+    ASSETS: {
+      fetch: async () => new Response("Not found", { status: 404 }),
+    },
+    ...overrides,
+  };
+}
+
+function createContext() {
+  return {
+    waitUntil() {},
+    passThroughOnException() {},
+  };
+}
+
+function createMemoryWallPhotoBucket() {
+  let stored = null;
+
+  return {
+    async delete(key) {
+      if (stored?.key === key) stored = null;
+    },
+    async get(key) {
+      if (!stored || stored.key !== key) return null;
+
+      const { bytes, contentType } = stored;
+      return {
+        body: new Blob([bytes]).stream(),
+        size: bytes.byteLength,
+        httpEtag: '"wall-photo-test"',
+        httpMetadata: { contentType },
+        writeHttpMetadata(headers) {
+          headers.set("Content-Type", contentType);
+        },
+      };
+    },
+    async put(key, value, options) {
+      stored = {
+        key,
+        bytes: new Uint8Array(value.slice(0)),
+        contentType: options.httpMetadata.contentType,
+      };
+    },
+  };
 }
 
 test("renders the minimal home screen", async () => {
@@ -47,6 +92,8 @@ test("renders five linked climbs with names and grades", async () => {
   assert.equal(response.status, 200);
 
   const html = await response.text();
+  assert.match(html, /href="\/wall-photo"/i);
+  assert.match(html, />Wall Photo<\/a>/i);
   assert.match(html, /href="\/set-climb"/i);
   assert.match(html, />Set Climb<\/a>/i);
   for (const [slug, name, grade] of [
@@ -70,9 +117,26 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   assert.match(html, /Choose your holds/);
   assert.match(html, /Tap once for a blue climb hold/);
   assert.match(html, /three times for a red finish/);
-  assert.match(html, /wall-prototype\.png/);
+  assert.match(html, /src="\/api\/wall-photo"/);
+  assert.match(html, /href="\/wall-photo"/);
+  assert.match(html, />Change Wall Photo<\/a>/);
   assert.match(html, /aria-label="Tap the wall to add a hold"/);
   assert.match(html, />Done<\/button>/);
+});
+
+test("renders the wall photo upload screen", async () => {
+  const response = await render("/wall-photo");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /<h1 id="photo-heading">Upload your wall<\/h1>/);
+  assert.match(html, /src="\/api\/wall-photo"/);
+  assert.match(html, /type="file"/);
+  assert.match(html, /accept="image\/jpeg,image\/png,image\/webp"/);
+  assert.match(html, />Use This Photo<\/button>/);
+  assert.match(html, />Restore Test Photo<\/button>/);
+  assert.match(html, /JPG, PNG, or WebP/);
+  assert.match(html, /Existing circles may no longer line up/);
 });
 
 test("renders the browser-saved climb detail shell", async () => {
@@ -97,7 +161,7 @@ test("renders every climb wall with its complete route overlay", async () => {
 
     const html = await response.text();
     assert.match(html, new RegExp(name));
-    assert.match(html, /wall-prototype\.png/);
+    assert.match(html, /src="\/api\/wall-photo"/);
     assert.match(html, /hold-marker--start/);
     assert.match(html, /hold-marker--hand/);
     assert.match(html, /hold-marker--finish/);
@@ -118,6 +182,172 @@ test("renders every climb wall with its complete route overlay", async () => {
 test("returns not found for an unknown climb", async () => {
   const response = await render("/climbs/not-a-real-climb");
   assert.equal(response.status, 404);
+});
+
+test("uploads, serves, and resets the shared wall photo", async () => {
+  const worker = await loadWorker();
+  const bucket = createMemoryWallPhotoBucket();
+  const environment = createEnvironment({ WALL_PHOTOS: bucket });
+  const fetchWallPhoto = (request) =>
+    worker.fetch(request, environment, createContext());
+
+  let response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo"),
+  );
+  assert.equal(response.status, 307);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/svg+xml",
+        Origin: "http://localhost",
+      },
+      body: "<svg />",
+    }),
+  );
+  assert.equal(response.status, 415);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        Origin: "https://example.com",
+      },
+      body: new Uint8Array([1, 2, 3]),
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  const imageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        Origin: "http://localhost",
+      },
+      body: imageBytes,
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo"),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "image/png");
+  assert.equal(response.headers.get("content-length"), String(imageBytes.length));
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(
+    new Uint8Array(await response.arrayBuffer()),
+    imageBytes,
+  );
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      headers: { "If-None-Match": '"wall-photo-test"' },
+    }),
+  );
+  assert.equal(response.status, 304);
+  assert.equal((await response.arrayBuffer()).byteLength, 0);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "HEAD",
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "image/png");
+  assert.equal((await response.arrayBuffer()).byteLength, 0);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "DELETE",
+      headers: { Origin: "http://localhost" },
+    }),
+  );
+  assert.equal(response.status, 204);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo"),
+  );
+  assert.equal(response.status, 307);
+});
+
+test("redirects to the bundled test wall when no photo has been uploaded", async () => {
+  const worker = await loadWorker();
+  const environment = createEnvironment({
+    WALL_PHOTOS: createMemoryWallPhotoBucket(),
+  });
+
+  const response = await worker.fetch(
+    new Request("http://localhost/api/wall-photo"),
+    environment,
+    createContext(),
+  );
+
+  assert.equal(response.status, 307);
+  assert.equal(response.headers.get("location"), "/wall-prototype.png");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+});
+
+test("rejects invalid and unsafe wall photo requests", async () => {
+  const worker = await loadWorker();
+  const fetchWallPhoto = (request, environment = createEnvironment({
+    WALL_PHOTOS: createMemoryWallPhotoBucket(),
+  })) => worker.fetch(request, environment, createContext());
+
+  let response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        Origin: "http://localhost",
+      },
+      body: new Uint8Array(),
+    }),
+  );
+  assert.equal(response.status, 400);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "POST",
+      headers: {
+        "Content-Length": String(20 * 1024 * 1024 + 1),
+        "Content-Type": "image/png",
+        Origin: "http://localhost",
+      },
+      body: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    }),
+  );
+  assert.equal(response.status, 413);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        Origin: "http://localhost",
+      },
+      body: new Uint8Array([1, 2, 3]),
+    }),
+  );
+  assert.equal(response.status, 415);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", { method: "PATCH" }),
+  );
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("allow"), "GET, HEAD, POST, DELETE");
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", { method: "POST" }),
+    createEnvironment(),
+  );
+  assert.equal(response.status, 503);
 });
 
 test("includes the wall and social preview image assets", async () => {

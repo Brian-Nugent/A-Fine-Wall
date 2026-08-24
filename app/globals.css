@@ -101,6 +101,10 @@ select {
 .back-link:focus-visible,
 .small-brand:focus-visible,
 .set-climb-link:focus-visible,
+.wall-photo-link:focus-visible,
+.change-photo-link:focus-visible,
+.photo-file-input:focus-visible,
+.photo-reset-button:focus-visible,
 .secondary-button:focus-visible,
 .text-button:focus-visible,
 .compact-primary-button:focus-visible,
@@ -162,6 +166,30 @@ select:focus-visible {
 .set-climb-link:hover {
   background: #ffffff;
   color: var(--ink);
+}
+
+.list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.wall-photo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.wall-photo-link:hover {
+  border-color: var(--ink);
 }
 
 .list-header p,
@@ -393,13 +421,22 @@ select:focus-visible {
   line-height: 1;
 }
 
-.set-intro > p:last-child,
+.set-intro > p:not(.step-label),
 .finish-step > p:not(.step-label),
 .empty-state p {
   margin: 0;
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.55;
+}
+
+.change-photo-link {
+  align-self: flex-start;
+  min-height: 2.75rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--ink);
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .set-wall {
@@ -606,6 +643,138 @@ select:focus-visible {
   text-align: center;
 }
 
+.photo-page {
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+}
+
+.photo-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.75rem 1.25rem 1.25rem;
+}
+
+.photo-intro h1 {
+  margin: 0;
+  font-size: clamp(2rem, 8vw, 2.75rem);
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+
+.photo-intro > p:not(.step-label) {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.photo-intro .photo-warning {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #e2d7b4;
+  border-radius: 0.6rem;
+  background: #fffaf0;
+  color: #5f4b15;
+  font-size: 0.78rem;
+}
+
+.wall-photo-preview {
+  overflow: hidden;
+  margin: 0;
+  border-block: 1px solid var(--line);
+  background: #ece8df;
+}
+
+.wall-photo-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.photo-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+}
+
+.photo-controls > label {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.photo-file-input {
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0.45rem;
+  border: 1px solid #bdbdbd;
+  border-radius: 0.65rem;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.photo-file-input::file-selector-button {
+  min-height: 2.25rem;
+  margin-right: 0.7rem;
+  padding: 0.45rem 0.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.photo-meta,
+.photo-notice {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.photo-meta {
+  color: var(--muted);
+}
+
+.photo-notice {
+  color: var(--start);
+  font-weight: 650;
+}
+
+.photo-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}
+
+.photo-actions .primary-button {
+  width: 100%;
+}
+
+.primary-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.photo-reset-button {
+  min-height: 2.75rem;
+  padding: 0.6rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.photo-reset-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .legend-dot {
   display: block;
   width: 0.8rem;
@@ -653,12 +822,31 @@ select:focus-visible {
     border: 1px solid var(--line);
     border-radius: 0.75rem;
   }
+
+  .wall-photo-preview {
+    margin-inline: 1.25rem;
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+  }
+}
+
+@media (max-width: 23rem) {
+  .list-header {
+    padding-inline: 0.85rem;
+  }
+
+  .wall-photo-link,
+  .set-climb-link {
+    padding-inline: 0.65rem;
+    font-size: 0.72rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .primary-button,
   .climb-row,
-  .set-climb-link {
+  .set-climb-link,
+  .wall-photo-link {
     transition: none;
   }
 }

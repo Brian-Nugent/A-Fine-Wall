@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import {
   useState,
   type FormEvent,
@@ -13,6 +11,7 @@ import {
   type SavedClimb,
   type SavedHoldRole,
 } from "../climbs/saved-climbs";
+import WallPhoto from "../climbs/wall-photo";
 
 const grades = Array.from({ length: 11 }, (_, index) => `V${index}`);
 
@@ -127,13 +126,28 @@ export default function SetClimbPage() {
               Tap once for a blue climb hold, twice for a green start, and
               three times for a red finish. Tap a red circle again to remove it.
             </p>
+            <a
+              className="change-photo-link"
+              href="/wall-photo"
+              onClick={(event) => {
+                if (
+                  selectedHolds.length > 0 &&
+                  !window.confirm(
+                    "Changing the wall photo will clear the holds you selected. Continue?",
+                  )
+                ) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              Change Wall Photo
+            </a>
           </section>
 
           <figure className="wall-map set-wall">
-            <img
+            <WallPhoto
               className="wall-photo"
-              src="/wall-prototype.png"
-              alt="A plywood home climbing wall covered with colorful holds"
+              alt="Climbing wall used to set the route"
               width="1086"
               height="1448"
               draggable="false"

@@ -1,6 +1,6 @@
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { climbs, getClimb } from "../data";
+import WallPhoto from "../wall-photo";
 
 export function generateStaticParams() {
   return climbs.map((climb) => ({ slug: climb.slug }));
@@ -40,14 +40,11 @@ export default async function ClimbPage({
         </div>
 
         <figure className="wall-map">
-          <Image
+          <WallPhoto
             className="wall-photo"
-            src="/wall-prototype.png"
-            alt="A plywood home climbing wall covered with colorful holds"
+            alt="Climbing wall with the route holds marked"
             width={1086}
             height={1448}
-            sizes="(min-width: 45rem) 39.5rem, 100vw"
-            priority
           />
           {climb.holds.map((hold, index) => (
             <span

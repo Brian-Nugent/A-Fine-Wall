@@ -1,12 +1,11 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import { useEffect, useState } from "react";
 import {
   readSavedClimbs,
   type SavedClimb,
 } from "../saved-climbs";
+import WallPhoto from "../wall-photo";
 
 function DetailShell({ children, status }: { children: React.ReactNode; status: string }) {
   return (
@@ -79,10 +78,9 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
         </div>
 
         <figure className="wall-map">
-          <img
+          <WallPhoto
             className="wall-photo"
-            src="/wall-prototype.png"
-            alt="A plywood home climbing wall covered with colorful holds"
+            alt="Climbing wall with the route holds marked"
             width="1086"
             height="1448"
           />
