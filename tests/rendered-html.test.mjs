@@ -941,11 +941,11 @@ test("dims climb walls while restoring normal brightness inside route circles", 
   const markerRule =
     css.match(/\.wall-map--route \.hold-marker\s*\{([^}]*)\}/)?.[1] ?? "";
 
-  assert.match(photoRule, /filter:\s*brightness\(0\.82\)/);
+  assert.match(photoRule, /filter:\s*brightness\(0\.72\)/);
   assert.match(markerRule, /overflow:\s*hidden/);
   assert.match(markerRule, /background:\s*transparent/);
-  assert.match(markerRule, /-webkit-backdrop-filter:\s*brightness\(1\.22\)/);
-  assert.match(markerRule, /(?<!webkit-)backdrop-filter:\s*brightness\(1\.22\)/);
+  assert.match(markerRule, /-webkit-backdrop-filter:\s*brightness\(1\.39\)/);
+  assert.match(markerRule, /(?<!webkit-)backdrop-filter:\s*brightness\(1\.39\)/);
 });
 
 test("safely parses and stores device-local climbs", () => {

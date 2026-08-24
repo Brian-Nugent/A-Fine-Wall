@@ -355,7 +355,7 @@ select:focus-visible {
 }
 
 .wall-map--route .wall-photo {
-  filter: brightness(0.82);
+  filter: brightness(0.72);
 }
 
 .hold-marker {
@@ -386,8 +386,8 @@ select:focus-visible {
   z-index: 1;
   overflow: hidden;
   background: transparent;
-  -webkit-backdrop-filter: brightness(1.22);
-  backdrop-filter: brightness(1.22);
+  -webkit-backdrop-filter: brightness(1.39);
+  backdrop-filter: brightness(1.39);
 }
 
 .hold-legend {
