@@ -1,5 +1,4 @@
 import Image from "next/image";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { climbs, getClimb } from "../data";
 
@@ -20,10 +19,10 @@ export default async function ClimbPage({
   return (
     <main className="app-page detail-page">
       <header className="detail-header">
-        <Link className="back-link" href="/climbs">
+        <a className="back-link" href="/climbs">
           <span aria-hidden="true">&larr;</span>
           Climbs
-        </Link>
+        </a>
         <span>{climb.grade}</span>
       </header>
 
