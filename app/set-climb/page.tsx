@@ -8,6 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
+  nextSavedHoldRole,
   persistSavedClimb,
   type SavedClimb,
   type SavedHoldRole,
@@ -20,13 +21,8 @@ type DraftHold = {
   x: number;
   y: number;
   size: number;
+  role: SavedHoldRole;
 };
-
-function roleForHold(index: number, total: number): SavedHoldRole {
-  if (index === 0) return "start";
-  if (index === total - 1) return "finish";
-  return "hand";
-}
 
 function makeClimbId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -51,25 +47,44 @@ export default function SetClimbPage() {
     if (event.detail === 0) return;
 
     const bounds = event.currentTarget.getBoundingClientRect();
-    const x = Number((((event.clientX - bounds.left) / bounds.width) * 100).toFixed(2));
-    const y = Number((((event.clientY - bounds.top) / bounds.height) * 100).toFixed(2));
+    const x = Number(
+      (((event.clientX - bounds.left) / bounds.width) * 100).toFixed(2),
+    );
+    const y = Number(
+      (((event.clientY - bounds.top) / bounds.height) * 100).toFixed(2),
+    );
 
     setSelectedHolds((current) => [
       ...current,
-      { id: makeDraftHoldId(), x, y, size: 7 },
+      { id: makeDraftHoldId(), x, y, size: 7, role: "hand" },
     ]);
   }
 
-  function removeHold(id: string) {
-    setSelectedHolds((current) => current.filter((hold) => hold.id !== id));
+  function cycleHold(id: string) {
+    setSelectedHolds((current) =>
+      current.flatMap((hold) => {
+        if (hold.id !== id) return [hold];
+
+        const nextRole = nextSavedHoldRole(hold.role);
+        return nextRole ? [{ ...hold, role: nextRole }] : [];
+      }),
+    );
   }
+
+  const startCount = selectedHolds.filter(
+    (hold) => hold.role === "start",
+  ).length;
+  const finishCount = selectedHolds.filter(
+    (hold) => hold.role === "finish",
+  ).length;
+  const canFinish = startCount > 0 && finishCount > 0;
 
   function saveClimb(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaveError("");
 
     const trimmedName = name.trim();
-    if (!trimmedName || !grade || selectedHolds.length < 2) return;
+    if (!trimmedName || !grade || !canFinish) return;
 
     const climb: SavedClimb = {
       id: makeClimbId(),
@@ -77,11 +92,11 @@ export default function SetClimbPage() {
       grade,
       setter: "You",
       createdAt: Date.now(),
-      holds: selectedHolds.map((hold, index) => ({
+      holds: selectedHolds.map((hold) => ({
         x: hold.x,
         y: hold.y,
         size: hold.size,
-        role: roleForHold(index, selectedHolds.length),
+        role: hold.role,
       })),
     };
 
@@ -109,8 +124,8 @@ export default function SetClimbPage() {
             <p className="step-label">Step 1 of 2</p>
             <h1 id="set-climb-heading">Choose your holds</h1>
             <p>
-              Tap directly on each hold in climbing order. The first is the
-              start and the last is the finish. Tap a circle to remove it.
+              Tap once for a blue climb hold, twice for a green start, and
+              three times for a red finish. Tap a red circle again to remove it.
             </p>
           </section>
 
@@ -130,37 +145,34 @@ export default function SetClimbPage() {
               tabIndex={-1}
               type="button"
             />
-            {selectedHolds.map((hold, selectedIndex) => {
-              const role = roleForHold(selectedIndex, selectedHolds.length);
-              const markerLabel =
-                role === "start"
-                  ? "S"
-                  : role === "finish"
-                    ? "T"
-                    : String(selectedIndex + 1);
-              const accessibleLabel = `Remove ${role === "start" ? "start" : role === "finish" ? "finish" : `hold ${selectedIndex + 1}`}`;
+            {selectedHolds.map((hold) => {
+              const nextAction =
+                hold.role === "hand"
+                  ? "make it a start"
+                  : hold.role === "start"
+                    ? "make it a finish"
+                    : "remove it";
+              const accessibleLabel = `${hold.role === "hand" ? "Blue climb" : hold.role === "start" ? "Green start" : "Red finish"} hold. Tap to ${nextAction}.`;
 
               return (
                 <button
                   aria-label={accessibleLabel}
                   aria-pressed="true"
-                  className={`hold-choice hold-choice--${role}`}
+                  className={`hold-choice hold-choice--${hold.role}`}
                   key={hold.id}
-                  onClick={() => removeHold(hold.id)}
+                  onClick={() => cycleHold(hold.id)}
                   style={{
                     left: `${hold.x}%`,
                     top: `${hold.y}%`,
                     width: `max(${hold.size}%, 2.75rem)`,
                   }}
                   type="button"
-                >
-                  <span>{markerLabel}</span>
-                </button>
+                />
               );
             })}
             <figcaption className="sr-only">
-              Selectable holds on A Fine Wall. Choose at least a start and a
-              finish hold.
+              Selectable holds on A Fine Wall. Choose one or more green start
+              holds and one or more red finish holds.
             </figcaption>
           </figure>
 
@@ -168,7 +180,9 @@ export default function SetClimbPage() {
             <div className="selection-status" aria-live="polite">
               <strong>{selectedHolds.length} holds</strong>
               <span>
-                {selectedHolds.length < 2 ? "Choose at least 2" : "Ready to name"}
+                {canFinish
+                  ? `${startCount} start / ${finishCount} finish`
+                  : "Need a start and finish"}
               </span>
             </div>
             <div className="set-toolbar-actions">
@@ -178,7 +192,7 @@ export default function SetClimbPage() {
                 onClick={() => setSelectedHolds((current) => current.slice(0, -1))}
                 type="button"
               >
-                Undo
+                Remove Last
               </button>
               <button
                 className="text-button"
@@ -190,7 +204,7 @@ export default function SetClimbPage() {
               </button>
               <button
                 className="compact-primary-button"
-                disabled={selectedHolds.length < 2}
+                disabled={!canFinish}
                 onClick={() => setStep("details")}
                 type="button"
               >

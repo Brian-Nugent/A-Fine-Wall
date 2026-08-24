@@ -63,6 +63,10 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
     );
   }
 
+  const startCount = climb.holds.filter((hold) => hold.role === "start").length;
+  const handCount = climb.holds.filter((hold) => hold.role === "hand").length;
+  const finishCount = climb.holds.filter((hold) => hold.role === "finish").length;
+
   return (
     <DetailShell status={climb.grade}>
       <section aria-labelledby="climb-name">
@@ -92,18 +96,13 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
                 top: `${hold.y}%`,
                 width: `${hold.size}%`,
               }}
-            >
-              {hold.role !== "hand" ? (
-                <span className="hold-marker-label">
-                  {hold.role === "start" ? "S" : "T"}
-                </span>
-              ) : null}
-            </span>
+            />
           ))}
           <figcaption className="sr-only">
-            {climb.name} starts at the green hold marked S, follows{" "}
-            {climb.holds.filter((hold) => hold.role === "hand").length} blue-circled
-            climbing holds, and finishes at the red hold marked T.
+            {climb.name} uses {startCount} green-circled start{" "}
+            {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled
+            climbing {handCount === 1 ? "hold" : "holds"}, and {finishCount}{" "}
+            red-circled finish {finishCount === 1 ? "hold" : "holds"}.
           </figcaption>
         </figure>
 

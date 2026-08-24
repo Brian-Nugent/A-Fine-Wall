@@ -2,6 +2,14 @@ export const SAVED_CLIMBS_KEY = "a-fine-wall:saved-climbs:v1";
 
 export type SavedHoldRole = "start" | "hand" | "finish";
 
+export function nextSavedHoldRole(
+  role: SavedHoldRole,
+): SavedHoldRole | null {
+  if (role === "hand") return "start";
+  if (role === "start") return "finish";
+  return null;
+}
+
 export type SavedHold = {
   x: number;
   y: number;
@@ -52,7 +60,7 @@ function isSavedClimb(value: unknown): value is SavedClimb {
   if (!value || typeof value !== "object") return false;
 
   const climb = value as Record<string, unknown>;
-  return (
+  if (!(
     typeof climb.id === "string" &&
     climb.id.length > 0 &&
     typeof climb.name === "string" &&
@@ -63,8 +71,16 @@ function isSavedClimb(value: unknown): value is SavedClimb {
     climb.setter === "You" &&
     isFiniteNumber(climb.createdAt) &&
     Array.isArray(climb.holds) &&
-    climb.holds.length >= 2 &&
-    climb.holds.every(isSavedHold)
+    climb.holds.length >= 2
+  )) {
+    return false;
+  }
+
+  if (!climb.holds.every(isSavedHold)) return false;
+
+  return (
+    climb.holds.some((hold) => hold.role === "start") &&
+    climb.holds.some((hold) => hold.role === "finish")
   );
 }
 

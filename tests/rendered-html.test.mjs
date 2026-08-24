@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import test from "node:test";
 import {
   addSavedClimb,
+  nextSavedHoldRole,
   parseSavedClimbs,
   persistSavedClimb,
   readSavedClimbs,
@@ -67,7 +68,8 @@ test("renders the climb setter with the wall and selectable holds", async () => 
 
   const html = await response.text();
   assert.match(html, /Choose your holds/);
-  assert.match(html, /Tap directly on each hold in climbing order/);
+  assert.match(html, /Tap once for a blue climb hold/);
+  assert.match(html, /three times for a red finish/);
   assert.match(html, /wall-prototype\.png/);
   assert.match(html, /aria-label="Tap the wall to add a hold"/);
   assert.match(html, />Done<\/button>/);
@@ -100,7 +102,8 @@ test("renders every climb wall with its complete route overlay", async () => {
     assert.match(html, /hold-marker--hand/);
     assert.match(html, /hold-marker--finish/);
     assert.match(html, /Hold marker legend/);
-    assert.match(html, /starts at the green hold marked S/);
+    assert.match(html, /green-circled start/);
+    assert.doesNotMatch(html, /hold-marker-label/);
     assert.equal(
       (
         html.match(
@@ -129,6 +132,10 @@ test("includes the wall and social preview image assets", async () => {
 });
 
 test("safely parses and stores device-local climbs", () => {
+  assert.equal(nextSavedHoldRole("hand"), "start");
+  assert.equal(nextSavedHoldRole("start"), "finish");
+  assert.equal(nextSavedHoldRole("finish"), null);
+
   const climb = {
     id: "corner-pocket-1",
     name: "Corner Pocket",
@@ -137,8 +144,10 @@ test("safely parses and stores device-local climbs", () => {
     createdAt: 100,
     holds: [
       { x: 27, y: 91, size: 6, role: "start" },
+      { x: 33, y: 84, size: 7, role: "start" },
       { x: 43, y: 78, size: 9, role: "hand" },
       { x: 66, y: 9, size: 9, role: "finish" },
+      { x: 74, y: 7, size: 7, role: "finish" },
     ],
   };
 
@@ -147,6 +156,33 @@ test("safely parses and stores device-local climbs", () => {
   assert.deepEqual(parseSavedClimbs(JSON.stringify([climb, { broken: true }])), [
     climb,
   ]);
+  assert.deepEqual(
+    parseSavedClimbs(
+      JSON.stringify([
+        {
+          ...climb,
+          id: "no-start",
+          holds: climb.holds.map((hold) => ({ ...hold, role: "hand" })),
+        },
+      ]),
+    ),
+    [],
+  );
+  assert.deepEqual(
+    parseSavedClimbs(
+      JSON.stringify([
+        {
+          ...climb,
+          id: "no-finish",
+          holds: climb.holds.map((hold) => ({
+            ...hold,
+            role: hold.role === "finish" ? "hand" : hold.role,
+          })),
+        },
+      ]),
+    ),
+    [],
+  );
 
   const replaced = { ...climb, name: "Corner Pocket Direct", createdAt: 200 };
   assert.deepEqual(addSavedClimb([climb], replaced), [replaced]);
