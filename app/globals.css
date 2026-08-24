@@ -105,6 +105,12 @@ select {
 .change-photo-link:focus-visible,
 .photo-file-input:focus-visible,
 .photo-reset-button:focus-visible,
+.wall-hold-spot:focus-visible,
+.wall-hold-add-button:focus-visible,
+.wall-hold-remove-button:focus-visible,
+.wall-hold-reload-button:focus-visible,
+.climb-reload-button:focus-visible,
+.wall-hold-size-slider:focus-visible,
 .secondary-button:focus-visible,
 .text-button:focus-visible,
 .compact-primary-button:focus-visible,
@@ -334,6 +340,7 @@ select:focus-visible {
 
 .wall-map {
   position: relative;
+  container-type: inline-size;
   overflow: hidden;
   margin: 0;
   border-block: 1px solid var(--line);
@@ -466,19 +473,42 @@ select:focus-visible {
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
   padding: 0;
-  border: 2px solid transparent;
+  width: 2.75rem;
+  border: 0;
   border-radius: 50%;
   background: transparent;
   color: transparent;
   cursor: pointer;
+  pointer-events: none;
   touch-action: manipulation;
 }
 
-.hold-choice {
-  border-width: clamp(2px, 0.7vw, 4px);
-  border-color: currentColor;
+.wall-hold-choice-layer {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y pinch-zoom;
+}
+
+.hold-choice::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--hold-size) * 1cqw);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: clamp(2px, 0.7vw, 4px) solid currentColor;
+  border-radius: 50%;
   background: rgba(255, 255, 255, 0.12);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 1px 5px rgba(0, 0, 0, 0.45);
+  content: "";
+  pointer-events: none;
 }
 
 .hold-choice--start {
@@ -494,6 +524,37 @@ select:focus-visible {
 .hold-choice--finish {
   --marker-color: var(--finish);
   color: var(--marker-color);
+}
+
+.hold-choice--available {
+  color: rgba(17, 17, 17, 0.48);
+}
+
+.hold-choice--available::after {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.78), 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.set-wall-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4.75rem;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.set-wall-notice p,
+.set-wall-notice[role="status"] {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.set-wall-notice .secondary-button {
+  flex: 0 0 auto;
 }
 
 .set-toolbar {
@@ -754,6 +815,10 @@ select:focus-visible {
   width: 100%;
 }
 
+.photo-spots-link {
+  width: 100%;
+}
+
 .primary-button:disabled {
   opacity: 0.38;
   cursor: not-allowed;
@@ -773,6 +838,194 @@ select:focus-visible {
 .photo-reset-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.wall-holds-page {
+  padding-bottom: max(5rem, env(safe-area-inset-bottom));
+}
+
+.wall-holds-intro {
+  padding-bottom: 1.35rem;
+}
+
+.wall-holds-map .wall-photo {
+  pointer-events: none;
+}
+
+.wall-holds-tap-layer {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: crosshair;
+  touch-action: pan-y pinch-zoom;
+}
+
+.wall-holds-tap-layer:disabled {
+  cursor: wait;
+}
+
+.wall-hold-spot {
+  position: absolute;
+  z-index: 2;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  width: 2.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: grab;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.wall-hold-spot--selected {
+  pointer-events: auto;
+}
+
+.wall-hold-spot:active {
+  cursor: grabbing;
+}
+
+.wall-hold-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--hold-size) * 1cqw);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: clamp(2px, 0.65vw, 4px) solid rgba(34, 34, 34, 0.68);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.88), 0 1px 5px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.wall-hold-spot--selected .wall-hold-ring {
+  border-color: #111111;
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95), 0 2px 8px rgba(0, 0, 0, 0.48);
+}
+
+.wall-hold-editor-controls {
+  min-height: 8.25rem;
+  padding: 1rem 1.25rem 1.15rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wall-hold-control-heading,
+.wall-hold-size-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.wall-hold-control-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.wall-hold-control-heading strong,
+.wall-hold-size-control {
+  font-size: 0.8rem;
+}
+
+.wall-hold-add-button,
+.wall-hold-remove-button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wall-hold-saved-label {
+  padding: 0.55rem 0.4rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.wall-hold-add-button {
+  color: var(--ink);
+}
+
+.wall-hold-remove-button {
+  color: var(--finish);
+}
+
+.wall-hold-size-control {
+  margin-top: 0.75rem;
+  color: var(--muted);
+}
+
+.wall-hold-size-control output {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.wall-hold-size-slider {
+  width: 100%;
+  min-height: 2.75rem;
+  margin-top: 0.35rem;
+  accent-color: var(--ink);
+  cursor: pointer;
+}
+
+.wall-hold-control-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.wall-holds-error,
+.climb-save-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.wall-holds-error {
+  padding-inline: 1.25rem;
+}
+
+.wall-holds-error p,
+.climb-save-error p {
+  margin: 0;
+}
+
+.wall-hold-reload-button,
+.climb-reload-button {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wall-holds-toolbar {
+  min-height: 5rem;
+}
+
+.wall-holds-save-button {
+  min-width: 6.5rem;
 }
 
 .legend-dot {
@@ -839,6 +1092,16 @@ select:focus-visible {
   .set-climb-link {
     padding-inline: 0.65rem;
     font-size: 0.72rem;
+  }
+
+  .set-toolbar {
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .set-toolbar-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
   }
 }
 

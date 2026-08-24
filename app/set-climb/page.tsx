@@ -1,25 +1,29 @@
 "use client";
 
 import {
+  useEffect,
   useState,
+  type CSSProperties,
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import {
+  ClimbRequestError,
+  saveClimb as saveClimbToApp,
+} from "../climbs/climb-api";
 import {
   nextSavedHoldRole,
   persistSavedClimb,
   type SavedClimb,
   type SavedHoldRole,
 } from "../climbs/saved-climbs";
+import { loadWallHoldMap, type WallHold } from "../climbs/wall-holds";
 import WallPhoto from "../climbs/wall-photo";
 
 const grades = Array.from({ length: 11 }, (_, index) => `V${index}`);
 
 type DraftHold = {
-  id: string;
-  x: number;
-  y: number;
-  size: number;
+  holdId: string;
   role: SavedHoldRole;
 };
 
@@ -31,43 +35,74 @@ function makeClimbId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function makeDraftHoldId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
 export default function SetClimbPage() {
   const [step, setStep] = useState<"holds" | "details">("holds");
+  const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
+  const [wallRevision, setWallRevision] = useState<number | null>(null);
+  const [holdMapStatus, setHoldMapStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const [selectedHolds, setSelectedHolds] = useState<DraftHold[]>([]);
   const [name, setName] = useState("");
   const [grade, setGrade] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [hasSaveConflict, setHasSaveConflict] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  function addHold(event: ReactMouseEvent<HTMLButtonElement>) {
-    if (event.detail === 0) return;
+  useEffect(() => {
+    const controller = new AbortController();
 
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const x = Number(
-      (((event.clientX - bounds.left) / bounds.width) * 100).toFixed(2),
-    );
-    const y = Number(
-      (((event.clientY - bounds.top) / bounds.height) * 100).toFixed(2),
-    );
+    loadWallHoldMap(controller.signal)
+      .then((wallMap) => {
+        setWallHolds(wallMap.holds);
+        setWallRevision(wallMap.updatedAt);
+        setHoldMapStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setHoldMapStatus("error");
+      });
 
-    setSelectedHolds((current) => [
-      ...current,
-      { id: makeDraftHoldId(), x, y, size: 7, role: "hand" },
-    ]);
+    return () => controller.abort();
+  }, []);
+
+  function cycleHold(holdId: string) {
+    setSelectedHolds((current) => {
+      const selected = current.find((hold) => hold.holdId === holdId);
+      if (!selected) return [...current, { holdId, role: "hand" }];
+
+      return current.flatMap((hold) => {
+        if (hold.holdId !== holdId) return [hold];
+        const nextRole = nextSavedHoldRole(selected.role);
+        return nextRole ? [{ ...hold, role: nextRole }] : [];
+      });
+    });
   }
 
-  function cycleHold(id: string) {
-    setSelectedHolds((current) =>
-      current.flatMap((hold) => {
-        if (hold.id !== id) return [hold];
+  function chooseNearestHold(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (event.detail === 0 || holdMapStatus !== "ready") return;
 
-        const nextRole = nextSavedHoldRole(hold.role);
-        return nextRole ? [{ ...hold, role: nextRole }] : [];
-      }),
-    );
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const clientX = event.clientX - bounds.left;
+    const clientY = event.clientY - bounds.top;
+    const nearest = wallHolds
+      .map((hold) => {
+        const holdX = (hold.x / 100) * bounds.width;
+        const holdY = (hold.y / 100) * bounds.height;
+        return {
+          hold,
+          distance: Math.hypot(clientX - holdX, clientY - holdY),
+          targetRadius: Math.max(
+            22,
+            (hold.size / 200) * bounds.width + 8,
+          ),
+        };
+      })
+      .sort((a, b) => a.distance - b.distance)[0];
+
+    if (nearest && nearest.distance <= nearest.targetRadius) {
+      cycleHold(nearest.hold.id);
+    }
   }
 
   const startCount = selectedHolds.filter(
@@ -78,12 +113,13 @@ export default function SetClimbPage() {
   ).length;
   const canFinish = startCount > 0 && finishCount > 0;
 
-  function saveClimb(event: FormEvent<HTMLFormElement>) {
+  async function saveClimb(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaveError("");
+    setHasSaveConflict(false);
 
     const trimmedName = name.trim();
-    if (!trimmedName || !grade || !canFinish) return;
+    if (!trimmedName || !grade || !canFinish || wallRevision === null) return;
 
     const climb: SavedClimb = {
       id: makeClimbId(),
@@ -91,20 +127,54 @@ export default function SetClimbPage() {
       grade,
       setter: "You",
       createdAt: Date.now(),
-      holds: selectedHolds.map((hold) => ({
-        x: hold.x,
-        y: hold.y,
-        size: hold.size,
-        role: hold.role,
-      })),
+      holds: selectedHolds.flatMap((selection) => {
+        const hold = wallHolds.find((item) => item.id === selection.holdId);
+        return hold
+          ? [{
+              holdId: hold.id,
+              x: hold.x,
+              y: hold.y,
+              size: hold.size,
+              role: selection.role,
+            }]
+          : [];
+      }),
     };
 
+    setIsSaving(true);
     try {
-      persistSavedClimb(window.localStorage, climb);
+      await saveClimbToApp(climb, wallRevision);
+      try {
+        persistSavedClimb(window.localStorage, climb);
+      } catch {
+        // The durable app copy was saved; the browser copy is only a fallback.
+      }
       window.location.assign(`/climbs/saved?id=${encodeURIComponent(climb.id)}`);
-    } catch {
-      setSaveError("This climb could not be saved on this device. Please try again.");
+    } catch (error) {
+      setHasSaveConflict(
+        error instanceof ClimbRequestError &&
+          error.status === 409 &&
+          /wall spots changed/i.test(error.message),
+      );
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "This climb could not be saved. Please try again.",
+      );
+      setIsSaving(false);
     }
+  }
+
+  function reloadWall() {
+    if (
+      !window.confirm(
+        "Reload the latest wall spots? This unsaved climb draft will be discarded.",
+      )
+    ) {
+      return;
+    }
+
+    window.location.reload();
   }
 
   return (
@@ -123,8 +193,8 @@ export default function SetClimbPage() {
             <p className="step-label">Step 1 of 2</p>
             <h1 id="set-climb-heading">Choose your holds</h1>
             <p>
-              Tap once for a blue climb hold, twice for a green start, and
-              three times for a red finish. Tap a red circle again to remove it.
+              Tap a preset circle for a blue climb hold, again for a green
+              start, and again for a red finish. A fourth tap clears it.
             </p>
             <a
               className="change-photo-link"
@@ -140,9 +210,31 @@ export default function SetClimbPage() {
                 }
               }}
             >
-              Change Wall Photo
+              Wall Setup
             </a>
           </section>
+
+          {holdMapStatus === "loading" ? (
+            <div className="set-wall-notice" role="status">
+              Loading hold spots&hellip;
+            </div>
+          ) : null}
+          {holdMapStatus === "error" ? (
+            <div className="set-wall-notice">
+              <p>The preset hold spots could not be loaded.</p>
+              <a className="secondary-button" href="/set-climb">
+                Retry
+              </a>
+            </div>
+          ) : null}
+          {holdMapStatus === "ready" && wallHolds.length === 0 ? (
+            <div className="set-wall-notice">
+              <p>Mark the holds on your wall before setting a climb.</p>
+              <a className="secondary-button" href="/wall-holds">
+                Mark Hold Spots
+              </a>
+            </div>
+          ) : null}
 
           <figure className="wall-map set-wall">
             <WallPhoto
@@ -153,40 +245,47 @@ export default function SetClimbPage() {
               draggable="false"
             />
             <button
-              aria-label="Tap the wall to add a hold"
-              className="wall-tap-layer"
-              onClick={addHold}
+              aria-hidden="true"
+              className="wall-hold-choice-layer"
+              onClick={chooseNearestHold}
               tabIndex={-1}
               type="button"
             />
-            {selectedHolds.map((hold) => {
+            {wallHolds.map((hold) => {
+              const selection = selectedHolds.find(
+                (item) => item.holdId === hold.id,
+              );
               const nextAction =
-                hold.role === "hand"
+                !selection
+                  ? "add it as a climb hold"
+                  : selection.role === "hand"
                   ? "make it a start"
-                  : hold.role === "start"
+                  : selection.role === "start"
                     ? "make it a finish"
-                    : "remove it";
-              const accessibleLabel = `${hold.role === "hand" ? "Blue climb" : hold.role === "start" ? "Green start" : "Red finish"} hold. Tap to ${nextAction}.`;
+                    : "clear it";
+              const accessibleLabel = selection
+                ? `${selection.role === "hand" ? "Blue climb" : selection.role === "start" ? "Green start" : "Red finish"} hold. Tap to ${nextAction}.`
+                : `Available hold spot. Tap to ${nextAction}.`;
 
               return (
                 <button
                   aria-label={accessibleLabel}
-                  aria-pressed="true"
-                  className={`hold-choice hold-choice--${hold.role}`}
+                  aria-pressed={Boolean(selection)}
+                  className={`hold-choice hold-choice--${selection?.role || "available"}`}
                   key={hold.id}
                   onClick={() => cycleHold(hold.id)}
                   style={{
                     left: `${hold.x}%`,
                     top: `${hold.y}%`,
-                    width: `max(${hold.size}%, 2.75rem)`,
-                  }}
+                    "--hold-size": hold.size,
+                  } as CSSProperties}
                   type="button"
                 />
               );
             })}
             <figcaption className="sr-only">
-              Selectable holds on A Fine Wall. Choose one or more green start
-              holds and one or more red finish holds.
+              Preset hold spots on A Fine Wall. Choose one or more green start
+              holds, blue climbing holds, and one or more red finish holds.
             </figcaption>
           </figure>
 
@@ -218,7 +317,7 @@ export default function SetClimbPage() {
               </button>
               <button
                 className="compact-primary-button"
-                disabled={!canFinish}
+                disabled={!canFinish || holdMapStatus !== "ready"}
                 onClick={() => setStep("details")}
                 type="button"
               >
@@ -262,9 +361,18 @@ export default function SetClimbPage() {
             </select>
 
             {saveError ? (
-              <p className="form-error" role="alert">
-                {saveError}
-              </p>
+              <div className="form-error climb-save-error" role="alert">
+                <p>{saveError}</p>
+                {hasSaveConflict ? (
+                  <button
+                    className="climb-reload-button"
+                    onClick={reloadWall}
+                    type="button"
+                  >
+                    Reload Wall
+                  </button>
+                ) : null}
+              </div>
             ) : null}
 
             <div className="form-actions">
@@ -275,8 +383,8 @@ export default function SetClimbPage() {
               >
                 Back to holds
               </button>
-              <button className="primary-button" type="submit">
-                Save Climb
+              <button className="primary-button" disabled={isSaving} type="submit">
+                {isSaving ? "Saving..." : "Save Climb"}
               </button>
             </div>
           </form>

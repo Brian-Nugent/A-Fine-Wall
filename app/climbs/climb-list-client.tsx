@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { loadClimbs, saveClimb as saveClimbToApp } from "./climb-api";
 import { climbs } from "./data";
 import { readSavedClimbs, type SavedClimb } from "./saved-climbs";
+import { loadWallHoldMap } from "./wall-holds";
 
 function ClimbRow({
   climb,
@@ -31,13 +33,41 @@ export default function ClimbListClient() {
   const [savedClimbs, setSavedClimbs] = useState<SavedClimb[]>([]);
 
   useEffect(() => {
+    let isActive = true;
+    let browserClimbs: SavedClimb[] = [];
+
     try {
-      // Browser storage is the external source for this prototype list.
+      browserClimbs = readSavedClimbs(window.localStorage);
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSavedClimbs(readSavedClimbs(window.localStorage));
+      setSavedClimbs(browserClimbs);
     } catch {
-      setSavedClimbs([]);
+      browserClimbs = [];
     }
+
+    async function syncClimbs() {
+      const wallMap = await loadWallHoldMap();
+      await Promise.allSettled(
+        browserClimbs.map((climb) =>
+          saveClimbToApp(climb, wallMap.updatedAt),
+        ),
+      );
+      const appClimbs = await loadClimbs();
+      if (!isActive) return;
+
+      const appIds = new Set(appClimbs.map((climb) => climb.id));
+      setSavedClimbs([
+        ...appClimbs,
+        ...browserClimbs.filter((climb) => !appIds.has(climb.id)),
+      ]);
+    }
+
+    syncClimbs().catch(() => {
+      // Keep showing the browser copies when the shared store is unavailable.
+    });
+
+    return () => {
+      isActive = false;
+    };
   }, []);
 
   const totalClimbs = climbs.length + savedClimbs.length;
@@ -50,7 +80,7 @@ export default function ClimbListClient() {
         </a>
         <div className="list-header-actions">
           <a className="wall-photo-link" href="/wall-photo">
-            Wall Photo
+            Wall Setup
           </a>
           <a className="set-climb-link" href="/set-climb">
             Set Climb

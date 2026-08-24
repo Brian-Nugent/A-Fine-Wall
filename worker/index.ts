@@ -1,6 +1,7 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { handleAppDataRequest, isAppDataPath } from "./app-data";
 import {
   handleWallPhotoRequest,
   WALL_PHOTO_PATH,
@@ -34,6 +35,10 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (isAppDataPath(url.pathname)) {
+      return handleAppDataRequest(request, env.DB);
+    }
 
     if (url.pathname === WALL_PHOTO_PATH) {
       const response = await handleWallPhotoRequest(request, env.WALL_PHOTOS);

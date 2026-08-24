@@ -89,7 +89,7 @@ export default function WallPhotoPage() {
         throw new Error(result?.error || "The wall photo could not be uploaded.");
       }
 
-      window.location.assign("/set-climb");
+      window.location.assign("/wall-holds?from=photo");
     } catch (uploadError) {
       setError(
         uploadError instanceof Error
@@ -122,7 +122,7 @@ export default function WallPhotoPage() {
       }
 
       clearSelectedPhoto(DEFAULT_WALL_PHOTO);
-      setNotice("The test wall photo is active again.");
+      setNotice("The test photo is active. Your hold spots and climbs were kept.");
     } catch (restoreError) {
       setError(
         restoreError instanceof Error
@@ -141,19 +141,19 @@ export default function WallPhotoPage() {
           <span aria-hidden="true">&larr;</span>
           Climbs
         </a>
-        <span>Wall Photo</span>
+        <span>Wall Setup</span>
       </header>
 
       <section className="photo-intro" aria-labelledby="photo-heading">
-        <p className="step-label">Wall setup</p>
+        <p className="step-label">Step 1 of 2</p>
         <h1 id="photo-heading">Upload your wall</h1>
         <p>
           Use a clear, straight-on photo. It will become the wall image for
-          setting and viewing climbs.
+          setting and viewing climbs, then you will mark each hold.
         </p>
         <p className="photo-warning">
-          Replacing the photo changes the background for every climb. Existing
-          circles may no longer line up.
+          Existing hold spots and climbs will carry over. After uploading, you
+          can add new spots or realign old ones on the new photo.
         </p>
       </section>
 
@@ -201,8 +201,11 @@ export default function WallPhotoPage() {
             onClick={savePhoto}
             type="button"
           >
-            {isSaving ? "Saving..." : "Use This Photo"}
+            {isSaving ? "Uploading..." : "Continue to Mark Holds"}
           </button>
+          <a className="secondary-button photo-spots-link" href="/wall-holds">
+            Edit Hold Spots
+          </a>
           <button
             className="photo-reset-button"
             disabled={isSaving}

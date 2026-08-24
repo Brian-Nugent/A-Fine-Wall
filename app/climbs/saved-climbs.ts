@@ -11,6 +11,7 @@ export function nextSavedHoldRole(
 }
 
 export type SavedHold = {
+  holdId?: string;
   x: number;
   y: number;
   size: number;
@@ -43,6 +44,8 @@ function isSavedHold(value: unknown): value is SavedHold {
 
   const hold = value as Record<string, unknown>;
   return (
+    (hold.holdId === undefined ||
+      (typeof hold.holdId === "string" && hold.holdId.length > 0)) &&
     isFiniteNumber(hold.x) &&
     hold.x >= 0 &&
     hold.x <= 100 &&

@@ -1,0 +1,595 @@
+"use client";
+
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import {
+  ClimbRequestError,
+  saveClimb as saveClimbToApp,
+} from "../climbs/climb-api";
+import { readSavedClimbs } from "../climbs/saved-climbs";
+import WallPhoto from "../climbs/wall-photo";
+import {
+  MAX_WALL_HOLD_SIZE,
+  MIN_WALL_HOLD_SIZE,
+  createWallHold,
+  loadWallHoldMap,
+  saveWallHolds,
+  type WallHold,
+  WallHoldMapRequestError,
+} from "../climbs/wall-holds";
+
+type HoldDrag = {
+  holdId: string;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+};
+
+const keyboardDirections: Partial<
+  Record<string, readonly [number, number]>
+> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function clampHoldCoordinate(value: number, size: number) {
+  const radius = size / 2;
+  return clamp(value, radius, 100 - radius);
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+type BrowserClimb = ReturnType<typeof readSavedClimbs>[number];
+
+function isExistingClimbError(error: unknown) {
+  return (
+    error instanceof ClimbRequestError &&
+    error.status === 409 &&
+    error.message === "A climb with this id already exists."
+  );
+}
+
+async function climbsNeedingMigration(
+  climbs: readonly BrowserClimb[],
+  wallRevision: number,
+) {
+  const results = await Promise.allSettled(
+    climbs.map((climb) => saveClimbToApp(climb, wallRevision)),
+  );
+
+  return climbs.filter((_, index) => {
+    const result = results[index];
+    return result.status === "rejected" && !isExistingClimbError(result.reason);
+  });
+}
+
+export default function WallHoldsPage() {
+  const wallMap = useRef<HTMLElement | null>(null);
+  const activeDrag = useRef<HoldDrag | null>(null);
+  const allowNavigation = useRef(false);
+  const loadedRevision = useRef(0);
+  const [holds, setHolds] = useState<WallHold[]>([]);
+  const [savedHoldIds, setSavedHoldIds] = useState<Set<string>>(new Set());
+  const [selectedHoldId, setSelectedHoldId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [hasConflict, setHasConflict] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void loadWallHoldMap(controller.signal)
+      .then((holdMap) => {
+        setSavedHoldIds(new Set(holdMap.holds.map((hold) => hold.id)));
+        loadedRevision.current = holdMap.updatedAt;
+        setHolds(holdMap.holds);
+      })
+      .catch((loadError) => {
+        if (controller.signal.aborted) return;
+        setLoadFailed(true);
+        setError(
+          errorMessage(loadError, "The existing hold spots could not be loaded."),
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!hasChanges) return;
+
+    function warnBeforeLeaving(event: BeforeUnloadEvent) {
+      if (allowNavigation.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [hasChanges]);
+
+  const selectedHold = useMemo(
+    () => holds.find((hold) => hold.id === selectedHoldId) ?? null,
+    [holds, selectedHoldId],
+  );
+  const selectedHoldIsSaved = Boolean(
+    selectedHold && savedHoldIds.has(selectedHold.id),
+  );
+
+  function appendHold(hold: WallHold) {
+    setHolds((current) => [...current, hold]);
+    setSelectedHoldId(hold.id);
+    setHasChanges(true);
+    setError("");
+  }
+
+  function addHold(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (event.detail === 0 || isLoading || loadFailed || isSaving) return;
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const clientX = event.clientX - bounds.left;
+    const clientY = event.clientY - bounds.top;
+    const nearest = holds
+      .map((hold) => {
+        const holdX = (hold.x / 100) * bounds.width;
+        const holdY = (hold.y / 100) * bounds.height;
+        return {
+          hold,
+          distance: Math.hypot(clientX - holdX, clientY - holdY),
+          targetRadius: Math.max(
+            22,
+            (hold.size / 200) * bounds.width + 8,
+          ),
+        };
+      })
+      .sort((a, b) => a.distance - b.distance)[0];
+
+    if (nearest && nearest.distance <= nearest.targetRadius) {
+      setSelectedHoldId(nearest.hold.id);
+      setError("");
+      return;
+    }
+
+    const draft = createWallHold();
+    const x = (clientX / bounds.width) * 100;
+    const y = (clientY / bounds.height) * 100;
+    const hold = {
+      ...draft,
+      x: Number(clampHoldCoordinate(x, draft.size).toFixed(2)),
+      y: Number(clampHoldCoordinate(y, draft.size).toFixed(2)),
+    };
+
+    appendHold(hold);
+  }
+
+  function addCenteredHold() {
+    if (isLoading || loadFailed || isSaving) return;
+    appendHold(createWallHold());
+  }
+
+  function beginDrag(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    hold: WallHold,
+  ) {
+    if (
+      isLoading ||
+      loadFailed ||
+      isSaving ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    activeDrag.current = {
+      holdId: hold.id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: hold.x,
+      startY: hold.y,
+      moved: false,
+    };
+    setSelectedHoldId(hold.id);
+    setError("");
+  }
+
+  function moveHold(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = activeDrag.current;
+    const bounds = wallMap.current?.getBoundingClientRect();
+    if (!drag || drag.pointerId !== event.pointerId || !bounds) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const clientDistance = Math.hypot(
+      event.clientX - drag.startClientX,
+      event.clientY - drag.startClientY,
+    );
+    if (clientDistance < 3 && !drag.moved) return;
+
+    drag.moved = true;
+    const deltaX = ((event.clientX - drag.startClientX) / bounds.width) * 100;
+    const deltaY = ((event.clientY - drag.startClientY) / bounds.height) * 100;
+
+    setHolds((current) =>
+      current.map((hold) =>
+        hold.id === drag.holdId
+          ? {
+              ...hold,
+              x: Number(
+                clampHoldCoordinate(drag.startX + deltaX, hold.size).toFixed(2),
+              ),
+              y: Number(
+                clampHoldCoordinate(drag.startY + deltaY, hold.size).toFixed(2),
+              ),
+            }
+          : hold,
+      ),
+    );
+    setHasChanges(true);
+  }
+
+  function finishDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = activeDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    activeDrag.current = null;
+  }
+
+  function moveHoldWithKeyboard(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    hold: WallHold,
+  ) {
+    const direction = keyboardDirections[event.key];
+    if (!direction || isSaving) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 2 : 0.5;
+    setSelectedHoldId(hold.id);
+    setHolds((current) =>
+      current.map((item) =>
+        item.id === hold.id
+          ? {
+              ...item,
+              x: Number(
+                clampHoldCoordinate(
+                  item.x + direction[0] * step,
+                  item.size,
+                ).toFixed(2),
+              ),
+              y: Number(
+                clampHoldCoordinate(
+                  item.y + direction[1] * step,
+                  item.size,
+                ).toFixed(2),
+              ),
+            }
+          : item,
+      ),
+    );
+    setHasChanges(true);
+    setError("");
+  }
+
+  function resizeSelectedHold(size: number) {
+    if (!selectedHold || isSaving) return;
+
+    setHolds((current) =>
+      current.map((hold) =>
+        hold.id === selectedHold.id
+          ? {
+              ...hold,
+              size,
+              x: Number(clampHoldCoordinate(hold.x, size).toFixed(2)),
+              y: Number(clampHoldCoordinate(hold.y, size).toFixed(2)),
+            }
+          : hold,
+      ),
+    );
+    setHasChanges(true);
+    setError("");
+  }
+
+  function removeSelectedHold() {
+    if (!selectedHold || selectedHoldIsSaved || isSaving) return;
+
+    setHolds((current) => current.filter((hold) => hold.id !== selectedHold.id));
+    setSelectedHoldId(null);
+    setHasChanges(true);
+    setError("");
+  }
+
+  function confirmNavigation(event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (hasChanges) {
+      if (!window.confirm("Discard your unsaved hold spot changes?")) {
+        event.preventDefault();
+        return;
+      }
+      allowNavigation.current = true;
+    }
+  }
+
+  async function saveHoldMap() {
+    if (isLoading || loadFailed || isSaving) return;
+    if (
+      holds.length === 0 &&
+      !window.confirm(
+        "Save this wall with no preset hold spots? You will not be able to set a climb until spots are added.",
+      )
+    ) {
+      return;
+    }
+
+    setIsSaving(true);
+    setHasConflict(false);
+    setError("");
+    try {
+      let browserClimbs: BrowserClimb[] = [];
+      try {
+        browserClimbs = readSavedClimbs(window.localStorage);
+      } catch {
+        // Shared climbs already in the app remain the source of truth.
+      }
+
+      let climbsToMigrate = browserClimbs;
+      if (savedHoldIds.size > 0 && browserClimbs.length > 0) {
+        climbsToMigrate = await climbsNeedingMigration(
+          browserClimbs,
+          loadedRevision.current,
+        );
+      }
+
+      const savedMap = await saveWallHolds(holds, loadedRevision.current);
+      setSavedHoldIds(new Set(savedMap.holds.map((hold) => hold.id)));
+      loadedRevision.current = savedMap.updatedAt;
+      setHolds(savedMap.holds);
+      setHasChanges(false);
+
+      if (climbsToMigrate.length > 0) {
+        const remainingClimbs = await climbsNeedingMigration(
+          climbsToMigrate,
+          savedMap.updatedAt,
+        );
+        if (remainingClimbs.length > 0) {
+          const count = remainingClimbs.length;
+          setError(
+            `Wall saved, but ${count} older ${count === 1 ? "climb" : "climbs"} could not be connected to the preset spots. ${count === 1 ? "It is" : "They are"} still stored on this device. Adjust the circles and save again.`,
+          );
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      allowNavigation.current = true;
+      window.location.assign("/set-climb");
+    } catch (saveError) {
+      setHasConflict(
+        saveError instanceof WallHoldMapRequestError &&
+          saveError.status === 409,
+      );
+      setError(errorMessage(saveError, "The hold spots could not be saved."));
+      setIsSaving(false);
+    }
+  }
+
+  function reloadLatestHoldMap() {
+    if (
+      !window.confirm(
+        "Reload the latest hold spots? Your unsaved changes in this editor will be discarded.",
+      )
+    ) {
+      return;
+    }
+
+    allowNavigation.current = true;
+    window.location.reload();
+  }
+
+  return (
+    <main className="app-page wall-holds-page">
+      <header className="detail-header">
+        <a className="back-link" href="/wall-photo" onClick={confirmNavigation}>
+          <span aria-hidden="true">&larr;</span>
+          Photo
+        </a>
+        <span>Wall Setup</span>
+      </header>
+
+      <section className="set-intro wall-holds-intro" aria-labelledby="wall-holds-heading">
+        <p className="step-label">Step 2 of 2</p>
+        <h1 id="wall-holds-heading">Mark every hold</h1>
+        <p>
+          {holds.length > 0
+            ? "Your saved spots carried over. Drag any circle that no longer lines up, then tap newly added holds."
+            : "Tap each hold on the photo to add a preset circle. You can drag and resize each circle for a precise fit."}
+        </p>
+      </section>
+
+      {isLoading ? (
+        <div className="set-wall-notice" role="status">
+          Loading saved hold spots&hellip;
+        </div>
+      ) : null}
+      {loadFailed ? (
+        <div className="set-wall-notice">
+          <p>{error}</p>
+          <a className="secondary-button" href="/wall-holds">
+            Retry
+          </a>
+        </div>
+      ) : null}
+
+      <figure className="wall-map set-wall wall-holds-map" ref={wallMap}>
+        <WallPhoto
+          alt="Climbing wall ready for preset hold spots"
+          className="wall-photo"
+          draggable="false"
+          height="1448"
+          width="1086"
+        />
+        <button
+          aria-label="Tap the wall to add a preset hold spot"
+          className="wall-holds-tap-layer"
+          disabled={isLoading || loadFailed || isSaving}
+          onClick={addHold}
+          tabIndex={-1}
+          type="button"
+        />
+        {holds.map((hold, index) => {
+          const selected = hold.id === selectedHoldId;
+          return (
+            <button
+              aria-label={`Preset hold ${index + 1}. ${selected ? "Selected; drag or use arrow keys to reposition. Hold Shift for larger keyboard steps." : "Tap to select, or focus it and use arrow keys to reposition."}`}
+              aria-pressed={selected}
+              className={`wall-hold-spot${selected ? " wall-hold-spot--selected" : ""}`}
+              disabled={isSaving}
+              key={hold.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (event.detail === 0) setSelectedHoldId(hold.id);
+              }}
+              onLostPointerCapture={() => {
+                if (activeDrag.current?.holdId === hold.id) {
+                  activeDrag.current = null;
+                }
+              }}
+              onFocus={() => setSelectedHoldId(hold.id)}
+              onKeyDown={(event) => moveHoldWithKeyboard(event, hold)}
+              onPointerCancel={finishDrag}
+              onPointerDown={(event) => beginDrag(event, hold)}
+              onPointerMove={moveHold}
+              onPointerUp={finishDrag}
+              style={{
+                left: `${hold.x}%`,
+                top: `${hold.y}%`,
+                "--hold-size": hold.size,
+              } as CSSProperties}
+              type="button"
+            >
+              <span aria-hidden="true" className="wall-hold-ring" />
+            </button>
+          );
+        })}
+        <figcaption className="sr-only">
+          {holds.length} preset hold {holds.length === 1 ? "spot" : "spots"} marked on the wall.
+        </figcaption>
+      </figure>
+
+      <section className="wall-hold-editor-controls" aria-label="Selected hold controls">
+        <div className="wall-hold-control-heading">
+          <strong>{selectedHold ? "Selected hold" : "Hold controls"}</strong>
+          <div className="wall-hold-control-actions">
+            <button
+              className="wall-hold-add-button"
+              disabled={isLoading || loadFailed || isSaving}
+              onClick={addCenteredHold}
+              type="button"
+            >
+              Add Hold
+            </button>
+            {selectedHold && !selectedHoldIsSaved ? (
+              <button
+                className="wall-hold-remove-button"
+                disabled={isSaving}
+                onClick={removeSelectedHold}
+                type="button"
+              >
+                Remove
+              </button>
+            ) : selectedHoldIsSaved ? (
+              <span className="wall-hold-saved-label">Saved spot</span>
+            ) : null}
+          </div>
+        </div>
+        {selectedHold ? (
+          <>
+            <label className="wall-hold-size-control" htmlFor="wall-hold-size">
+              <span>Circle size</span>
+              <output htmlFor="wall-hold-size">{selectedHold.size}%</output>
+            </label>
+            <input
+              aria-label="Selected hold circle size"
+              className="wall-hold-size-slider"
+              disabled={isSaving}
+              id="wall-hold-size"
+              max={MAX_WALL_HOLD_SIZE}
+              min={MIN_WALL_HOLD_SIZE}
+              onChange={(event) => resizeSelectedHold(Number(event.target.value))}
+              step="0.5"
+              type="range"
+              value={selectedHold.size}
+            />
+          </>
+        ) : (
+          <p className="wall-hold-control-help">
+            Tap a circle to resize or remove it. Drag a circle to reposition it.
+          </p>
+        )}
+      </section>
+
+      {(error || hasConflict) && !loadFailed ? (
+        <div className="form-error wall-holds-error" role="alert">
+          <p>{error || "The saved wall spots changed."}</p>
+          {hasConflict ? (
+            <button
+              className="wall-hold-reload-button"
+              onClick={reloadLatestHoldMap}
+              type="button"
+            >
+              Reload Latest
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="set-toolbar wall-holds-toolbar">
+        <div className="selection-status" aria-live="polite">
+          <strong>{holds.length} hold {holds.length === 1 ? "spot" : "spots"}</strong>
+          <span>{hasChanges ? "Unsaved changes" : "All changes saved"}</span>
+        </div>
+        <button
+          className="compact-primary-button wall-holds-save-button"
+          disabled={isLoading || loadFailed || isSaving}
+          onClick={saveHoldMap}
+          type="button"
+        >
+          {isSaving ? "Saving..." : "Save Wall"}
+        </button>
+      </div>
+    </main>
+  );
+}

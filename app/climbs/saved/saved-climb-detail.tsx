@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { loadClimb } from "../climb-api";
 import {
   readSavedClimbs,
   type SavedClimb,
 } from "../saved-climbs";
+import {
+  loadWallHolds,
+  resolveSavedHold,
+  type WallHold,
+} from "../wall-holds";
 import WallPhoto from "../wall-photo";
 
 function DetailShell({ children, status }: { children: React.ReactNode; status: string }) {
@@ -24,18 +30,34 @@ function DetailShell({ children, status }: { children: React.ReactNode; status: 
 
 export default function SavedClimbDetail({ climbId }: { climbId: string }) {
   const [climb, setClimb] = useState<SavedClimb | null | undefined>(undefined);
+  const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let browserClimb: SavedClimb | null = null;
+
     try {
-      const savedClimb = readSavedClimbs(window.localStorage).find(
+      browserClimb = readSavedClimbs(window.localStorage).find(
         (item) => item.id === climbId,
-      );
-      // Browser storage is the external source for this prototype detail.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setClimb(savedClimb ?? null);
+      ) ?? null;
     } catch {
-      setClimb(null);
+      browserClimb = null;
     }
+
+    loadClimb(climbId, controller.signal)
+      .then((savedClimb) => setClimb(savedClimb ?? browserClimb))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setClimb(browserClimb);
+      });
+
+    loadWallHolds(controller.signal)
+      .then(setWallHolds)
+      .catch(() => {
+        // Coordinate snapshots keep the climb view usable if spots are offline.
+      });
+
+    return () => controller.abort();
   }, [climbId]);
 
   if (climb === undefined) {
@@ -53,7 +75,7 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
       <DetailShell status="Not found">
         <div className="empty-state">
           <h1>Climb not found</h1>
-          <p>This climb may have been set in a different browser or device.</p>
+          <p>This climb may have been removed or is temporarily unavailable.</p>
           <a className="primary-button" href="/climbs">
             View Climbs
           </a>
@@ -62,9 +84,12 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
     );
   }
 
-  const startCount = climb.holds.filter((hold) => hold.role === "start").length;
-  const handCount = climb.holds.filter((hold) => hold.role === "hand").length;
-  const finishCount = climb.holds.filter((hold) => hold.role === "finish").length;
+  const resolvedHolds = climb.holds.map((hold) =>
+    resolveSavedHold(hold, wallHolds),
+  );
+  const startCount = resolvedHolds.filter((hold) => hold.role === "start").length;
+  const handCount = resolvedHolds.filter((hold) => hold.role === "hand").length;
+  const finishCount = resolvedHolds.filter((hold) => hold.role === "finish").length;
 
   return (
     <DetailShell status={climb.grade}>
@@ -84,11 +109,11 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
             width="1086"
             height="1448"
           />
-          {climb.holds.map((hold, index) => (
+          {resolvedHolds.map((hold, index) => (
             <span
               aria-hidden="true"
               className={`hold-marker hold-marker--${hold.role}`}
-              key={`${hold.x}-${hold.y}-${index}`}
+              key={hold.holdId || `${hold.x}-${hold.y}-${index}`}
               style={{
                 left: `${hold.x}%`,
                 top: `${hold.y}%`,
