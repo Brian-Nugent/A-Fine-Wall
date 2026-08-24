@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loadClimb } from "../climb-api";
+import {
+  ClimbRequestError,
+  deleteClimb,
+  loadClimb,
+} from "../climb-api";
 import {
   readSavedClimbs,
+  removeSavedClimb,
   type SavedClimb,
 } from "../saved-climbs";
 import {
@@ -31,6 +36,8 @@ function DetailShell({ children, status }: { children: React.ReactNode; status: 
 export default function SavedClimbDetail({ climbId }: { climbId: string }) {
   const [climb, setClimb] = useState<SavedClimb | null | undefined>(undefined);
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -48,6 +55,15 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
       .then((savedClimb) => setClimb(savedClimb ?? browserClimb))
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
+        if (error instanceof ClimbRequestError && error.status === 410) {
+          try {
+            removeSavedClimb(window.localStorage, climbId);
+          } catch {
+            // The durable tombstone still prevents this copy from returning.
+          }
+          setClimb(null);
+          return;
+        }
         setClimb(browserClimb);
       });
 
@@ -59,6 +75,35 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
 
     return () => controller.abort();
   }, [climbId]);
+
+  async function handleDeleteClimb(climbToDelete: SavedClimb) {
+    if (
+      !window.confirm(
+        `Delete “${climbToDelete.name}”? This removes it from every device and cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteClimb(climbToDelete.id);
+      try {
+        removeSavedClimb(window.localStorage, climbToDelete.id);
+      } catch {
+        // The durable deletion prevents a stale browser copy from returning.
+      }
+      window.location.replace("/climbs");
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : "This climb could not be deleted. Please try again.",
+      );
+      setIsDeleting(false);
+    }
+  }
 
   if (climb === undefined) {
     return (
@@ -133,6 +178,22 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
           <span><i className="legend-dot legend-dot--start" />Start</span>
           <span><i className="legend-dot legend-dot--hand" />Climb</span>
           <span><i className="legend-dot legend-dot--finish" />Finish</span>
+        </div>
+
+        <div className="climb-detail-actions">
+          <button
+            className="delete-climb-button"
+            disabled={isDeleting}
+            onClick={() => handleDeleteClimb(climb)}
+            type="button"
+          >
+            {isDeleting ? "Deleting…" : "Delete Climb"}
+          </button>
+          {deleteError ? (
+            <p className="form-error" role="alert">
+              {deleteError}
+            </p>
+          ) : null}
         </div>
       </section>
     </DetailShell>

@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loadClimbs, saveClimb as saveClimbToApp } from "./climb-api";
+import {
+  ClimbRequestError,
+  loadClimbs,
+  saveClimb as saveClimbToApp,
+} from "./climb-api";
 import { climbs } from "./data";
-import { readSavedClimbs, type SavedClimb } from "./saved-climbs";
+import {
+  readSavedClimbs,
+  removeSavedClimb,
+  type SavedClimb,
+} from "./saved-climbs";
 import { loadWallHoldMap } from "./wall-holds";
 
 function ClimbRow({
@@ -46,18 +54,39 @@ export default function ClimbListClient() {
 
     async function syncClimbs() {
       const wallMap = await loadWallHoldMap();
-      await Promise.allSettled(
+      const syncResults = await Promise.allSettled(
         browserClimbs.map((climb) =>
           saveClimbToApp(climb, wallMap.updatedAt),
         ),
       );
+      const deletedBrowserIds = new Set(
+        browserClimbs.flatMap((climb, index) => {
+          const result = syncResults[index];
+          return result.status === "rejected" &&
+            result.reason instanceof ClimbRequestError &&
+            result.reason.status === 410
+            ? [climb.id]
+            : [];
+        }),
+      );
+      for (const climbId of deletedBrowserIds) {
+        try {
+          removeSavedClimb(window.localStorage, climbId);
+        } catch {
+          // The durable tombstone still prevents this copy from returning.
+        }
+      }
+
       const appClimbs = await loadClimbs();
       if (!isActive) return;
 
       const appIds = new Set(appClimbs.map((climb) => climb.id));
       setSavedClimbs([
         ...appClimbs,
-        ...browserClimbs.filter((climb) => !appIds.has(climb.id)),
+        ...browserClimbs.filter(
+          (climb) =>
+            !appIds.has(climb.id) && !deletedBrowserIds.has(climb.id),
+        ),
       ]);
     }
 

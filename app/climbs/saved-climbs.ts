@@ -119,3 +119,12 @@ export function persistSavedClimb(
   storage.setItem(SAVED_CLIMBS_KEY, JSON.stringify(next));
   return next;
 }
+
+export function removeSavedClimb(
+  storage: StorageWriter,
+  climbId: string,
+): SavedClimb[] {
+  const next = readSavedClimbs(storage).filter((climb) => climb.id !== climbId);
+  storage.setItem(SAVED_CLIMBS_KEY, JSON.stringify(next));
+  return next;
+}

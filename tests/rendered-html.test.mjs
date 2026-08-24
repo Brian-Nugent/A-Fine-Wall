@@ -7,6 +7,7 @@ import {
   parseSavedClimbs,
   persistSavedClimb,
   readSavedClimbs,
+  removeSavedClimb,
 } from "../app/climbs/saved-climbs.ts";
 import { resolveSavedHold } from "../app/climbs/wall-holds.ts";
 
@@ -79,6 +80,7 @@ function createMemoryWallPhotoBucket() {
 function createMemoryAppDatabase() {
   let wallConfiguration = null;
   const savedClimbs = new Map();
+  const deletedClimbs = new Map();
 
   function createStatement(sql, values = []) {
     const normalized = sql.replace(/\s+/g, " ").trim().toLowerCase();
@@ -110,7 +112,11 @@ function createMemoryAppDatabase() {
           normalized.startsWith("insert into climbs") &&
           normalized.endsWith("returning id")
         ) {
-          if (!wallConfiguration || wallConfiguration.updated_at !== values[7]) {
+          if (
+            !wallConfiguration ||
+            wallConfiguration.updated_at !== values[7] ||
+            deletedClimbs.has(values[8])
+          ) {
             return null;
           }
           if (savedClimbs.has(values[0])) {
@@ -144,6 +150,9 @@ function createMemoryAppDatabase() {
         }
         if (normalized === "select id from climbs where id = ?") {
           return savedClimbs.has(values[0]) ? { id: values[0] } : null;
+        }
+        if (normalized === "select id from deleted_climbs where id = ?") {
+          return deletedClimbs.has(values[0]) ? { id: values[0] } : null;
         }
         if (normalized.includes("from climbs where id = ?")) {
           return savedClimbs.get(values[0]) ?? null;
@@ -188,6 +197,16 @@ function createMemoryAppDatabase() {
         if (normalized.startsWith("update climbs set holds_json")) {
           const climb = savedClimbs.get(values[1]);
           if (climb) climb.holds_json = values[0];
+          return { success: true };
+        }
+        if (normalized.startsWith("insert or ignore into deleted_climbs")) {
+          if (!deletedClimbs.has(values[0])) {
+            deletedClimbs.set(values[0], values[1]);
+          }
+          return { success: true };
+        }
+        if (normalized.startsWith("delete from climbs where id = ?")) {
+          savedClimbs.delete(values[0]);
           return { success: true };
         }
         throw new Error(`Unsupported run query: ${normalized}`);
@@ -777,6 +796,74 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(response.status, 400);
 
   response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "DELETE",
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "DELETE",
+      headers: { Origin: "https://example.com" },
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "PATCH",
+    }),
+  );
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("allow"), "GET, DELETE");
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "DELETE",
+      headers: { Origin: "http://localhost" },
+    }),
+  );
+  assert.equal(response.status, 204);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one"),
+  );
+  assert.equal(response.status, 410);
+  assert.match((await response.json()).error, /deleted/i);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs"),
+  );
+  assert.equal(
+    (await response.json()).climbs.some((item) => item.id === climb.id),
+    false,
+  );
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "DELETE",
+      headers: { Origin: "http://localhost" },
+    }),
+  );
+  assert.equal(response.status, 204);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb,
+        expectedWallUpdatedAt: movedWallRevision,
+      }),
+    }),
+  );
+  assert.equal(response.status, 410);
+
+  response = await fetchAppData(
     new Request("http://localhost/api/climbs/not-found"),
   );
   assert.equal(response.status, 404);
@@ -876,4 +963,6 @@ test("safely parses and stores device-local climbs", () => {
 
   persistSavedClimb(storage, climb);
   assert.deepEqual(readSavedClimbs(storage), [climb]);
+  assert.deepEqual(removeSavedClimb(storage, climb.id), []);
+  assert.deepEqual(readSavedClimbs(storage), []);
 });

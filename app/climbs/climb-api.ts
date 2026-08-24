@@ -38,7 +38,14 @@ export async function loadClimb(id: string, signal?: AbortSignal) {
     { cache: "no-store", signal },
   );
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error("This climb could not be loaded.");
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    const message =
+      payload && typeof payload === "object" && "error" in payload
+        ? String((payload as { error?: unknown }).error)
+        : "This climb could not be loaded.";
+    throw new ClimbRequestError(message, response.status);
+  }
 
   const payload: unknown = await response.json();
   return isClimbPayload(payload) ? payload.climb : null;
@@ -67,4 +74,20 @@ export async function saveClimb(
     throw new Error("This climb could not be saved.");
   }
   return payload.climb;
+}
+
+export async function deleteClimb(id: string) {
+  const response = await fetch(
+    `${CLIMBS_ENDPOINT}/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    const message =
+      payload && typeof payload === "object" && "error" in payload
+        ? String((payload as { error?: unknown }).error)
+        : "This climb could not be deleted.";
+    throw new ClimbRequestError(message, response.status);
+  }
 }

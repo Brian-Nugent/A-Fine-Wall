@@ -110,6 +110,7 @@ select {
 .wall-hold-remove-button:focus-visible,
 .wall-hold-reload-button:focus-visible,
 .climb-reload-button:focus-visible,
+.delete-climb-button:focus-visible,
 .wall-hold-size-slider:focus-visible,
 .secondary-button:focus-visible,
 .text-button:focus-visible,
@@ -392,6 +393,31 @@ select:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+.climb-detail-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 1.25rem 1.25rem max(2rem, env(safe-area-inset-bottom));
+}
+
+.delete-climb-button {
+  min-height: 2.75rem;
+  padding: 0.65rem 0;
+  border: 0;
+  background: transparent;
+  color: #b42331;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delete-climb-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .set-page {

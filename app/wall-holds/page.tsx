@@ -60,11 +60,12 @@ function errorMessage(error: unknown, fallback: string) {
 
 type BrowserClimb = ReturnType<typeof readSavedClimbs>[number];
 
-function isExistingClimbError(error: unknown) {
+function isCompletedClimbMigration(error: unknown) {
   return (
     error instanceof ClimbRequestError &&
-    error.status === 409 &&
-    error.message === "A climb with this id already exists."
+    (error.status === 410 ||
+      (error.status === 409 &&
+        error.message === "A climb with this id already exists."))
   );
 }
 
@@ -78,7 +79,10 @@ async function climbsNeedingMigration(
 
   return climbs.filter((_, index) => {
     const result = results[index];
-    return result.status === "rejected" && !isExistingClimbError(result.reason);
+    return (
+      result.status === "rejected" &&
+      !isCompletedClimbMigration(result.reason)
+    );
   });
 }
 

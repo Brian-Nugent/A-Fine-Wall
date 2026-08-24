@@ -336,6 +336,12 @@ async function ensureSchema(db: D1Database) {
       )
     `),
     db.prepare(`
+      CREATE TABLE IF NOT EXISTS deleted_climbs (
+        id TEXT PRIMARY KEY,
+        deleted_at INTEGER NOT NULL
+      )
+    `),
+    db.prepare(`
       CREATE INDEX IF NOT EXISTS idx_climbs_created_at
       ON climbs(created_at)
     `),
@@ -536,6 +542,14 @@ async function handleClimbs(request: Request, db: D1Database) {
       .first<{ id: string }>();
     if (existing) throw new ApiError("A climb with this id already exists.", 409);
 
+    const wasDeleted = await db
+      .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+      .bind(parsedClimb.id)
+      .first<{ id: string }>();
+    if (wasDeleted) {
+      throw new ApiError("This climb was deleted and cannot be restored.", 410);
+    }
+
     const wallConfiguration = await loadWallConfiguration(db);
     if (wallConfiguration.updated_at !== expectedWallUpdatedAt) {
       throw new ApiError(
@@ -557,6 +571,9 @@ async function handleClimbs(request: Request, db: D1Database) {
            WHERE EXISTS (
              SELECT 1 FROM wall_configuration WHERE id = ? AND updated_at = ?
            )
+           AND NOT EXISTS (
+             SELECT 1 FROM deleted_climbs WHERE id = ?
+           )
            RETURNING id`,
         )
         .bind(
@@ -568,9 +585,20 @@ async function handleClimbs(request: Request, db: D1Database) {
           JSON.stringify(climb.holds),
           WALL_CONFIGURATION_ID,
           expectedWallUpdatedAt,
+          climb.id,
         )
         .first<{ id: string }>();
       if (!inserted) {
+        const deletedDuringSave = await db
+          .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+          .bind(climb.id)
+          .first<{ id: string }>();
+        if (deletedDuringSave) {
+          throw new ApiError(
+            "This climb was deleted and cannot be restored.",
+            410,
+          );
+        }
         throw new ApiError(
           "The wall spots changed while you were setting. Reload the wall and try again.",
           409,
@@ -597,7 +625,9 @@ async function handleClimbDetail(
   db: D1Database,
   encodedId: string,
 ) {
-  if (request.method !== "GET") return methodNotAllowed(["GET"]);
+  if (request.method !== "GET" && request.method !== "DELETE") {
+    return methodNotAllowed(["GET", "DELETE"]);
+  }
 
   let id: string;
   try {
@@ -609,13 +639,36 @@ async function handleClimbDetail(
     throw new ApiError("The climb id is invalid.", 400);
   }
 
+  if (request.method === "DELETE") {
+    requireSameOrigin(request);
+    await db.batch([
+      db
+        .prepare(
+          "INSERT OR IGNORE INTO deleted_climbs (id, deleted_at) VALUES (?, ?)",
+        )
+        .bind(id, Date.now()),
+      db.prepare("DELETE FROM climbs WHERE id = ?").bind(id),
+    ]);
+    return new Response(null, {
+      status: 204,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
   const row = await db
     .prepare(
       "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",
     )
     .bind(id)
     .first<ClimbRow>();
-  if (!row) throw new ApiError("Climb not found.", 404);
+  if (!row) {
+    const wasDeleted = await db
+      .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+      .bind(id)
+      .first<{ id: string }>();
+    if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
+    throw new ApiError("Climb not found.", 404);
+  }
 
   const wallHolds = parseStoredHolds(
     (await loadWallConfiguration(db)).holds_json,

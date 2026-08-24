@@ -18,3 +18,8 @@ export const climbs = sqliteTable(
   },
   (table) => [index("idx_climbs_created_at").on(table.createdAt)],
 );
+
+export const deletedClimbs = sqliteTable("deleted_climbs", {
+  id: text("id").primaryKey(),
+  deletedAt: integer("deleted_at").notNull(),
+});
