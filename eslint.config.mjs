@@ -35,6 +35,10 @@ const eslintConfig = defineConfig([
         version: "detect",
       },
     },
+    rules: {
+      // Vinext's current next/link shim breaks navigation on the hosted app.
+      "@next/next/no-html-link-for-pages": "off",
+    },
   },
 ]);
 
