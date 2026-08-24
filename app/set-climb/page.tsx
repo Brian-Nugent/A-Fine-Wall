@@ -12,6 +12,7 @@ import {
   saveClimb as saveClimbToApp,
 } from "../climbs/climb-api";
 import {
+  CLIMB_GRADES,
   nextSavedHoldRole,
   persistSavedClimb,
   type SavedClimb,
@@ -19,8 +20,6 @@ import {
 } from "../climbs/saved-climbs";
 import { loadWallHoldMap, type WallHold } from "../climbs/wall-holds";
 import WallPhoto from "../climbs/wall-photo";
-
-const grades = Array.from({ length: 11 }, (_, index) => `V${index}`);
 
 type DraftHold = {
   holdId: string;
@@ -353,7 +352,7 @@ export default function SetClimbPage() {
               value={grade}
             >
               <option value="">Choose a grade</option>
-              {grades.map((gradeOption) => (
+              {CLIMB_GRADES.map((gradeOption) => (
                 <option key={gradeOption} value={gradeOption}>
                   {gradeOption}
                 </option>

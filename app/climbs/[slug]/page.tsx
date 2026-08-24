@@ -39,7 +39,7 @@ export default async function ClimbPage({
           <strong>{climb.grade}</strong>
         </div>
 
-        <figure className="wall-map">
+        <figure className="wall-map wall-map--route">
           <WallPhoto
             className="wall-photo"
             alt="Climbing wall with the route holds marked"

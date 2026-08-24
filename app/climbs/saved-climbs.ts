@@ -1,4 +1,12 @@
 export const SAVED_CLIMBS_KEY = "a-fine-wall:saved-climbs:v1";
+export const CLIMB_GRADES = Array.from(
+  { length: 18 },
+  (_, index) => `V${index}`,
+);
+
+export function isClimbGrade(value: unknown): value is string {
+  return typeof value === "string" && /^V(?:[0-9]|1[0-7])$/.test(value);
+}
 
 export type SavedHoldRole = "start" | "hand" | "finish";
 
@@ -69,8 +77,7 @@ function isSavedClimb(value: unknown): value is SavedClimb {
     typeof climb.name === "string" &&
     climb.name.trim().length > 0 &&
     climb.name.length <= 50 &&
-    typeof climb.grade === "string" &&
-    /^V(?:[0-9]|10)$/.test(climb.grade) &&
+    isClimbGrade(climb.grade) &&
     climb.setter === "You" &&
     isFiniteNumber(climb.createdAt) &&
     Array.isArray(climb.holds) &&

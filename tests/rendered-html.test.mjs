@@ -3,6 +3,8 @@ import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import {
   addSavedClimb,
+  CLIMB_GRADES,
+  isClimbGrade,
   nextSavedHoldRole,
   parseSavedClimbs,
   persistSavedClimb,
@@ -274,6 +276,16 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   assert.match(html, />Done<\/button>/);
 });
 
+test("offers the complete V0 through V17 grade range", () => {
+  assert.deepEqual(CLIMB_GRADES, [
+    "V0", "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8",
+    "V9", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17",
+  ]);
+  assert.equal(isClimbGrade("V0"), true);
+  assert.equal(isClimbGrade("V17"), true);
+  assert.equal(isClimbGrade("V18"), false);
+});
+
 test("renders the wall photo upload screen", async () => {
   const response = await render("/wall-photo");
   assert.equal(response.status, 200);
@@ -326,6 +338,7 @@ test("renders every climb wall with its complete route overlay", async () => {
     const html = await response.text();
     assert.match(html, new RegExp(name));
     assert.match(html, /src="\/api\/wall-photo"/);
+    assert.match(html, /class="wall-map wall-map--route"/);
     assert.match(html, /hold-marker--start/);
     assert.match(html, /hold-marker--hand/);
     assert.match(html, /hold-marker--finish/);
@@ -617,7 +630,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   const climb = {
     id: "stable-route-one",
     name: "Stable Route",
-    grade: "V4",
+    grade: "V17",
     setter: "You",
     createdAt: 100,
     holds: [
@@ -655,6 +668,21 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   );
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).climb, savedClimb);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb: { ...climb, id: "outside-grade-range", grade: "V18" },
+        expectedWallUpdatedAt: wallRevision,
+      }),
+    }),
+  );
+  assert.equal(response.status, 400);
 
   response = await fetchAppData(
     new Request("http://localhost/api/climbs", {
@@ -903,6 +931,23 @@ test("shows only clean colored circles for selected route holds", async () => {
   assert.match(availableRule, /opacity:\s*0/);
 });
 
+test("dims climb walls while restoring normal brightness inside route circles", async () => {
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  const photoRule =
+    css.match(/\.wall-map--route \.wall-photo\s*\{([^}]*)\}/)?.[1] ?? "";
+  const markerRule =
+    css.match(/\.wall-map--route \.hold-marker\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.match(photoRule, /filter:\s*brightness\(0\.82\)/);
+  assert.match(markerRule, /overflow:\s*hidden/);
+  assert.match(markerRule, /background:\s*transparent/);
+  assert.match(markerRule, /-webkit-backdrop-filter:\s*brightness\(1\.22\)/);
+  assert.match(markerRule, /(?<!webkit-)backdrop-filter:\s*brightness\(1\.22\)/);
+});
+
 test("safely parses and stores device-local climbs", () => {
   assert.equal(nextSavedHoldRole("hand"), "start");
   assert.equal(nextSavedHoldRole("start"), "finish");
@@ -911,7 +956,7 @@ test("safely parses and stores device-local climbs", () => {
   const climb = {
     id: "corner-pocket-1",
     name: "Corner Pocket",
-    grade: "V4",
+    grade: "V17",
     setter: "You",
     createdAt: 100,
     holds: [
@@ -928,6 +973,10 @@ test("safely parses and stores device-local climbs", () => {
   assert.deepEqual(parseSavedClimbs(JSON.stringify([climb, { broken: true }])), [
     climb,
   ]);
+  assert.deepEqual(
+    parseSavedClimbs(JSON.stringify([{ ...climb, grade: "V18" }])),
+    [],
+  );
 
   const linkedHold = { ...climb.holds[0], holdId: "stable-hold-a" };
   assert.deepEqual(
