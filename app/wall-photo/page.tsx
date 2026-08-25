@@ -108,7 +108,6 @@ export default function WallPhotoPage() {
       </header>
 
       <section className="photo-intro" aria-labelledby="photo-heading">
-        <p className="step-label">Step 1 of 2</p>
         <h1 id="photo-heading">Upload your wall</h1>
         <p>
           Use a clear, straight-on photo. It will become the wall image for

@@ -559,7 +559,6 @@ export default function WallHoldsPage() {
       </header>
 
       <section className="set-intro wall-holds-intro" aria-labelledby="wall-holds-heading">
-        <p className="step-label">Step 2 of 2</p>
         <h1 id="wall-holds-heading">Mark every hold</h1>
         <p>
           {holds.length > 0

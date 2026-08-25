@@ -857,6 +857,17 @@ test("offers the complete V0 through V17 grade range", () => {
   assert.equal(isClimbGrade("V18"), false);
 });
 
+test("omits setup step counters from wall setup and climb setting", async () => {
+  for (const relativePath of [
+    "../app/wall-photo/page.tsx",
+    "../app/wall-holds/page.tsx",
+    "../app/set-climb/page.tsx",
+  ]) {
+    const source = await readFile(new URL(relativePath, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /Step [12] of 2/);
+  }
+});
+
 test("renders the wall photo upload screen", async () => {
   const response = await render("/wall-photo");
   assert.equal(response.status, 200);

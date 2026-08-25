@@ -350,7 +350,6 @@ export default function SetClimbPage() {
       ) : step === "holds" ? (
         <>
           <section className="set-intro" aria-labelledby="set-climb-heading">
-            <p className="step-label">Step 1 of 2</p>
             <h1 id="set-climb-heading">
               {editingClimb ? "Edit the holds" : "Choose your holds"}
             </h1>
@@ -490,7 +489,6 @@ export default function SetClimbPage() {
         </>
       ) : (
         <section className="finish-step" aria-labelledby="finish-heading">
-          <p className="step-label">Step 2 of 2</p>
           <h1 id="finish-heading">
             {editingClimb ? "Edit climb details" : "Name your climb"}
           </h1>
