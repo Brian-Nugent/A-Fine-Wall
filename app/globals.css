@@ -197,6 +197,7 @@ select {
 .change-photo-link:focus-visible,
 .photo-file-input:focus-visible,
 .wall-hold-spot:focus-visible,
+.wall-hold-resize-handle:focus-visible,
 .wall-hold-add-button:focus-visible,
 .wall-hold-remove-button:focus-visible,
 .wall-hold-reload-button:focus-visible,
@@ -204,7 +205,6 @@ select {
 .climb-options-button:focus-visible,
 .climb-option:focus-visible,
 .user-switch-button:focus-visible,
-.wall-hold-size-slider:focus-visible,
 .secondary-button:focus-visible,
 .text-button:focus-visible,
 .compact-primary-button:focus-visible,
@@ -1714,14 +1714,42 @@ select:focus-visible {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95), 0 2px 8px rgba(0, 0, 0, 0.48);
 }
 
+.wall-hold-resize-handle {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: transparent;
+  cursor: ew-resize;
+  place-items: center;
+  touch-action: none;
+}
+
+.wall-hold-resize-handle-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #111111;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.wall-hold-resize-handle[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 .wall-hold-editor-controls {
   min-height: 8.25rem;
   padding: 1rem 1.25rem 1.15rem;
   border-bottom: 1px solid var(--line);
 }
 
-.wall-hold-control-heading,
-.wall-hold-size-control {
+.wall-hold-control-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1734,8 +1762,7 @@ select:focus-visible {
   gap: 0.25rem;
 }
 
-.wall-hold-control-heading strong,
-.wall-hold-size-control {
+.wall-hold-control-heading strong {
   font-size: 0.8rem;
 }
 
@@ -1765,29 +1792,15 @@ select:focus-visible {
   color: var(--finish);
 }
 
-.wall-hold-size-control {
-  margin-top: 0.75rem;
-  color: var(--muted);
-}
-
-.wall-hold-size-control output {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
-.wall-hold-size-slider {
-  width: 100%;
-  min-height: 2.75rem;
-  margin-top: 0.35rem;
-  accent-color: var(--ink);
-  cursor: pointer;
-}
-
 .wall-hold-control-help {
   margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.5;
+}
+
+.wall-hold-control-heading + .wall-hold-control-help {
+  margin-top: 0.75rem;
 }
 
 .wall-holds-error,

@@ -62,6 +62,32 @@ function roundPosition(value: number) {
   return Number(value.toFixed(2));
 }
 
+export function wallHoldSizeFromHorizontalDrag(
+  startSize: number,
+  horizontalPixels: number,
+  wallWidth: number,
+) {
+  const safeStart = Math.min(
+    MAX_WALL_HOLD_SIZE,
+    Math.max(MIN_WALL_HOLD_SIZE, startSize),
+  );
+  if (
+    !Number.isFinite(horizontalPixels) ||
+    !Number.isFinite(wallWidth) ||
+    wallWidth <= 0
+  ) {
+    return roundPosition(safeStart);
+  }
+
+  const sizeChange = (horizontalPixels / wallWidth) * 200;
+  return roundPosition(
+    Math.min(
+      MAX_WALL_HOLD_SIZE,
+      Math.max(MIN_WALL_HOLD_SIZE, safeStart + sizeChange),
+    ),
+  );
+}
+
 function normalizeWallHold(hold: WallHold): WallHold {
   return {
     id: hold.id,

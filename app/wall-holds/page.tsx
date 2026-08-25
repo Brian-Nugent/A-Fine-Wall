@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -29,6 +30,7 @@ import {
   loadWallHoldMap,
   saveWallHolds,
   type WallHold,
+  wallHoldSizeFromHorizontalDrag,
   WallHoldMapRequestError,
 } from "../climbs/wall-holds";
 
@@ -40,6 +42,13 @@ type HoldDrag = {
   startX: number;
   startY: number;
   moved: boolean;
+};
+
+type HoldResize = {
+  holdId: string;
+  pointerId: number;
+  startClientX: number;
+  startSize: number;
 };
 
 const keyboardDirections: Partial<
@@ -117,6 +126,7 @@ export default function WallHoldsPage() {
   const { profile } = useActiveUser();
   const wallMap = useRef<HTMLElement | null>(null);
   const activeDrag = useRef<HoldDrag | null>(null);
+  const activeResize = useRef<HoldResize | null>(null);
   const allowNavigation = useRef(false);
   const loadedRevision = useRef(0);
   const [holds, setHolds] = useState<WallHold[]>([]);
@@ -232,6 +242,7 @@ export default function WallHoldsPage() {
       isLoading ||
       loadFailed ||
       isSaving ||
+      activeResize.current !== null ||
       (event.pointerType === "mouse" && event.button !== 0)
     ) {
       return;
@@ -337,12 +348,11 @@ export default function WallHoldsPage() {
     setError("");
   }
 
-  function resizeSelectedHold(size: number) {
-    if (!selectedHold || isSaving) return;
-
+  function resizeHold(holdId: string, size: number) {
+    if (isSaving) return;
     setHolds((current) =>
       current.map((hold) =>
-        hold.id === selectedHold.id
+        hold.id === holdId
           ? {
               ...hold,
               size,
@@ -354,6 +364,87 @@ export default function WallHoldsPage() {
     );
     setHasChanges(true);
     setError("");
+  }
+
+  function beginResize(
+    event: ReactPointerEvent<HTMLSpanElement>,
+    hold: WallHold,
+  ) {
+    if (
+      isLoading ||
+      loadFailed ||
+      isSaving ||
+      activeDrag.current !== null ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    activeResize.current = {
+      holdId: hold.id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startSize: hold.size,
+    };
+    setSelectedHoldId(hold.id);
+    setError("");
+  }
+
+  function resizeHoldFromPointer(event: ReactPointerEvent<HTMLSpanElement>) {
+    const resize = activeResize.current;
+    const bounds = wallMap.current?.getBoundingClientRect();
+    if (!resize || resize.pointerId !== event.pointerId || !bounds) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    resizeHold(
+      resize.holdId,
+      wallHoldSizeFromHorizontalDrag(
+        resize.startSize,
+        event.clientX - resize.startClientX,
+        bounds.width,
+      ),
+    );
+  }
+
+  function finishResize(event: ReactPointerEvent<HTMLSpanElement>) {
+    const resize = activeResize.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    activeResize.current = null;
+  }
+
+  function resizeHoldWithKeyboard(
+    event: ReactKeyboardEvent<HTMLSpanElement>,
+    hold: WallHold,
+  ) {
+    if (isSaving) return;
+
+    let nextSize: number | null = null;
+    if (event.key === "Home") nextSize = MIN_WALL_HOLD_SIZE;
+    if (event.key === "End") nextSize = MAX_WALL_HOLD_SIZE;
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      nextSize = hold.size - (event.shiftKey ? 1 : 0.5);
+    }
+    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      nextSize = hold.size + (event.shiftKey ? 1 : 0.5);
+    }
+    if (nextSize === null) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    resizeHold(
+      hold.id,
+      clamp(nextSize, MIN_WALL_HOLD_SIZE, MAX_WALL_HOLD_SIZE),
+    );
   }
 
   function removeSelectedHold() {
@@ -514,36 +605,71 @@ export default function WallHoldsPage() {
         {holds.map((hold, index) => {
           const selected = hold.id === selectedHoldId;
           return (
-            <button
-              aria-label={`Preset hold ${index + 1}. ${selected ? "Selected; drag or use arrow keys to reposition. Hold Shift for larger keyboard steps." : "Tap to select, or focus it and use arrow keys to reposition."}`}
-              aria-pressed={selected}
-              className={`wall-hold-spot${selected ? " wall-hold-spot--selected" : ""}`}
-              disabled={isSaving}
-              key={hold.id}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (event.detail === 0) setSelectedHoldId(hold.id);
-              }}
-              onLostPointerCapture={() => {
-                if (activeDrag.current?.holdId === hold.id) {
-                  activeDrag.current = null;
-                }
-              }}
-              onFocus={() => setSelectedHoldId(hold.id)}
-              onKeyDown={(event) => moveHoldWithKeyboard(event, hold)}
-              onPointerCancel={finishDrag}
-              onPointerDown={(event) => beginDrag(event, hold)}
-              onPointerMove={moveHold}
-              onPointerUp={finishDrag}
-              style={{
-                left: `${hold.x}%`,
-                top: `${hold.y}%`,
-                "--hold-size": hold.size,
-              } as CSSProperties}
-              type="button"
-            >
-              <span aria-hidden="true" className="wall-hold-ring" />
-            </button>
+            <Fragment key={hold.id}>
+              <button
+                aria-label={`Preset hold ${index + 1}. ${selected ? "Selected; drag or use arrow keys to reposition. Hold Shift for larger keyboard steps." : "Tap to select, or focus it and use arrow keys to reposition."}`}
+                aria-pressed={selected}
+                className={`wall-hold-spot${selected ? " wall-hold-spot--selected" : ""}`}
+                disabled={isSaving}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (event.detail === 0) setSelectedHoldId(hold.id);
+                }}
+                onLostPointerCapture={() => {
+                  if (activeDrag.current?.holdId === hold.id) {
+                    activeDrag.current = null;
+                  }
+                }}
+                onFocus={() => setSelectedHoldId(hold.id)}
+                onKeyDown={(event) => moveHoldWithKeyboard(event, hold)}
+                onPointerCancel={finishDrag}
+                onPointerDown={(event) => beginDrag(event, hold)}
+                onPointerMove={moveHold}
+                onPointerUp={finishDrag}
+                style={{
+                  left: `${hold.x}%`,
+                  top: `${hold.y}%`,
+                  "--hold-size": hold.size,
+                } as CSSProperties}
+                type="button"
+              >
+                <span aria-hidden="true" className="wall-hold-ring" />
+              </button>
+              {selected ? (
+                <span
+                  aria-disabled={isSaving ? "true" : undefined}
+                  aria-label={`Resize preset hold ${index + 1}`}
+                  aria-orientation="horizontal"
+                  aria-valuemax={MAX_WALL_HOLD_SIZE}
+                  aria-valuemin={MIN_WALL_HOLD_SIZE}
+                  aria-valuenow={hold.size}
+                  aria-valuetext={`${hold.size}% circle diameter`}
+                  className="wall-hold-resize-handle"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => resizeHoldWithKeyboard(event, hold)}
+                  onLostPointerCapture={() => {
+                    if (activeResize.current?.holdId === hold.id) {
+                      activeResize.current = null;
+                    }
+                  }}
+                  onPointerCancel={finishResize}
+                  onPointerDown={(event) => beginResize(event, hold)}
+                  onPointerMove={resizeHoldFromPointer}
+                  onPointerUp={finishResize}
+                  role="slider"
+                  style={{
+                    left: `min(${hold.x + hold.size / 2}%, calc(100% - 0.875rem))`,
+                    top: `${hold.y}%`,
+                  }}
+                  tabIndex={isSaving ? -1 : 0}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="wall-hold-resize-handle-dot"
+                  />
+                </span>
+              ) : null}
+            </Fragment>
           );
         })}
         <figcaption className="sr-only">
@@ -578,27 +704,13 @@ export default function WallHoldsPage() {
           </div>
         </div>
         {selectedHold ? (
-          <>
-            <label className="wall-hold-size-control" htmlFor="wall-hold-size">
-              <span>Circle size</span>
-              <output htmlFor="wall-hold-size">{selectedHold.size}%</output>
-            </label>
-            <input
-              aria-label="Selected hold circle size"
-              className="wall-hold-size-slider"
-              disabled={isSaving}
-              id="wall-hold-size"
-              max={MAX_WALL_HOLD_SIZE}
-              min={MIN_WALL_HOLD_SIZE}
-              onChange={(event) => resizeSelectedHold(Number(event.target.value))}
-              step="0.5"
-              type="range"
-              value={selectedHold.size}
-            />
-          </>
+          <p className="wall-hold-control-help">
+            Drag the dot on the circle&apos;s right edge to resize it. Focus the
+            dot and use arrow keys for precise sizing.
+          </p>
         ) : (
           <p className="wall-hold-control-help">
-            Tap a circle to resize or remove it. Drag a circle to reposition it.
+            Tap a circle to select it. Drag a selected circle to reposition it.
           </p>
         )}
       </section>

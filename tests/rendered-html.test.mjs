@@ -35,7 +35,10 @@ import {
   parseClimbActivitiesPayload,
 } from "../app/climbs/climb-activity.ts";
 import { climbs as demoClimbs } from "../app/climbs/data.ts";
-import { resolveSavedHold } from "../app/climbs/wall-holds.ts";
+import {
+  resolveSavedHold,
+  wallHoldSizeFromHorizontalDrag,
+} from "../app/climbs/wall-holds.ts";
 import {
   MAX_USER_NAME_LENGTH,
   USER_PROFILE_KEY,
@@ -881,6 +884,25 @@ test("renders the preset hold spot editor after photo upload", async () => {
   assert.match(html, /src="\/api\/wall-photo"/);
   assert.match(html, /aria-label="Tap the wall to add a preset hold spot"/);
   assert.match(html, />Save Wall<\/button>/);
+});
+
+test("resizes selected wall circles with a direct manipulation handle", async () => {
+  const source = await readFile(
+    new URL("../app/wall-holds/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /className="wall-hold-resize-handle"/);
+  assert.match(source, /role="slider"/);
+  assert.match(source, /setPointerCapture/);
+  assert.match(source, /onPointerCancel=\{finishResize\}/);
+  assert.doesNotMatch(source, /wall-hold-size-slider/);
+  assert.doesNotMatch(source, /id="wall-hold-size"/);
+
+  assert.equal(wallHoldSizeFromHorizontalDrag(7, 7, 350), 11);
+  assert.equal(wallHoldSizeFromHorizontalDrag(7, -100, 350), 1);
+  assert.equal(wallHoldSizeFromHorizontalDrag(7, 100, 350), 20);
+  assert.equal(wallHoldSizeFromHorizontalDrag(7, 100, 0), 7);
 });
 
 test("renders the browser-saved climb detail shell", async () => {
@@ -2167,6 +2189,10 @@ test("allows native two-axis panning on interactive wall layers", async () => {
       `Expected .${selector} to allow horizontal, vertical, and pinch gestures; received "${value}"`,
     );
   }
+
+  const resizeHandleRule =
+    css.match(/\.wall-hold-resize-handle\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(resizeHandleRule, /touch-action:\s*none/);
 });
 
 test("dims climb walls while restoring normal brightness inside route circles", async () => {
