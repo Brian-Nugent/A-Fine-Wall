@@ -7,15 +7,33 @@ import {
   activeClimbFilterCount,
   buildFilteredHref,
   DEFAULT_CLIMB_FILTERS,
-  filterClimbs,
   MAX_FILTER_GRADE,
+  MAX_FILTER_STARS,
   MIN_FILTER_GRADE,
+  matchesClimbActivityFilters,
+  matchesClimbFilters,
   uniqueFilterAuthors,
   type ClimbFilters,
   type FilterableClimb,
 } from "../climb-filters";
+import {
+  climbActivityKey,
+  type ClimbActivity,
+} from "../climb-activity";
 import { climbs } from "../data";
+import { loadClimbActivities } from "../send-api";
 import { loadSyncedClimbs } from "../synced-climbs";
+
+type AvailableClimb = {
+  climb: FilterableClimb;
+  key: string;
+};
+
+function isSameAuthor(left: string, right: string) {
+  return (
+    left.toLocaleLowerCase("en-US") === right.toLocaleLowerCase("en-US")
+  );
+}
 
 export default function FilterOptionsClient({
   initialFilters,
@@ -27,13 +45,18 @@ export default function FilterOptionsClient({
   const [maxGrade, setMaxGrade] = useState(initialFilters.maxGrade);
   const [authors, setAuthors] = useState(initialFilters.authors);
   const [holdIds, setHoldIds] = useState(initialFilters.holdIds);
-  const [availableClimbs, setAvailableClimbs] = useState<FilterableClimb[]>(
-    climbs,
+  const [hideSent, setHideSent] = useState(initialFilters.hideSent);
+  const [minStars, setMinStars] = useState(initialFilters.minStars);
+  const [order, setOrder] = useState(initialFilters.order);
+  const [availableClimbs, setAvailableClimbs] = useState<AvailableClimb[]>(
+    climbs.map((climb) => ({ climb, key: `demo:${climb.slug}` })),
   );
+  const [activities, setActivities] = useState<ClimbActivity[]>([]);
   const [loadedAuthors, setLoadedAuthors] = useState<string[]>([]);
   const [isLoadingMatches, setIsLoadingMatches] = useState(true);
   const [climbLoadFailed, setClimbLoadFailed] = useState(false);
   const [profileLoadFailed, setProfileLoadFailed] = useState(false);
+  const [activityLoadFailed, setActivityLoadFailed] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -45,14 +68,27 @@ export default function FilterOptionsClient({
     Promise.allSettled([
       loadSyncedClimbs(profile, window.localStorage, controller.signal),
       loadUserProfiles(controller.signal),
-    ]).then(([climbResult, profileResult]) => {
+      loadClimbActivities(profile.id, controller.signal),
+    ]).then(([climbResult, profileResult, activityResult]) => {
       if (!isActive) return;
 
       const syncedClimbs =
         climbResult.status === "fulfilled" ? climbResult.value.climbs : [];
       const profiles =
         profileResult.status === "fulfilled" ? profileResult.value : [];
-      setAvailableClimbs([...climbs, ...syncedClimbs]);
+      setAvailableClimbs([
+        ...climbs.map((climb) => ({
+          climb,
+          key: `demo:${climb.slug}`,
+        })),
+        ...syncedClimbs.map((climb) => ({
+          climb,
+          key: `saved:${climb.id}`,
+        })),
+      ]);
+      setActivities(
+        activityResult.status === "fulfilled" ? activityResult.value : [],
+      );
       setLoadedAuthors([
         ...profiles.map((item) => item.name),
         ...syncedClimbs.map((climb) => climb.setter),
@@ -62,6 +98,7 @@ export default function FilterOptionsClient({
           climbResult.value.sharedUnavailable,
       );
       setProfileLoadFailed(profileResult.status === "rejected");
+      setActivityLoadFailed(activityResult.status === "rejected");
       setIsLoadingMatches(false);
     });
 
@@ -72,8 +109,16 @@ export default function FilterOptionsClient({
   }, [profile, refreshKey]);
 
   const currentFilters = useMemo<ClimbFilters>(
-    () => ({ minGrade, maxGrade, authors, holdIds }),
-    [authors, holdIds, maxGrade, minGrade],
+    () => ({
+      minGrade,
+      maxGrade,
+      authors,
+      holdIds,
+      hideSent,
+      minStars,
+      order,
+    }),
+    [authors, hideSent, holdIds, maxGrade, minGrade, minStars, order],
   );
   const authorOptions = uniqueFilterAuthors([
     ...climbs.map((climb) => climb.setter),
@@ -81,13 +126,27 @@ export default function FilterOptionsClient({
     ...authors,
     ...(profile ? [profile.name] : []),
   ]);
-  const matchingCount = filterClimbs(availableClimbs, currentFilters).length;
+  const activitiesByClimb = new Map(
+    activities.map((activity) => [climbActivityKey(activity), activity]),
+  );
+  const matchingCount = availableClimbs.filter(
+    (entry) =>
+      matchesClimbFilters(entry.climb, currentFilters) &&
+      matchesClimbActivityFilters(
+        activitiesByClimb.get(entry.key) ?? null,
+        currentFilters,
+      ),
+  ).length;
   const activeFilterCount = activeClimbFilterCount(currentFilters);
+  const needsActivityData =
+    hideSent || minStars > 0 || order === "ascents";
+  const matchCountUnavailable =
+    climbLoadFailed || (needsActivityData && activityLoadFailed);
 
   function toggleAuthor(author: string) {
     setAuthors((current) =>
-      current.includes(author)
-        ? current.filter((item) => item !== author)
+      current.some((item) => isSameAuthor(item, author))
+        ? current.filter((item) => !isSameAuthor(item, author))
         : [...current, author],
     );
   }
@@ -97,12 +156,16 @@ export default function FilterOptionsClient({
     setMaxGrade(DEFAULT_CLIMB_FILTERS.maxGrade);
     setAuthors([]);
     setHoldIds([]);
+    setHideSent(DEFAULT_CLIMB_FILTERS.hideSent);
+    setMinStars(DEFAULT_CLIMB_FILTERS.minStars);
+    setOrder(DEFAULT_CLIMB_FILTERS.order);
   }
 
   function retrySharedData() {
     setIsLoadingMatches(true);
     setClimbLoadFailed(false);
     setProfileLoadFailed(false);
+    setActivityLoadFailed(false);
     setRefreshKey((current) => current + 1);
   }
 
@@ -121,17 +184,23 @@ export default function FilterOptionsClient({
 
       <section className="filter-intro" aria-labelledby="filter-heading">
         <h1 id="filter-heading">Filter climbs</h1>
-        <p>Narrow the list by grade, holds, and who set the climb.</p>
+        <p>Narrow the list by grade, sends, stars, holds, and author.</p>
       </section>
 
-      {climbLoadFailed || profileLoadFailed ? (
+      {climbLoadFailed || profileLoadFailed || activityLoadFailed ? (
         <div className="filter-data-notice" role="status">
           <p>
-            {climbLoadFailed && profileLoadFailed
-              ? "Shared climbs and the full author list could not be refreshed."
-              : climbLoadFailed
-                ? "Shared climb matches could not be checked."
-                : "The full author list could not be loaded."}
+            {climbLoadFailed && profileLoadFailed && activityLoadFailed
+              ? "Shared climbs, authors, sends, and ratings could not be refreshed."
+              : activityLoadFailed && needsActivityData
+                ? "Sends and ratings could not be loaded, so those options cannot be checked yet."
+                : climbLoadFailed && profileLoadFailed
+                  ? "Shared climbs and the full author list could not be refreshed."
+                  : climbLoadFailed
+                    ? "Shared climb matches could not be checked."
+                    : profileLoadFailed
+                      ? "The full author list could not be loaded."
+                      : "Sends and ratings could not be refreshed."}
           </p>
           <button
             className="climb-reload-button"
@@ -185,6 +254,70 @@ export default function FilterOptionsClient({
         </div>
       </section>
 
+      <section className="filter-section" aria-labelledby="activity-filter-heading">
+        <div className="filter-section-heading">
+          <div>
+            <h2 id="activity-filter-heading">Sends &amp; stars</h2>
+            <p>Use your sends and the community rating.</p>
+          </div>
+        </div>
+
+        <div className="filter-toggle-choice">
+          <input
+            checked={hideSent}
+            id="hide-sent-climbs"
+            onChange={(event) => setHideSent(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <label htmlFor="hide-sent-climbs">Hide sent climbs</label>
+            <small>Only show climbs you have not logged.</small>
+          </span>
+        </div>
+
+        <label className="filter-select-control" htmlFor="minimum-stars">
+          <span>Minimum community rating</span>
+          <select
+            id="minimum-stars"
+            onChange={(event) => setMinStars(Number(event.target.value))}
+            value={minStars}
+          >
+            <option value="0">Any number of stars</option>
+            {Array.from({ length: MAX_FILTER_STARS }, (_, index) => index + 1).map(
+              (stars) => (
+                <option key={stars} value={stars}>
+                  At least {stars} {stars === 1 ? "star" : "stars"}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+      </section>
+
+      <fieldset className="filter-section filter-order-section">
+        <legend>Order</legend>
+        <div className="filter-order-choices">
+          <label className="filter-radio-choice">
+            <input
+              checked={order === "newest"}
+              name="climb-order"
+              onChange={() => setOrder("newest")}
+              type="radio"
+            />
+            <span>Newest first</span>
+          </label>
+          <label className="filter-radio-choice">
+            <input
+              checked={order === "ascents"}
+              name="climb-order"
+              onChange={() => setOrder("ascents")}
+              type="radio"
+            />
+            <span>Most ascents</span>
+          </label>
+        </div>
+      </fieldset>
+
       <section className="filter-section" aria-labelledby="hold-filter-heading">
         <div className="filter-section-heading">
           <div>
@@ -222,7 +355,7 @@ export default function FilterOptionsClient({
           {authorOptions.map((author) => (
             <label className="filter-author-choice" key={author}>
               <input
-                checked={authors.includes(author)}
+                checked={authors.some((item) => isSameAuthor(item, author))}
                 onChange={() => toggleAuthor(author)}
                 type="checkbox"
               />
@@ -242,7 +375,7 @@ export default function FilterOptionsClient({
           <span>
             {isLoadingMatches
               ? "Checking matches..."
-              : climbLoadFailed
+              : matchCountUnavailable
                 ? "Match count unavailable"
               : `${matchingCount} ${matchingCount === 1 ? "match" : "matches"}`}
           </span>
@@ -260,7 +393,7 @@ export default function FilterOptionsClient({
             className="compact-primary-button filter-apply-button"
             href={buildFilteredHref("/climbs", currentFilters)}
           >
-            {isLoadingMatches || climbLoadFailed
+            {isLoadingMatches || matchCountUnavailable
               ? "View Climbs"
               : `Show ${matchingCount}`}
           </a>

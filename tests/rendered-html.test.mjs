@@ -16,7 +16,10 @@ import {
 import {
   activeClimbFilterCount,
   buildFilteredHref,
+  compareClimbsByOrder,
   filterClimbs,
+  hasClimbFilterConstraints,
+  matchesClimbActivityFilters,
   matchesClimbFilters,
   parseClimbFilters,
   serializeClimbFilters,
@@ -587,6 +590,9 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /type="range"/);
   assert.match(html, /Minimum/);
   assert.match(html, /Maximum/);
+  assert.match(html, /Hide sent climbs/);
+  assert.match(html, /Minimum community rating/);
+  assert.match(html, /Most ascents/);
   assert.match(html, /Choose Holds/);
   assert.match(html, /Author/);
   for (const fakeAuthor of ["Ben", "Maya", "Sam", "Lena", "Jordan"]) {
@@ -605,7 +611,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
 test("normalizes, serializes, and combines climb filters", () => {
   const filters = parseClimbFilters(
     new URLSearchParams(
-      "min=11&max=3&author=Sam&author=Alex&author=Alex&hold=hold-b&hold=hold-a&hold=bad%20hold",
+      "min=11&max=3&author=Sam&author=Alex&author=alex&hold=hold-b&hold=hold-a&hold=bad%20hold&sent=hide&stars=4&order=ascents",
     ),
   );
   assert.deepEqual(filters, {
@@ -613,15 +619,19 @@ test("normalizes, serializes, and combines climb filters", () => {
     maxGrade: 11,
     authors: ["Alex", "Sam"],
     holdIds: ["hold-a", "hold-b"],
+    hideSent: true,
+    minStars: 4,
+    order: "ascents",
   });
-  assert.equal(activeClimbFilterCount(filters), 3);
+  assert.equal(activeClimbFilterCount(filters), 6);
+  assert.equal(hasClimbFilterConstraints(filters), true);
   assert.equal(
     serializeClimbFilters(filters),
-    "min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b",
+    "min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&stars=4&order=ascents",
   );
   assert.equal(
     buildFilteredHref("/climbs/saved", filters, { id: "route 1" }),
-    "/climbs/saved?min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&id=route+1",
+    "/climbs/saved?min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&stars=4&order=ascents&id=route+1",
   );
 
   const candidates = [
@@ -634,7 +644,7 @@ test("normalizes, serializes, and combines climb filters", () => {
     {
       name: "Author alternative",
       grade: "V5",
-      setter: "Sam",
+      setter: "sAm",
       holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
     },
     {
@@ -663,15 +673,64 @@ test("normalizes, serializes, and combines climb filters", () => {
     },
   ];
 
+  const structuralFilters = {
+    ...filters,
+    hideSent: false,
+    minStars: 0,
+    order: "newest",
+  };
   assert.deepEqual(
-    filterClimbs(candidates, filters).map((climb) => climb.name),
+    filterClimbs(candidates, structuralFilters).map((climb) => climb.name),
     ["Lower bound", "Author alternative", "Upper bound"],
   );
   assert.equal(matchesClimbFilters(candidates[4], filters), false);
   assert.deepEqual(
-    uniqueFilterAuthors([" Sam ", "Alex", "Sam", "Bad\nName"]),
+    uniqueFilterAuthors([
+      " Sam ",
+      "Alex",
+      "Sam",
+      "alex",
+      "Bad\nName",
+    ]),
     ["Alex", "Sam"],
   );
+
+  const sentActivity = {
+    averageRating: 4.8,
+    ratingCount: 7,
+    userRating: 5,
+  };
+  const unsentActivity = {
+    averageRating: 4,
+    ratingCount: 3,
+    userRating: null,
+  };
+  assert.equal(matchesClimbActivityFilters(sentActivity, filters), false);
+  assert.equal(matchesClimbActivityFilters(unsentActivity, filters), true);
+  assert.equal(matchesClimbActivityFilters(null, filters), false);
+
+  const ordered = [
+    { id: "newest", createdAt: 30, activity: null },
+    { id: "popular", createdAt: 10, activity: sentActivity },
+    { id: "middle", createdAt: 20, activity: unsentActivity },
+  ].sort((left, right) => compareClimbsByOrder(left, right, filters));
+  assert.deepEqual(
+    ordered.map((entry) => entry.id),
+    ["popular", "middle", "newest"],
+  );
+
+  const sortOnly = parseClimbFilters(new URLSearchParams("order=ascents"));
+  assert.equal(activeClimbFilterCount(sortOnly), 1);
+  assert.equal(hasClimbFilterConstraints(sortOnly), false);
+  assert.deepEqual(parseClimbFilters(new URLSearchParams("stars=bad")), {
+    minGrade: 0,
+    maxGrade: 17,
+    authors: [],
+    holdIds: [],
+    hideSent: false,
+    minStars: 0,
+    order: "newest",
+  });
 });
 
 test("distinguishes an empty wall from an empty filtered result", () => {
@@ -865,7 +924,7 @@ test("retires every prototype climb and rating route", async () => {
 
 test("renders the saved-climb send shell and preserves filters", async () => {
   const response = await render(
-    "/climbs/sent?kind=saved&id=test-climb&min=2&max=6&author=Sheafy",
+    "/climbs/sent?kind=saved&id=test-climb&min=2&max=6&author=Sheafy&sent=hide&stars=4&order=ascents",
   );
   assert.equal(response.status, 200);
 
@@ -873,7 +932,7 @@ test("renders the saved-climb send shell and preserves filters", async () => {
   assert.match(html, /Loading climb/);
   assert.match(
     html,
-    /href="\/climbs\/saved\?min=2&amp;max=6&amp;author=Sheafy&amp;id=test-climb"/,
+    /href="\/climbs\/saved\?min=2&amp;max=6&amp;author=Sheafy&amp;sent=hide&amp;stars=4&amp;order=ascents&amp;id=test-climb"/,
   );
 
   const notFoundResponse = await render(

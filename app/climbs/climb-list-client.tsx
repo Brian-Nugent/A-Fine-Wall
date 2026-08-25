@@ -10,8 +10,10 @@ import { climbs } from "./data";
 import {
   activeClimbFilterCount,
   buildFilteredHref,
-  filterClimbs,
-  hasActiveClimbFilters,
+  compareClimbsByOrder,
+  hasClimbFilterConstraints,
+  matchesClimbActivityFilters,
+  matchesClimbFilters,
   type ClimbFilters,
 } from "./climb-filters";
 import { getClimbListState } from "./climb-list-state";
@@ -168,19 +170,6 @@ export default function ClimbListClient({
     };
   }, [profile]);
 
-  const filteredSavedClimbs = filterClimbs(savedClimbs, initialFilters);
-  const filteredDemoClimbs = filterClimbs(climbs, initialFilters);
-  const totalClimbs = climbs.length + savedClimbs.length;
-  const visibleClimbs = filteredDemoClimbs.length + filteredSavedClimbs.length;
-  const activeFilterCount = activeClimbFilterCount(initialFilters);
-  const hasActiveFilters = hasActiveClimbFilters(initialFilters);
-  const isLoadingClimbs = loadStatus === "loading";
-  const listState = getClimbListState({
-    hasActiveFilters,
-    isLoading: isLoadingClimbs,
-    totalClimbs,
-    visibleClimbs,
-  });
   const activityStatus =
     activityState.profileId === profile?.id
       ? activityState.status
@@ -190,6 +179,60 @@ export default function ClimbListClient({
       (activity) => [climbActivityKey(activity), activity],
     ),
   );
+  const needsActivityData =
+    initialFilters.hideSent ||
+    initialFilters.minStars > 0 ||
+    initialFilters.order === "ascents";
+  const activityOptionsUnavailable =
+    needsActivityData && activityStatus === "error";
+  const allClimbs = [
+    ...savedClimbs.map((climb) => ({
+      activity:
+        activitiesByClimb.get(
+          climbActivityKey({ climbKind: "saved", climbId: climb.id }),
+        ) ?? null,
+      climb,
+      createdAt: climb.createdAt,
+      href: buildFilteredHref("/climbs/saved", initialFilters, {
+        id: climb.id,
+      }),
+      id: climb.id,
+      key: `saved-${climb.id}`,
+    })),
+    ...climbs.map((climb) => ({
+      activity:
+        activitiesByClimb.get(
+          climbActivityKey({ climbKind: "demo", climbId: climb.slug }),
+        ) ?? null,
+      climb,
+      createdAt: 0,
+      href: buildFilteredHref(`/climbs/${climb.slug}`, initialFilters),
+      id: climb.slug,
+      key: `demo-${climb.slug}`,
+    })),
+  ];
+  const filteredClimbs = allClimbs
+    .filter(
+      (entry) =>
+        matchesClimbFilters(entry.climb, initialFilters) &&
+        matchesClimbActivityFilters(entry.activity, initialFilters),
+    )
+    .sort((left, right) =>
+      compareClimbsByOrder(left, right, initialFilters),
+    );
+  const totalClimbs = allClimbs.length;
+  const visibleClimbs = filteredClimbs.length;
+  const activeFilterCount = activeClimbFilterCount(initialFilters);
+  const hasFilterConstraints = hasClimbFilterConstraints(initialFilters);
+  const isLoadingClimbs =
+    loadStatus === "loading" ||
+    (needsActivityData && activityStatus === "loading");
+  const listState = getClimbListState({
+    hasActiveFilters: hasFilterConstraints,
+    isLoading: isLoadingClimbs,
+    totalClimbs,
+    visibleClimbs,
+  });
 
   return (
     <main className="app-page">
@@ -227,12 +270,12 @@ export default function ClimbListClient({
             <p aria-live="polite">
               {isLoadingClimbs
                 ? "Loading climbs..."
-                : hasActiveFilters
+                : hasFilterConstraints
                 ? `${visibleClimbs} of ${totalClimbs} climbs`
                 : `${totalClimbs} climbs`}
             </p>
             <a
-              className={`filter-link${hasActiveFilters ? " filter-link--active" : ""}`}
+              className={`filter-link${activeFilterCount > 0 ? " filter-link--active" : ""}`}
               href={buildFilteredHref("/climbs/filter", initialFilters)}
             >
               Filter
@@ -254,55 +297,27 @@ export default function ClimbListClient({
 
         {activityStatus === "error" ? (
           <div className="climb-rating-notice" role="status">
-            Ratings could not be loaded. The climb list is still available.
+            {activityOptionsUnavailable
+              ? "Sent, rating, or ascent options could not be applied because climb activity could not be loaded. Refresh or clear those options."
+              : "Ratings could not be loaded. The climb list is still available."}
           </div>
         ) : null}
 
-        {visibleClimbs > 0 ? (
+        {!isLoadingClimbs && !activityOptionsUnavailable && visibleClimbs > 0 ? (
           <ul className="climb-list">
-            {filteredSavedClimbs.map((climb) => (
+            {filteredClimbs.map((entry) => (
               <ClimbRow
-                activity={
-                  activitiesByClimb.get(
-                    climbActivityKey({
-                      climbKind: "saved",
-                      climbId: climb.id,
-                    }),
-                  ) ?? null
-                }
+                activity={entry.activity}
                 activityStatus={activityStatus}
-                climb={climb}
-                href={buildFilteredHref(
-                  "/climbs/saved",
-                  initialFilters,
-                  { id: climb.id },
-                )}
-                key={`saved-${climb.id}`}
-              />
-            ))}
-            {filteredDemoClimbs.map((climb) => (
-              <ClimbRow
-                activity={
-                  activitiesByClimb.get(
-                    climbActivityKey({
-                      climbKind: "demo",
-                      climbId: climb.slug,
-                    }),
-                  ) ?? null
-                }
-                activityStatus={activityStatus}
-                climb={climb}
-                href={buildFilteredHref(
-                  `/climbs/${climb.slug}`,
-                  initialFilters,
-                )}
-                key={climb.slug}
+                climb={entry.climb}
+                href={entry.href}
+                key={entry.key}
               />
             ))}
           </ul>
         ) : null}
 
-        {listState === "loading" ? (
+        {activityOptionsUnavailable ? null : listState === "loading" ? (
           <div className="climb-filter-loading" role="status">
             Loading climbs&hellip;
           </div>

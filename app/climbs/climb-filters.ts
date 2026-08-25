@@ -1,6 +1,8 @@
 export const MIN_FILTER_GRADE = 0;
 export const MAX_FILTER_GRADE = 17;
 export const MAX_FILTER_HOLDS = 200;
+export const MIN_FILTER_STARS = 0;
+export const MAX_FILTER_STARS = 5;
 
 const holdIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
@@ -9,6 +11,9 @@ export type ClimbFilters = {
   maxGrade: number;
   authors: string[];
   holdIds: string[];
+  hideSent: boolean;
+  minStars: number;
+  order: "newest" | "ascents";
 };
 
 export type FilterSearchParams = Record<
@@ -22,11 +27,26 @@ export type FilterableClimb = {
   holds: readonly { holdId?: string | null }[];
 };
 
+export type FilterableClimbActivity = {
+  averageRating: number;
+  ratingCount: number;
+  userRating: number | null;
+};
+
+export type OrderableClimb = {
+  activity: FilterableClimbActivity | null;
+  createdAt: number;
+  id: string;
+};
+
 export const DEFAULT_CLIMB_FILTERS: Readonly<ClimbFilters> = {
   minGrade: MIN_FILTER_GRADE,
   maxGrade: MAX_FILTER_GRADE,
   authors: [],
   holdIds: [],
+  hideSent: false,
+  minStars: MIN_FILTER_STARS,
+  order: "newest",
 };
 
 function valuesFor(
@@ -61,10 +81,23 @@ function normalizeAuthor(value: unknown) {
   return name && name.length <= 50 ? name : null;
 }
 
-function uniqueSorted(values: readonly string[]) {
-  return [...new Set(values)].sort((left, right) =>
-    left < right ? -1 : left > right ? 1 : 0,
+function authorKey(value: string) {
+  return value.toLocaleLowerCase("en-US");
+}
+
+function uniqueAuthors(values: readonly string[]) {
+  const byKey = new Map<string, string>();
+  values.forEach((value) => {
+    const key = authorKey(value);
+    if (!byKey.has(key)) byKey.set(key, value);
+  });
+  return [...byKey.values()].sort((left, right) =>
+    left.localeCompare(right, undefined, { sensitivity: "base" }),
   );
+}
+
+function uniqueSorted(values: readonly string[]) {
+  return [...new Set(values)].sort();
 }
 
 function normalizeGrade(value: number, fallback: number) {
@@ -81,6 +114,21 @@ function readGrade(values: readonly string[], fallback: number) {
   return normalizeGrade(Number(value), fallback);
 }
 
+function normalizeStars(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_CLIMB_FILTERS.minStars;
+  return Math.min(
+    MAX_FILTER_STARS,
+    Math.max(MIN_FILTER_STARS, Math.round(value)),
+  );
+}
+
+function readStars(values: readonly string[]) {
+  const value = values[0];
+  return value && /^\d+$/.test(value)
+    ? normalizeStars(Number(value))
+    : DEFAULT_CLIMB_FILTERS.minStars;
+}
+
 export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
   const firstGrade = normalizeGrade(
     filters.minGrade,
@@ -90,7 +138,7 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
     filters.maxGrade,
     DEFAULT_CLIMB_FILTERS.maxGrade,
   );
-  const authors = uniqueSorted(
+  const authors = uniqueAuthors(
     filters.authors.flatMap((value) => {
       const author = normalizeAuthor(value);
       return author ? [author] : [];
@@ -105,6 +153,9 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
     maxGrade: Math.max(firstGrade, secondGrade),
     authors,
     holdIds,
+    hideSent: filters.hideSent === true,
+    minStars: normalizeStars(filters.minStars),
+    order: filters.order === "ascents" ? "ascents" : "newest",
   };
 }
 
@@ -122,6 +173,9 @@ export function parseClimbFilters(
     ),
     authors: valuesFor(source, "author"),
     holdIds: valuesFor(source, "hold"),
+    hideSent: valuesFor(source, "sent")[0] === "hide",
+    minStars: readStars(valuesFor(source, "stars")),
+    order: valuesFor(source, "order")[0] === "ascents" ? "ascents" : "newest",
   });
 }
 
@@ -137,6 +191,13 @@ export function createClimbFilterSearchParams(filters: ClimbFilters) {
   }
   normalized.authors.forEach((author) => searchParams.append("author", author));
   normalized.holdIds.forEach((holdId) => searchParams.append("hold", holdId));
+  if (normalized.hideSent) searchParams.set("sent", "hide");
+  if (normalized.minStars !== DEFAULT_CLIMB_FILTERS.minStars) {
+    searchParams.set("stars", String(normalized.minStars));
+  }
+  if (normalized.order !== DEFAULT_CLIMB_FILTERS.order) {
+    searchParams.set("order", normalized.order);
+  }
 
   return searchParams;
 }
@@ -166,12 +227,27 @@ export function activeClimbFilterCount(filters: ClimbFilters) {
         normalized.maxGrade !== DEFAULT_CLIMB_FILTERS.maxGrade,
     ) +
     Number(normalized.authors.length > 0) +
-    Number(normalized.holdIds.length > 0)
+    Number(normalized.holdIds.length > 0) +
+    Number(normalized.hideSent) +
+    Number(normalized.minStars > MIN_FILTER_STARS) +
+    Number(normalized.order !== DEFAULT_CLIMB_FILTERS.order)
   );
 }
 
 export function hasActiveClimbFilters(filters: ClimbFilters) {
   return activeClimbFilterCount(filters) > 0;
+}
+
+export function hasClimbFilterConstraints(filters: ClimbFilters) {
+  const normalized = normalizeClimbFilters(filters);
+  return (
+    normalized.minGrade !== DEFAULT_CLIMB_FILTERS.minGrade ||
+    normalized.maxGrade !== DEFAULT_CLIMB_FILTERS.maxGrade ||
+    normalized.authors.length > 0 ||
+    normalized.holdIds.length > 0 ||
+    normalized.hideSent ||
+    normalized.minStars > MIN_FILTER_STARS
+  );
 }
 
 function gradeNumber(grade: string) {
@@ -195,7 +271,9 @@ export function matchesClimbFilters(
 
   if (
     normalized.authors.length > 0 &&
-    !normalized.authors.includes(climb.setter)
+    !normalized.authors.some(
+      (author) => authorKey(author) === authorKey(climb.setter),
+    )
   ) {
     return false;
   }
@@ -214,6 +292,40 @@ export function matchesClimbFilters(
   return true;
 }
 
+export function matchesClimbActivityFilters(
+  activity: FilterableClimbActivity | null,
+  filters: ClimbFilters,
+) {
+  const normalized = normalizeClimbFilters(filters);
+  if (normalized.hideSent && activity?.userRating !== null && activity?.userRating !== undefined) {
+    return false;
+  }
+  if (
+    normalized.minStars > MIN_FILTER_STARS &&
+    (!activity || activity.averageRating < normalized.minStars)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function compareClimbsByOrder(
+  left: OrderableClimb,
+  right: OrderableClimb,
+  filters: ClimbFilters,
+) {
+  const normalized = normalizeClimbFilters(filters);
+  if (normalized.order === "ascents") {
+    const ascentDifference =
+      (right.activity?.ratingCount ?? 0) -
+      (left.activity?.ratingCount ?? 0);
+    if (ascentDifference !== 0) return ascentDifference;
+  }
+
+  const dateDifference = right.createdAt - left.createdAt;
+  return dateDifference || left.id.localeCompare(right.id);
+}
+
 export function filterClimbs<T extends FilterableClimb>(
   climbs: readonly T[],
   filters: ClimbFilters,
@@ -222,7 +334,7 @@ export function filterClimbs<T extends FilterableClimb>(
 }
 
 export function uniqueFilterAuthors(values: readonly string[]) {
-  return uniqueSorted(
+  return uniqueAuthors(
     values.flatMap((value) => {
       const author = normalizeAuthor(value);
       return author ? [author] : [];
