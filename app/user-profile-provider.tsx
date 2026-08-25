@@ -199,7 +199,7 @@ export default function UserProfileProvider({ children }: { children: ReactNode 
               id="user-name-input"
               maxLength={MAX_USER_NAME_LENGTH}
               onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Alex"
+              placeholder="Your name"
               ref={inputRef}
               required
               type="text"

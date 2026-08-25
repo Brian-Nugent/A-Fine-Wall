@@ -1,11 +1,5 @@
 export const CLIMB_KINDS = ["demo", "saved"] as const;
-export const DEMO_CLIMB_IDS = [
-  "first-light",
-  "barn-door-protocol",
-  "quiet-feet",
-  "static-bloom",
-  "redline",
-] as const;
+export const DEMO_CLIMB_IDS = [] as const;
 
 export type ClimbKind = (typeof CLIMB_KINDS)[number];
 export type ClimbReference = {

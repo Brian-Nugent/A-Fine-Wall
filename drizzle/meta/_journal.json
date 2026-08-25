@@ -29,6 +29,13 @@
       "when": 1787630933227,
       "tag": "0003_high_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787632929287,
+      "tag": "0004_remove_sample_climbs",
+      "breakpoints": true
     }
   ]
 }

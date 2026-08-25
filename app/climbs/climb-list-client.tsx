@@ -14,6 +14,7 @@ import {
   hasActiveClimbFilters,
   type ClimbFilters,
 } from "./climb-filters";
+import { getClimbListState } from "./climb-list-state";
 import type { SavedClimb } from "./saved-climbs";
 import { loadClimbActivities } from "./send-api";
 import { loadSyncedClimbs } from "./synced-climbs";
@@ -174,6 +175,12 @@ export default function ClimbListClient({
   const activeFilterCount = activeClimbFilterCount(initialFilters);
   const hasActiveFilters = hasActiveClimbFilters(initialFilters);
   const isLoadingClimbs = loadStatus === "loading";
+  const listState = getClimbListState({
+    hasActiveFilters,
+    isLoading: isLoadingClimbs,
+    totalClimbs,
+    visibleClimbs,
+  });
   const activityStatus =
     activityState.profileId === profile?.id
       ? activityState.status
@@ -295,11 +302,19 @@ export default function ClimbListClient({
           </ul>
         ) : null}
 
-        {isLoadingClimbs ? (
+        {listState === "loading" ? (
           <div className="climb-filter-loading" role="status">
             Loading climbs&hellip;
           </div>
-        ) : visibleClimbs === 0 ? (
+        ) : listState === "empty" ? (
+          <div className="climb-filter-empty">
+            <h2>No climbs yet</h2>
+            <p>Set the first climb on this wall to get started.</p>
+            <a className="primary-button" href="/set-climb">
+              Set Climb
+            </a>
+          </div>
+        ) : listState === "filtered-empty" ? (
           <div className="climb-filter-empty">
             <h2>No climbs match these filters</h2>
             <p>Try a wider grade range or remove a hold or author.</p>

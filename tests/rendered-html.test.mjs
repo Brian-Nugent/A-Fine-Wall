@@ -22,6 +22,7 @@ import {
   serializeClimbFilters,
   uniqueFilterAuthors,
 } from "../app/climbs/climb-filters.ts";
+import { getClimbListState } from "../app/climbs/climb-list-state.ts";
 import {
   climbActivityKey,
   DEMO_CLIMB_IDS,
@@ -502,7 +503,7 @@ test("renders the minimal home screen", async () => {
   assert.match(html, />View Climbs<\/a>/i);
 });
 
-test("renders five linked climbs with names and grades", async () => {
+test("renders the shared-climb shell without prototype climbs", async () => {
   const response = await render("/climbs");
   assert.equal(response.status, 200);
 
@@ -511,17 +512,18 @@ test("renders five linked climbs with names and grades", async () => {
   assert.match(html, />Wall Setup<\/a>/i);
   assert.match(html, /href="\/set-climb"/i);
   assert.match(html, />Set Climb<\/a>/i);
-  assert.match(html, /Rating loading/);
-  for (const [slug, name, grade] of [
-    ["first-light", "First Light", "V2"],
-    ["barn-door-protocol", "Barn Door Protocol", "V5"],
-    ["quiet-feet", "Quiet Feet", "V3"],
-    ["static-bloom", "Static Bloom", "V4"],
-    ["redline", "Redline", "V6"],
+  assert.match(html, /href="\/climbs\/filter"/i);
+  assert.match(html, /Loading climbs/);
+  for (const [slug, name, setter] of [
+    ["first-light", "First Light", "Ben"],
+    ["barn-door-protocol", "Barn Door Protocol", "Maya"],
+    ["quiet-feet", "Quiet Feet", "Sam"],
+    ["static-bloom", "Static Bloom", "Lena"],
+    ["redline", "Redline", "Jordan"],
   ]) {
-    assert.match(html, new RegExp(`href="/climbs/${slug}"`, "i"));
-    assert.match(html, new RegExp(name));
-    assert.match(html, new RegExp(`>${grade}<`));
+    assert.doesNotMatch(html, new RegExp(`href="/climbs/${slug}"`, "i"));
+    assert.doesNotMatch(html, new RegExp(name));
+    assert.doesNotMatch(html, new RegExp(`Set by ${setter}`));
   }
 });
 
@@ -532,10 +534,9 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /href="\/climbs\/filter"/i);
   assert.match(html, />Filter<\/a>/i);
 
-  response = await render("/climbs?min=3&max=3&author=Sam");
+  response = await render("/climbs?min=3&max=3");
   assert.equal(response.status, 200);
   html = await response.text();
-  assert.match(html, /Quiet Feet/);
   assert.match(html, /Loading climbs/);
   assert.doesNotMatch(html, /First Light/);
   assert.doesNotMatch(html, /Barn Door Protocol/);
@@ -548,7 +549,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /Loading climbs/);
   assert.doesNotMatch(html, /No climbs match these filters/);
 
-  response = await render("/climbs/filter?min=2&max=9&author=Sam");
+  response = await render("/climbs/filter?min=2&max=9");
   assert.equal(response.status, 200);
   html = await response.text();
   assert.match(html, /<h1 id="filter-heading">Filter climbs<\/h1>/);
@@ -557,7 +558,9 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /Maximum/);
   assert.match(html, /Choose Holds/);
   assert.match(html, /Author/);
-  assert.match(html, /Sam/);
+  for (const fakeAuthor of ["Ben", "Maya", "Sam", "Lena", "Jordan"]) {
+    assert.doesNotMatch(html, new RegExp(`>${fakeAuthor}<`));
+  }
 
   response = await render("/climbs/filter/holds?hold=preset-one");
   assert.equal(response.status, 200);
@@ -640,35 +643,68 @@ test("normalizes, serializes, and combines climb filters", () => {
   );
 });
 
+test("distinguishes an empty wall from an empty filtered result", () => {
+  assert.equal(
+    getClimbListState({
+      hasActiveFilters: false,
+      isLoading: true,
+      totalClimbs: 0,
+      visibleClimbs: 0,
+    }),
+    "loading",
+  );
+  assert.equal(
+    getClimbListState({
+      hasActiveFilters: false,
+      isLoading: false,
+      totalClimbs: 0,
+      visibleClimbs: 0,
+    }),
+    "empty",
+  );
+  assert.equal(
+    getClimbListState({
+      hasActiveFilters: true,
+      isLoading: false,
+      totalClimbs: 3,
+      visibleClimbs: 0,
+    }),
+    "filtered-empty",
+  );
+  assert.equal(
+    getClimbListState({
+      hasActiveFilters: false,
+      isLoading: false,
+      totalClimbs: 3,
+      visibleClimbs: 3,
+    }),
+    "ready",
+  );
+});
+
 test("validates and formats collision-safe climb activity", () => {
   assert.deepEqual(
     DEMO_CLIMB_IDS,
     demoClimbs.map((climb) => climb.slug),
   );
-  assert.deepEqual(DEMO_CLIMB_IDS, [
-    "first-light",
-    "barn-door-protocol",
-    "quiet-feet",
-    "static-bloom",
-    "redline",
-  ]);
+  assert.deepEqual(DEMO_CLIMB_IDS, []);
   assert.equal(
     isClimbReference({ climbKind: "demo", climbId: "first-light" }),
-    true,
+    false,
   );
   assert.equal(
     isClimbReference({ climbKind: "demo", climbId: "not-a-demo" }),
     false,
   );
   assert.notEqual(
-    climbActivityKey({ climbKind: "demo", climbId: "first-light" }),
     climbActivityKey({ climbKind: "saved", climbId: "first-light" }),
+    climbActivityKey({ climbKind: "saved", climbId: "first-light:copy" }),
   );
 
   const payload = {
     activities: [
       {
-        climbKind: "demo",
+        climbKind: "saved",
         climbId: "first-light",
         averageRating: 4.5,
         ratingCount: 2,
@@ -680,7 +716,7 @@ test("validates and formats collision-safe climb activity", () => {
   assert.deepEqual(activities, payload.activities);
   assert.deepEqual(
     findClimbActivity(activities, {
-      climbKind: "demo",
+      climbKind: "saved",
       climbId: "first-light",
     }),
     payload.activities[0],
@@ -690,6 +726,12 @@ test("validates and formats collision-safe climb activity", () => {
   assert.equal(
     parseClimbActivitiesPayload({
       activities: [{ ...payload.activities[0], ratingCount: 0 }],
+    }),
+    null,
+  );
+  assert.equal(
+    parseClimbActivitiesPayload({
+      activities: [{ ...payload.activities[0], climbKind: "demo" }],
     }),
     null,
   );
@@ -759,69 +801,37 @@ test("renders the browser-saved climb detail shell", async () => {
   assert.match(html, /Loading climb/);
 });
 
-test("renders every climb wall with its complete route overlay", async () => {
-  for (const [slug, name, markerCount] of [
-    ["first-light", "First Light", 9],
-    ["barn-door-protocol", "Barn Door Protocol", 10],
-    ["quiet-feet", "Quiet Feet", 10],
-    ["static-bloom", "Static Bloom", 11],
-    ["redline", "Redline", 10],
+test("retires every prototype climb and rating route", async () => {
+  for (const slug of [
+    "first-light",
+    "barn-door-protocol",
+    "quiet-feet",
+    "static-bloom",
+    "redline",
   ]) {
-    const response = await render(`/climbs/${slug}`);
-    assert.equal(response.status, 200);
+    let response = await render(`/climbs/${slug}`);
+    assert.equal(response.status, 404);
 
-    const html = await response.text();
-    assert.match(html, new RegExp(name));
-    assert.match(html, /src="\/api\/wall-photo"/);
-    assert.match(html, /class="wall-map wall-map--route"/);
-    assert.match(html, /hold-marker--start/);
-    assert.match(html, /hold-marker--hand/);
-    assert.match(html, /hold-marker--finish/);
-    assert.match(html, /Hold marker legend/);
-    assert.match(html, />Sent<\/a>/);
-    assert.match(
-      html,
-      new RegExp(
-        `href="/climbs/sent\\?kind=demo&amp;id=${slug}"`,
-        "i",
-      ),
-    );
-    assert.match(html, /green-circled start/);
-    assert.doesNotMatch(html, /hold-marker-label/);
-    assert.equal(
-      (
-        html.match(
-          /<span aria-hidden="true" class="hold-marker hold-marker--/g,
-        ) ?? []
-      ).length,
-      markerCount,
-    );
+    response = await render(`/climbs/sent?kind=demo&id=${slug}`);
+    assert.equal(response.status, 404);
   }
 });
 
-test("renders the accessible five-star send page and preserves filters", async () => {
+test("renders the saved-climb send shell and preserves filters", async () => {
   const response = await render(
-    "/climbs/sent?kind=demo&id=first-light&min=2&max=6&author=Ben",
+    "/climbs/sent?kind=saved&id=test-climb&min=2&max=6&author=Sheafy",
   );
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /<h1 id="sent-heading">Rate your send<\/h1>/);
-  assert.match(html, /First Light/);
-  assert.match(html, /How many stars would you give this climb/);
-  assert.equal((html.match(/type="radio"/g) ?? []).length, 5);
-  for (let rating = 1; rating <= 5; rating += 1) {
-    assert.match(html, new RegExp(`aria-label="${rating} stars?"`));
-    assert.match(html, new RegExp(`value="${rating}"`));
-  }
-  assert.match(html, />Save Send<\/button>/);
+  assert.match(html, /Loading climb/);
   assert.match(
     html,
-    /href="\/climbs\/first-light\?min=2&amp;max=6&amp;author=Ben"/,
+    /href="\/climbs\/saved\?min=2&amp;max=6&amp;author=Sheafy&amp;id=test-climb"/,
   );
 
   const notFoundResponse = await render(
-    "/climbs/sent?kind=demo&id=unknown-demo",
+    "/climbs/sent?kind=demo&id=first-light",
   );
   assert.equal(notFoundResponse.status, 404);
 });
@@ -1081,6 +1091,18 @@ test("creates and reloads password-free user profiles", async () => {
     worker.fetch(request, environment, createContext());
 
   let response = await fetchAppData(
+    new Request("http://localhost/api/profiles"),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { profiles: [] });
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs"),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { climbs: [] });
+
+  response = await fetchAppData(
     new Request("http://localhost/api/profiles", {
       method: "POST",
       headers: {
@@ -1193,14 +1215,25 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
     database.seedProfile(profile);
   }
   database.seedClimb({
-    id: "first-light",
-    name: "Saved First Light",
+    id: "saved-route-one",
+    name: "Saved Route One",
     grade: "V4",
     setter: "Alex",
     createdAt: 10,
     holds: [
       { x: 20, y: 80, size: 7, role: "start" },
       { x: 70, y: 10, size: 7, role: "finish" },
+    ],
+  });
+  database.seedClimb({
+    id: "saved-route-two",
+    name: "Saved Route Two",
+    grade: "V6",
+    setter: "Blair",
+    createdAt: 11,
+    holds: [
+      { x: 25, y: 85, size: 7, role: "start" },
+      { x: 65, y: 15, size: 7, role: "finish" },
     ],
   });
 
@@ -1215,8 +1248,8 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
         body: JSON.stringify(body),
       }),
     );
-  const demoSend = (profileId, rating, climbId = "first-light") =>
-    send({ climbKind: "demo", climbId, profileId, rating });
+  const savedSend = (profileId, rating, climbId = "saved-route-one") =>
+    send({ climbKind: "saved", climbId, profileId, rating });
 
   let response = await fetchAppData(
     new Request("http://localhost/api/sends?profileId=profile-alex"),
@@ -1225,46 +1258,46 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   assert.deepEqual((await response.json()).activities, []);
   assert.equal(response.headers.get("cache-control"), "no-store");
 
-  response = await demoSend("profile-alex", 1);
+  response = await savedSend("profile-alex", 1);
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).activities, [
     {
-      climbKind: "demo",
-      climbId: "first-light",
+      climbKind: "saved",
+      climbId: "saved-route-one",
       averageRating: 1,
       ratingCount: 1,
       userRating: 1,
     },
   ]);
 
-  response = await demoSend("profile-blair", 5);
+  response = await savedSend("profile-blair", 5);
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).activities[0], {
-    climbKind: "demo",
-    climbId: "first-light",
+    climbKind: "saved",
+    climbId: "saved-route-one",
     averageRating: 3,
     ratingCount: 2,
     userRating: 5,
   });
 
-  response = await demoSend("profile-alex", 4);
+  response = await savedSend("profile-alex", 4);
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).activities[0], {
-    climbKind: "demo",
-    climbId: "first-light",
+    climbKind: "saved",
+    climbId: "saved-route-one",
     averageRating: 4.5,
     ratingCount: 2,
     userRating: 4,
   });
   assert.equal(database.sendCount(), 2);
 
-  response = await demoSend("profile-alex", 4, "quiet-feet");
+  response = await savedSend("profile-alex", 4, "saved-route-two");
   assert.equal(response.status, 200);
-  response = await demoSend("profile-alex-two", 2, "quiet-feet");
+  response = await savedSend("profile-alex-two", 2, "saved-route-two");
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).activities[0], {
-    climbKind: "demo",
-    climbId: "quiet-feet",
+    climbKind: "saved",
+    climbId: "saved-route-two",
     averageRating: 2,
     ratingCount: 1,
     userRating: 2,
@@ -1277,26 +1310,20 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   assert.equal(
     duplicateProfileActivities.find(
       (activity) =>
-        activity.climbKind === "demo" && activity.climbId === "quiet-feet",
+        activity.climbKind === "saved" &&
+        activity.climbId === "saved-route-two",
     )?.userRating,
     2,
   );
 
-  response = await send({
-    climbKind: "saved",
-    climbId: "first-light",
-    profileId: "profile-alex",
-    rating: 5,
-  });
-  assert.equal(response.status, 200);
-  assert.equal(database.sendCount(), 4);
+  assert.equal(database.sendCount(), 3);
 
   response = await fetchAppData(
     new Request("http://localhost/api/sends?profileId=profile-casey"),
   );
   assert.equal(response.status, 200);
   const caseyActivities = (await response.json()).activities;
-  assert.equal(caseyActivities.length, 3);
+  assert.equal(caseyActivities.length, 2);
   assert.equal(
     caseyActivities.every((activity) => activity.userRating === null),
     true,
@@ -1304,25 +1331,27 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   assert.equal(
     caseyActivities.some(
       (activity) =>
-        activity.climbKind === "demo" && activity.climbId === "first-light",
+        activity.climbKind === "saved" &&
+        activity.climbId === "saved-route-one",
     ),
     true,
   );
   assert.equal(
     caseyActivities.some(
       (activity) =>
-        activity.climbKind === "saved" && activity.climbId === "first-light",
+        activity.climbKind === "saved" &&
+        activity.climbId === "saved-route-two",
     ),
     true,
   );
 
   for (const rating of [0, 6, 1.5, "5", null, true]) {
-    response = await demoSend("profile-alex", rating);
+    response = await savedSend("profile-alex", rating);
     assert.equal(response.status, 400);
   }
   response = await send({
     climbKind: "demo",
-    climbId: "not-a-demo",
+    climbId: "first-light",
     profileId: "profile-alex",
     rating: 3,
   });
@@ -1334,11 +1363,11 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
     rating: 3,
   });
   assert.equal(response.status, 404);
-  response = await demoSend("unknown-profile", 3);
+  response = await savedSend("unknown-profile", 3);
   assert.equal(response.status, 400);
   response = await send({
-    climbKind: "demo",
-    climbId: "first-light",
+    climbKind: "saved",
+    climbId: "saved-route-one",
     profileId: "profile-alex",
     rating: 3,
     averageRating: 5,
@@ -1346,8 +1375,8 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   assert.equal(response.status, 400);
   response = await send(
     {
-      climbKind: "demo",
-      climbId: "first-light",
+      climbKind: "saved",
+      climbId: "saved-route-one",
       profileId: "profile-alex",
       rating: 3,
     },
@@ -1357,8 +1386,8 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
 
   response = await send(
     {
-      climbKind: "demo",
-      climbId: "first-light",
+      climbKind: "saved",
+      climbId: "saved-route-one",
       profileId: "profile-alex",
       rating: 3,
     },
@@ -1367,17 +1396,17 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   assert.equal(response.status, 403);
 
   response = await fetchAppData(
-    new Request("http://localhost/api/climbs/first-light", {
+    new Request("http://localhost/api/climbs/saved-route-one", {
       method: "DELETE",
       headers: { Origin: "http://localhost" },
     }),
   );
   assert.equal(response.status, 204);
-  assert.equal(database.sendCount(), 3);
+  assert.equal(database.sendCount(), 1);
 
   response = await send({
     climbKind: "saved",
-    climbId: "first-light",
+    climbId: "saved-route-one",
     profileId: "profile-alex",
     rating: 4,
   });
@@ -1388,13 +1417,18 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   );
   const alexActivities = (await response.json()).activities;
   assert.equal(
-    alexActivities.some((activity) => activity.climbKind === "saved"),
+    alexActivities.some(
+      (activity) =>
+        activity.climbKind === "saved" &&
+        activity.climbId === "saved-route-one",
+    ),
     false,
   );
   assert.equal(
     alexActivities.some(
       (activity) =>
-        activity.climbKind === "demo" && activity.climbId === "first-light",
+        activity.climbKind === "saved" &&
+        activity.climbId === "saved-route-two",
     ),
     true,
   );
@@ -1809,6 +1843,26 @@ test("includes the wall and social preview image assets", async () => {
     assert.ok(asset.isFile());
     assert.ok(asset.size > 100_000);
   }
+});
+
+test("cleanup migration removes only retired prototype send activity", async () => {
+  const migration = await readFile(
+    new URL("../drizzle/0004_remove_sample_climbs.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /DELETE FROM `climb_sends`/);
+  assert.match(migration, /`climb_kind` = 'demo'/);
+  for (const slug of [
+    "first-light",
+    "barn-door-protocol",
+    "quiet-feet",
+    "static-bloom",
+    "redline",
+  ]) {
+    assert.match(migration, new RegExp(`'${slug}'`));
+  }
+  assert.doesNotMatch(migration, /DELETE FROM `profiles`/);
+  assert.doesNotMatch(migration, /DELETE FROM `climbs`/);
 });
 
 test("shows only clean colored circles for selected route holds", async () => {
