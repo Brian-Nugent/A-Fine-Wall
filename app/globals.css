@@ -828,6 +828,26 @@ select:focus-visible {
   font-weight: 600;
 }
 
+.back-link--loading {
+  color: var(--muted);
+  cursor: wait;
+}
+
+.back-link-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: back-link-spin 700ms linear infinite;
+}
+
+@keyframes back-link-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .detail-header > span {
   font-size: 0.85rem;
   font-weight: 700;
@@ -1913,6 +1933,10 @@ select:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .back-link-spinner {
+    animation: none;
+  }
+
   .primary-button,
   .climb-row,
   .filter-link,

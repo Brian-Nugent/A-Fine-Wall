@@ -5,6 +5,7 @@ import {
   useId,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import {
@@ -40,12 +41,48 @@ function DetailShell({
   endAction?: ReactNode;
   status?: string;
 }) {
+  const [isLeaving, setIsLeaving] = useState(false);
+
+  function leaveForClimbs(event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    if (isLeaving) return;
+    setIsLeaving(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.location.assign(backHref));
+    });
+  }
+
   return (
     <main className="app-page detail-page">
       <header className="detail-header">
-        <a className="back-link" href={backHref}>
-          <span aria-hidden="true">&larr;</span>
-          Climbs
+        <a
+          aria-busy={isLeaving ? "true" : undefined}
+          aria-disabled={isLeaving ? "true" : undefined}
+          className={`back-link${isLeaving ? " back-link--loading" : ""}`}
+          href={backHref}
+          onClick={leaveForClimbs}
+        >
+          {isLeaving ? (
+            <>
+              <span aria-hidden="true" className="back-link-spinner" />
+              Loading climbs&hellip;
+            </>
+          ) : (
+            <>
+              <span aria-hidden="true">&larr;</span>
+              Climbs
+            </>
+          )}
         </a>
         {endAction ?? <span>{status}</span>}
       </header>

@@ -902,6 +902,9 @@ test("puts climb editing and deletion in the detail overflow menu", async () => 
   assert.match(source, />\s*Edit climb\s*</);
   assert.match(source, /Delete climb/);
   assert.match(source, /buildFilteredHref\("\/set-climb"/);
+  assert.match(source, /aria-busy=\{isLeaving/);
+  assert.match(source, /Loading climbs&hellip;/);
+  assert.match(source, /requestAnimationFrame/);
   assert.doesNotMatch(source, /className="climb-detail-actions"/);
   assert.doesNotMatch(source, /className="delete-climb-button"/);
 });
