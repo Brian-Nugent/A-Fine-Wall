@@ -196,7 +196,6 @@ select {
 .wall-photo-link:focus-visible,
 .change-photo-link:focus-visible,
 .photo-file-input:focus-visible,
-.photo-reset-button:focus-visible,
 .wall-hold-spot:focus-visible,
 .wall-hold-add-button:focus-visible,
 .wall-hold-remove-button:focus-visible,
@@ -1609,20 +1608,11 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.photo-meta,
-.photo-notice {
+.photo-meta {
   margin: 0;
   font-size: 0.78rem;
   line-height: 1.45;
-}
-
-.photo-meta {
   color: var(--muted);
-}
-
-.photo-notice {
-  color: var(--start);
-  font-weight: 650;
 }
 
 .photo-actions {
@@ -1649,22 +1639,6 @@ select:focus-visible {
 .primary-button:disabled:hover {
   background: var(--ink);
   color: #ffffff;
-}
-
-.photo-reset-button {
-  min-height: 2.75rem;
-  padding: 0.6rem 1rem;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.photo-reset-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .wall-holds-page {

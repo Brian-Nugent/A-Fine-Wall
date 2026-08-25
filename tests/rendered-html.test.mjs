@@ -866,7 +866,7 @@ test("renders the wall photo upload screen", async () => {
   assert.match(html, />Continue to Mark Holds<\/button>/);
   assert.match(html, /href="\/wall-holds"/);
   assert.match(html, />Edit Hold Spots<\/a>/);
-  assert.match(html, />Restore Test Photo<\/button>/);
+  assert.doesNotMatch(html, /Restore Test Photo/);
   assert.match(html, /JPG, PNG, or WebP/);
   assert.match(html, /Existing hold spots and climbs will carry over/);
 });

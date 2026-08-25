@@ -21,7 +21,6 @@ export default function WallPhotoPage() {
   const [previewSrc, setPreviewSrc] = useState(WALL_PHOTO_ENDPOINT);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(
@@ -46,7 +45,6 @@ export default function WallPhotoPage() {
   function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     setError("");
-    setNotice("");
 
     if (!file) return;
     if (!supportedTypes.has(file.type)) {
@@ -73,7 +71,6 @@ export default function WallPhotoPage() {
     if (!selectedFile) return;
 
     setError("");
-    setNotice("");
     setIsSaving(true);
     try {
       const response = await fetch(WALL_PHOTO_ENDPOINT, {
@@ -96,40 +93,6 @@ export default function WallPhotoPage() {
           ? uploadError.message
           : "The wall photo could not be uploaded.",
       );
-      setIsSaving(false);
-    }
-  }
-
-  async function restoreTestPhoto() {
-    if (
-      !window.confirm(
-        "Restore the test photo? Your uploaded wall photo will be deleted.",
-      )
-    ) {
-      return;
-    }
-
-    setError("");
-    setNotice("");
-    setIsSaving(true);
-    try {
-      const response = await fetch(WALL_PHOTO_ENDPOINT, { method: "DELETE" });
-      if (!response.ok) {
-        const result = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(result?.error || "The test photo could not be restored.");
-      }
-
-      clearSelectedPhoto(DEFAULT_WALL_PHOTO);
-      setNotice("The test photo is active. Your hold spots and climbs were kept.");
-    } catch (restoreError) {
-      setError(
-        restoreError instanceof Error
-          ? restoreError.message
-          : "The test photo could not be restored.",
-      );
-    } finally {
       setIsSaving(false);
     }
   }
@@ -192,7 +155,6 @@ export default function WallPhotoPage() {
           </p>
         ) : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-        {notice ? <p className="photo-notice" role="status">{notice}</p> : null}
 
         <div className="photo-actions">
           <button
@@ -206,14 +168,6 @@ export default function WallPhotoPage() {
           <a className="secondary-button photo-spots-link" href="/wall-holds">
             Edit Hold Spots
           </a>
-          <button
-            className="photo-reset-button"
-            disabled={isSaving}
-            onClick={restoreTestPhoto}
-            type="button"
-          >
-            Restore Test Photo
-          </button>
         </div>
       </div>
     </main>
