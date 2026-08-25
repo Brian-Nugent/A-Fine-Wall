@@ -4,6 +4,7 @@ import {
   parseClimbFilters,
   type FilterSearchParams,
 } from "../climb-filters";
+import ClimbActivityPanel from "../climb-activity-panel";
 import { climbs, getClimb } from "../data";
 import WallPhoto from "../wall-photo";
 
@@ -26,6 +27,7 @@ export default async function ClimbPage({
   const startCount = climb.holds.filter((hold) => hold.role === "start").length;
   const handCount = climb.holds.filter((hold) => hold.role === "hand").length;
   const finishCount = climb.holds.filter((hold) => hold.role === "finish").length;
+  const filters = parseClimbFilters(rawFilters);
 
   return (
     <main className="app-page detail-page">
@@ -34,7 +36,7 @@ export default async function ClimbPage({
           className="back-link"
           href={buildFilteredHref(
             "/climbs",
-            parseClimbFilters(rawFilters),
+            filters,
           )}
         >
           <span aria-hidden="true">&larr;</span>
@@ -81,6 +83,11 @@ export default async function ClimbPage({
           <span><i className="legend-dot legend-dot--hand" />Climb</span>
           <span><i className="legend-dot legend-dot--finish" />Finish</span>
         </div>
+
+        <ClimbActivityPanel
+          filters={filters}
+          reference={{ climbKind: "demo", climbId: climb.slug }}
+        />
       </section>
     </main>
   );

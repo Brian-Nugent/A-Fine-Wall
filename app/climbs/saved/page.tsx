@@ -12,13 +12,15 @@ export default async function SavedClimbPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const id = resolvedSearchParams.id;
+  const filters = parseClimbFilters(resolvedSearchParams);
   return (
     <SavedClimbDetail
       backHref={buildFilteredHref(
         "/climbs",
-        parseClimbFilters(resolvedSearchParams),
+        filters,
       )}
       climbId={typeof id === "string" ? id : ""}
+      filters={filters}
     />
   );
 }

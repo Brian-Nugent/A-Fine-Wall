@@ -17,6 +17,8 @@ import {
   type WallHold,
 } from "../wall-holds";
 import WallPhoto from "../wall-photo";
+import ClimbActivityPanel from "../climb-activity-panel";
+import type { ClimbFilters } from "../climb-filters";
 
 function DetailShell({
   backHref,
@@ -44,9 +46,11 @@ function DetailShell({
 export default function SavedClimbDetail({
   backHref,
   climbId,
+  filters,
 }: {
   backHref: string;
   climbId: string;
+  filters: ClimbFilters;
 }) {
   const [climb, setClimb] = useState<SavedClimb | null | undefined>(undefined);
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
@@ -193,6 +197,11 @@ export default function SavedClimbDetail({
           <span><i className="legend-dot legend-dot--hand" />Climb</span>
           <span><i className="legend-dot legend-dot--finish" />Finish</span>
         </div>
+
+        <ClimbActivityPanel
+          filters={filters}
+          reference={{ climbKind: "saved", climbId: climb.id }}
+        />
 
         <div className="climb-detail-actions">
           <button

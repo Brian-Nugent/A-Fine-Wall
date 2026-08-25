@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  climbActivityKey,
+  formatAverageRating,
+  type ClimbActivity,
+} from "./climb-activity";
 import { climbs } from "./data";
 import {
   activeClimbFilterCount,
@@ -10,22 +15,70 @@ import {
   type ClimbFilters,
 } from "./climb-filters";
 import type { SavedClimb } from "./saved-climbs";
+import { loadClimbActivities } from "./send-api";
 import { loadSyncedClimbs } from "./synced-climbs";
 import { useActiveUser } from "../user-profile-provider";
 
 function ClimbRow({
+  activity,
+  activityStatus,
   climb,
   href,
 }: {
+  activity: ClimbActivity | null;
+  activityStatus: "loading" | "ready" | "error";
   climb: Pick<SavedClimb, "name" | "grade" | "setter">;
   href: string;
 }) {
+  let ratingLabel = "Rating loading";
+  let ratingContent = (
+    <>
+      <span aria-hidden="true">&#9733;</span> &mdash;
+    </>
+  );
+  if (activityStatus === "error") {
+    ratingLabel = "Rating unavailable";
+    ratingContent = <>Rating unavailable</>;
+  } else if (activityStatus === "ready" && activity) {
+    const average = formatAverageRating(activity.averageRating);
+    ratingLabel = `Average rating ${average} out of 5 from ${activity.ratingCount} ${activity.ratingCount === 1 ? "rating" : "ratings"}`;
+    ratingContent = (
+      <>
+        <span aria-hidden="true">&#9733;</span> {average} ({activity.ratingCount})
+      </>
+    );
+  } else if (activityStatus === "ready") {
+    ratingLabel = "No ratings yet";
+    ratingContent = (
+      <>
+        <span aria-hidden="true">&#9734;</span> No ratings
+      </>
+    );
+  }
+
   return (
     <li>
       <a className="climb-row" href={href}>
         <span className="climb-row-copy">
-          <strong>{climb.name}</strong>
-          <span>Set by {climb.setter}</span>
+          <strong>
+            <span className="climb-name-text">{climb.name}</span>
+            {activity?.userRating ? (
+              <span
+                aria-label="Sent by you"
+                className="sent-check"
+                title="Sent by you"
+              >
+                <span aria-hidden="true">&#10003;</span>
+              </span>
+            ) : null}
+          </strong>
+          <span className="climb-row-subline">
+            <span className="climb-row-setter">Set by {climb.setter}</span>
+            <span aria-hidden="true">&middot;</span>
+            <span aria-label={ratingLabel} className="climb-row-rating">
+              {ratingContent}
+            </span>
+          </span>
         </span>
         <span className="climb-row-meta">
           <strong>{climb.grade}</strong>
@@ -47,6 +100,11 @@ export default function ClimbListClient({
     "loading",
   );
   const [sharedLoadFailed, setSharedLoadFailed] = useState(false);
+  const [activityState, setActivityState] = useState<{
+    profileId: string | null;
+    status: "loading" | "ready" | "error";
+    activities: ClimbActivity[];
+  }>({ profileId: null, status: "loading", activities: [] });
 
   useEffect(() => {
     if (!profile) return;
@@ -79,6 +137,36 @@ export default function ClimbListClient({
     };
   }, [profile]);
 
+  useEffect(() => {
+    if (!profile) return;
+    const controller = new AbortController();
+    let isActive = true;
+
+    void loadClimbActivities(profile.id, controller.signal)
+      .then((activities) => {
+        if (!isActive) return;
+        setActivityState({
+          profileId: profile.id,
+          status: "ready",
+          activities,
+        });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (!isActive) return;
+        setActivityState({
+          profileId: profile.id,
+          status: "error",
+          activities: [],
+        });
+      });
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [profile]);
+
   const filteredSavedClimbs = filterClimbs(savedClimbs, initialFilters);
   const filteredDemoClimbs = filterClimbs(climbs, initialFilters);
   const totalClimbs = climbs.length + savedClimbs.length;
@@ -86,6 +174,15 @@ export default function ClimbListClient({
   const activeFilterCount = activeClimbFilterCount(initialFilters);
   const hasActiveFilters = hasActiveClimbFilters(initialFilters);
   const isLoadingClimbs = loadStatus === "loading";
+  const activityStatus =
+    activityState.profileId === profile?.id
+      ? activityState.status
+      : "loading";
+  const activitiesByClimb = new Map(
+    (activityStatus === "ready" ? activityState.activities : []).map(
+      (activity) => [climbActivityKey(activity), activity],
+    ),
+  );
 
   return (
     <main className="app-page">
@@ -148,10 +245,25 @@ export default function ClimbListClient({
           </div>
         ) : null}
 
+        {activityStatus === "error" ? (
+          <div className="climb-rating-notice" role="status">
+            Ratings could not be loaded. The climb list is still available.
+          </div>
+        ) : null}
+
         {visibleClimbs > 0 ? (
           <ul className="climb-list">
             {filteredSavedClimbs.map((climb) => (
               <ClimbRow
+                activity={
+                  activitiesByClimb.get(
+                    climbActivityKey({
+                      climbKind: "saved",
+                      climbId: climb.id,
+                    }),
+                  ) ?? null
+                }
+                activityStatus={activityStatus}
                 climb={climb}
                 href={buildFilteredHref(
                   "/climbs/saved",
@@ -163,6 +275,15 @@ export default function ClimbListClient({
             ))}
             {filteredDemoClimbs.map((climb) => (
               <ClimbRow
+                activity={
+                  activitiesByClimb.get(
+                    climbActivityKey({
+                      climbKind: "demo",
+                      climbId: climb.slug,
+                    }),
+                  ) ?? null
+                }
+                activityStatus={activityStatus}
                 climb={climb}
                 href={buildFilteredHref(
                   `/climbs/${climb.slug}`,

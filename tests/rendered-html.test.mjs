@@ -22,6 +22,15 @@ import {
   serializeClimbFilters,
   uniqueFilterAuthors,
 } from "../app/climbs/climb-filters.ts";
+import {
+  climbActivityKey,
+  DEMO_CLIMB_IDS,
+  findClimbActivity,
+  formatAverageRating,
+  isClimbReference,
+  parseClimbActivitiesPayload,
+} from "../app/climbs/climb-activity.ts";
+import { climbs as demoClimbs } from "../app/climbs/data.ts";
 import { resolveSavedHold } from "../app/climbs/wall-holds.ts";
 import {
   MAX_USER_NAME_LENGTH,
@@ -104,6 +113,36 @@ function createMemoryAppDatabase() {
   const savedClimbs = new Map();
   const deletedClimbs = new Map();
   const savedProfiles = new Map();
+  const savedSends = new Map();
+
+  const memorySendKey = (climbKind, climbId, profileId) =>
+    JSON.stringify([climbKind, climbId, profileId]);
+
+  function aggregateSends(climbKind, climbId, profileId = null) {
+    const matching = [...savedSends.values()].filter(
+      (send) =>
+        send.climb_kind === climbKind && send.climb_id === climbId,
+    );
+    if (matching.length === 0) return null;
+    return {
+      climb_kind: climbKind,
+      climb_id: climbId,
+      average_rating:
+        Math.round(
+          (matching.reduce((total, send) => total + send.rating, 0) /
+            matching.length) *
+            10,
+        ) / 10,
+      rating_count: matching.length,
+      ...(profileId
+        ? {
+            user_rating:
+              matching.find((send) => send.profile_id === profileId)?.rating ??
+              null,
+          }
+        : {}),
+    };
+  }
 
   function createStatement(sql, values = []) {
     const normalized = sql.replace(/\s+/g, " ").trim().toLowerCase();
@@ -129,13 +168,18 @@ function createMemoryAppDatabase() {
           };
         }
         if (
-          normalized.includes("from profiles where id in") &&
-          normalized.includes("group by name")
+          normalized.includes("from profiles as current") &&
+          normalized.includes("where not exists")
         ) {
           const profilesByName = new Map();
           for (const profile of savedProfiles.values()) {
             const current = profilesByName.get(profile.name);
-            if (!current || profile.id.localeCompare(current.id) < 0) {
+            if (
+              !current ||
+              profile.created_at < current.created_at ||
+              (profile.created_at === current.created_at &&
+                profile.id.localeCompare(current.id) < 0)
+            ) {
               profilesByName.set(profile.name, profile);
             }
           }
@@ -152,9 +196,85 @@ function createMemoryAppDatabase() {
               .slice(0, 200),
           };
         }
+        if (
+          normalized.includes("from climb_sends") &&
+          normalized.includes("group by climb_kind, climb_id") &&
+          !normalized.includes("where climb_kind = ?")
+        ) {
+          const references = new Map();
+          for (const send of savedSends.values()) {
+            references.set(
+              JSON.stringify([send.climb_kind, send.climb_id]),
+              [send.climb_kind, send.climb_id],
+            );
+          }
+          return {
+            results: [...references.values()]
+              .sort(
+                ([leftKind, leftId], [rightKind, rightId]) =>
+                  leftKind.localeCompare(rightKind) ||
+                  leftId.localeCompare(rightId),
+              )
+              .map(([climbKind, climbId]) =>
+                aggregateSends(climbKind, climbId, values[0]),
+              ),
+          };
+        }
         throw new Error(`Unsupported all query: ${normalized}`);
       },
       async first() {
+        if (
+          normalized.startsWith("insert into profiles") &&
+          normalized.includes("where not exists")
+        ) {
+          const [id, name, createdAt, expectedName] = values;
+          if (
+            name !== expectedName ||
+            [...savedProfiles.values()].some(
+              (profile) => profile.name === expectedName,
+            )
+          ) {
+            return null;
+          }
+          const profile = { id, name, created_at: createdAt };
+          savedProfiles.set(id, profile);
+          return profile;
+        }
+        if (normalized.startsWith("insert into climb_sends")) {
+          const [
+            climbKind,
+            climbId,
+            profileId,
+            rating,
+            sentAt,
+            updatedAt,
+            expectedClimbId,
+          ] = values;
+          if (
+            normalized.includes("where exists") &&
+            (!savedClimbs.has(expectedClimbId) || climbId !== expectedClimbId)
+          ) {
+            return null;
+          }
+          const key = memorySendKey(climbKind, climbId, profileId);
+          const existing = savedSends.get(key);
+          const send = {
+            climb_kind: climbKind,
+            climb_id: climbId,
+            profile_id: profileId,
+            rating,
+            sent_at: existing?.sent_at ?? sentAt,
+            updated_at: updatedAt,
+          };
+          savedSends.set(key, send);
+          return send;
+        }
+        if (
+          normalized.includes("from climb_sends") &&
+          normalized.includes("where climb_kind = ? and climb_id = ?")
+        ) {
+          return aggregateSends(values[0], values[1]);
+        }
         if (
           normalized.startsWith("insert into climbs") &&
           normalized.endsWith("returning id")
@@ -206,6 +326,34 @@ function createMemoryAppDatabase() {
           "select id, name, created_at from profiles where id = ?"
         ) {
           return savedProfiles.get(values[0]) ?? null;
+        }
+        if (
+          normalized.includes("from profiles as requested") &&
+          normalized.includes("join profiles as canonical")
+        ) {
+          const requested = savedProfiles.get(values[0]);
+          if (!requested) return null;
+          return (
+            [...savedProfiles.values()]
+              .filter((profile) => profile.name === requested.name)
+              .sort(
+                (a, b) =>
+                  a.created_at - b.created_at || a.id.localeCompare(b.id),
+              )[0] ?? null
+          );
+        }
+        if (
+          normalized.includes("from profiles where name = ?") &&
+          normalized.includes("order by created_at asc")
+        ) {
+          return (
+            [...savedProfiles.values()]
+              .filter((profile) => profile.name === values[0])
+              .sort(
+                (a, b) =>
+                  a.created_at - b.created_at || a.id.localeCompare(b.id),
+              )[0] ?? null
+          );
         }
         if (normalized.includes("from climbs where id = ?")) {
           return savedClimbs.get(values[0]) ?? null;
@@ -278,6 +426,21 @@ function createMemoryAppDatabase() {
           savedClimbs.delete(values[0]);
           return { success: true };
         }
+        if (
+          normalized.startsWith(
+            "delete from climb_sends where climb_kind = ? and climb_id = ?",
+          )
+        ) {
+          for (const [key, send] of savedSends) {
+            if (
+              send.climb_kind === values[0] &&
+              send.climb_id === values[1]
+            ) {
+              savedSends.delete(key);
+            }
+          }
+          return { success: true };
+        }
         throw new Error(`Unsupported run query: ${normalized}`);
       },
     };
@@ -307,6 +470,22 @@ function createMemoryAppDatabase() {
         created_at: profile.createdAt,
       });
     },
+    seedSend(send) {
+      savedSends.set(
+        memorySendKey(send.climbKind, send.climbId, send.profileId),
+        {
+          climb_kind: send.climbKind,
+          climb_id: send.climbId,
+          profile_id: send.profileId,
+          rating: send.rating,
+          sent_at: send.sentAt,
+          updated_at: send.updatedAt,
+        },
+      );
+    },
+    sendCount() {
+      return savedSends.size;
+    },
   };
 }
 
@@ -332,6 +511,7 @@ test("renders five linked climbs with names and grades", async () => {
   assert.match(html, />Wall Setup<\/a>/i);
   assert.match(html, /href="\/set-climb"/i);
   assert.match(html, />Set Climb<\/a>/i);
+  assert.match(html, /Rating loading/);
   for (const [slug, name, grade] of [
     ["first-light", "First Light", "V2"],
     ["barn-door-protocol", "Barn Door Protocol", "V5"],
@@ -460,6 +640,61 @@ test("normalizes, serializes, and combines climb filters", () => {
   );
 });
 
+test("validates and formats collision-safe climb activity", () => {
+  assert.deepEqual(
+    DEMO_CLIMB_IDS,
+    demoClimbs.map((climb) => climb.slug),
+  );
+  assert.deepEqual(DEMO_CLIMB_IDS, [
+    "first-light",
+    "barn-door-protocol",
+    "quiet-feet",
+    "static-bloom",
+    "redline",
+  ]);
+  assert.equal(
+    isClimbReference({ climbKind: "demo", climbId: "first-light" }),
+    true,
+  );
+  assert.equal(
+    isClimbReference({ climbKind: "demo", climbId: "not-a-demo" }),
+    false,
+  );
+  assert.notEqual(
+    climbActivityKey({ climbKind: "demo", climbId: "first-light" }),
+    climbActivityKey({ climbKind: "saved", climbId: "first-light" }),
+  );
+
+  const payload = {
+    activities: [
+      {
+        climbKind: "demo",
+        climbId: "first-light",
+        averageRating: 4.5,
+        ratingCount: 2,
+        userRating: 5,
+      },
+    ],
+  };
+  const activities = parseClimbActivitiesPayload(payload);
+  assert.deepEqual(activities, payload.activities);
+  assert.deepEqual(
+    findClimbActivity(activities, {
+      climbKind: "demo",
+      climbId: "first-light",
+    }),
+    payload.activities[0],
+  );
+  assert.equal(formatAverageRating(5), "5");
+  assert.equal(formatAverageRating(4.5), "4.5");
+  assert.equal(
+    parseClimbActivitiesPayload({
+      activities: [{ ...payload.activities[0], ratingCount: 0 }],
+    }),
+    null,
+  );
+});
+
 test("renders the climb setter with the wall and selectable holds", async () => {
   const response = await render("/set-climb");
   assert.equal(response.status, 200);
@@ -543,6 +778,14 @@ test("renders every climb wall with its complete route overlay", async () => {
     assert.match(html, /hold-marker--hand/);
     assert.match(html, /hold-marker--finish/);
     assert.match(html, /Hold marker legend/);
+    assert.match(html, />Sent<\/a>/);
+    assert.match(
+      html,
+      new RegExp(
+        `href="/climbs/sent\\?kind=demo&amp;id=${slug}"`,
+        "i",
+      ),
+    );
     assert.match(html, /green-circled start/);
     assert.doesNotMatch(html, /hold-marker-label/);
     assert.equal(
@@ -554,6 +797,33 @@ test("renders every climb wall with its complete route overlay", async () => {
       markerCount,
     );
   }
+});
+
+test("renders the accessible five-star send page and preserves filters", async () => {
+  const response = await render(
+    "/climbs/sent?kind=demo&id=first-light&min=2&max=6&author=Ben",
+  );
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /<h1 id="sent-heading">Rate your send<\/h1>/);
+  assert.match(html, /First Light/);
+  assert.match(html, /How many stars would you give this climb/);
+  assert.equal((html.match(/type="radio"/g) ?? []).length, 5);
+  for (let rating = 1; rating <= 5; rating += 1) {
+    assert.match(html, new RegExp(`aria-label="${rating} stars?"`));
+    assert.match(html, new RegExp(`value="${rating}"`));
+  }
+  assert.match(html, />Save Send<\/button>/);
+  assert.match(
+    html,
+    /href="\/climbs\/first-light\?min=2&amp;max=6&amp;author=Ben"/,
+  );
+
+  const notFoundResponse = await render(
+    "/climbs/sent?kind=demo&id=unknown-demo",
+  );
+  assert.equal(notFoundResponse.status, 404);
 });
 
 test("returns not found for an unknown climb", async () => {
@@ -827,6 +1097,19 @@ test("creates and reloads password-free user profiles", async () => {
   assert.equal(Number.isSafeInteger(createdProfile.createdAt), true);
 
   response = await fetchAppData(
+    new Request("http://localhost/api/profiles", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ name: createdProfile.name }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).profile, createdProfile);
+
+  response = await fetchAppData(
     new Request(
       `http://localhost/api/profiles/${encodeURIComponent(createdProfile.id)}`,
     ),
@@ -889,6 +1172,258 @@ test("creates and reloads password-free user profiles", async () => {
 
   response = await fetchAppData(
     new Request("http://localhost/api/profiles", { method: "DELETE" }),
+  );
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("allow"), "GET, POST");
+});
+
+test("logs sends, updates ratings, and calculates per-user averages", async () => {
+  const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  const environment = createEnvironment({ DB: database });
+  const fetchAppData = (request) =>
+    worker.fetch(request, environment, createContext());
+
+  for (const profile of [
+    { id: "profile-alex", name: "Alex", createdAt: 1 },
+    { id: "profile-blair", name: "Blair", createdAt: 2 },
+    { id: "profile-casey", name: "Casey", createdAt: 3 },
+    { id: "profile-alex-two", name: "Alex", createdAt: 4 },
+  ]) {
+    database.seedProfile(profile);
+  }
+  database.seedClimb({
+    id: "first-light",
+    name: "Saved First Light",
+    grade: "V4",
+    setter: "Alex",
+    createdAt: 10,
+    holds: [
+      { x: 20, y: 80, size: 7, role: "start" },
+      { x: 70, y: 10, size: 7, role: "finish" },
+    ],
+  });
+
+  const send = (body, origin = "http://localhost") =>
+    fetchAppData(
+      new Request("http://localhost/api/sends", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(origin ? { Origin: origin } : {}),
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+  const demoSend = (profileId, rating, climbId = "first-light") =>
+    send({ climbKind: "demo", climbId, profileId, rating });
+
+  let response = await fetchAppData(
+    new Request("http://localhost/api/sends?profileId=profile-alex"),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).activities, []);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+
+  response = await demoSend("profile-alex", 1);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).activities, [
+    {
+      climbKind: "demo",
+      climbId: "first-light",
+      averageRating: 1,
+      ratingCount: 1,
+      userRating: 1,
+    },
+  ]);
+
+  response = await demoSend("profile-blair", 5);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).activities[0], {
+    climbKind: "demo",
+    climbId: "first-light",
+    averageRating: 3,
+    ratingCount: 2,
+    userRating: 5,
+  });
+
+  response = await demoSend("profile-alex", 4);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).activities[0], {
+    climbKind: "demo",
+    climbId: "first-light",
+    averageRating: 4.5,
+    ratingCount: 2,
+    userRating: 4,
+  });
+  assert.equal(database.sendCount(), 2);
+
+  response = await demoSend("profile-alex", 4, "quiet-feet");
+  assert.equal(response.status, 200);
+  response = await demoSend("profile-alex-two", 2, "quiet-feet");
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).activities[0], {
+    climbKind: "demo",
+    climbId: "quiet-feet",
+    averageRating: 2,
+    ratingCount: 1,
+    userRating: 2,
+  });
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/sends?profileId=profile-alex-two"),
+  );
+  const duplicateProfileActivities = (await response.json()).activities;
+  assert.equal(
+    duplicateProfileActivities.find(
+      (activity) =>
+        activity.climbKind === "demo" && activity.climbId === "quiet-feet",
+    )?.userRating,
+    2,
+  );
+
+  response = await send({
+    climbKind: "saved",
+    climbId: "first-light",
+    profileId: "profile-alex",
+    rating: 5,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(database.sendCount(), 4);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/sends?profileId=profile-casey"),
+  );
+  assert.equal(response.status, 200);
+  const caseyActivities = (await response.json()).activities;
+  assert.equal(caseyActivities.length, 3);
+  assert.equal(
+    caseyActivities.every((activity) => activity.userRating === null),
+    true,
+  );
+  assert.equal(
+    caseyActivities.some(
+      (activity) =>
+        activity.climbKind === "demo" && activity.climbId === "first-light",
+    ),
+    true,
+  );
+  assert.equal(
+    caseyActivities.some(
+      (activity) =>
+        activity.climbKind === "saved" && activity.climbId === "first-light",
+    ),
+    true,
+  );
+
+  for (const rating of [0, 6, 1.5, "5", null, true]) {
+    response = await demoSend("profile-alex", rating);
+    assert.equal(response.status, 400);
+  }
+  response = await send({
+    climbKind: "demo",
+    climbId: "not-a-demo",
+    profileId: "profile-alex",
+    rating: 3,
+  });
+  assert.equal(response.status, 400);
+  response = await send({
+    climbKind: "saved",
+    climbId: "unknown-saved-climb",
+    profileId: "profile-alex",
+    rating: 3,
+  });
+  assert.equal(response.status, 404);
+  response = await demoSend("unknown-profile", 3);
+  assert.equal(response.status, 400);
+  response = await send({
+    climbKind: "demo",
+    climbId: "first-light",
+    profileId: "profile-alex",
+    rating: 3,
+    averageRating: 5,
+  });
+  assert.equal(response.status, 400);
+  response = await send(
+    {
+      climbKind: "demo",
+      climbId: "first-light",
+      profileId: "profile-alex",
+      rating: 3,
+    },
+    "",
+  );
+  assert.equal(response.status, 403);
+
+  response = await send(
+    {
+      climbKind: "demo",
+      climbId: "first-light",
+      profileId: "profile-alex",
+      rating: 3,
+    },
+    "https://example.com",
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/first-light", {
+      method: "DELETE",
+      headers: { Origin: "http://localhost" },
+    }),
+  );
+  assert.equal(response.status, 204);
+  assert.equal(database.sendCount(), 3);
+
+  response = await send({
+    climbKind: "saved",
+    climbId: "first-light",
+    profileId: "profile-alex",
+    rating: 4,
+  });
+  assert.equal(response.status, 410);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/sends?profileId=profile-alex"),
+  );
+  const alexActivities = (await response.json()).activities;
+  assert.equal(
+    alexActivities.some((activity) => activity.climbKind === "saved"),
+    false,
+  );
+  assert.equal(
+    alexActivities.some(
+      (activity) =>
+        activity.climbKind === "demo" && activity.climbId === "first-light",
+    ),
+    true,
+  );
+
+  database.seedSend({
+    climbKind: "demo",
+    climbId: "retired-demo",
+    profileId: "profile-alex",
+    rating: 3,
+    sentAt: 20,
+    updatedAt: 20,
+  });
+  response = await fetchAppData(
+    new Request("http://localhost/api/sends?profileId=profile-alex"),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(
+    (await response.json()).activities.some(
+      (activity) => activity.climbId === "retired-demo",
+    ),
+    false,
+  );
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/sends?profileId=missing-profile"),
+  );
+  assert.equal(response.status, 404);
+  response = await fetchAppData(
+    new Request("http://localhost/api/sends", { method: "DELETE" }),
   );
   assert.equal(response.status, 405);
   assert.equal(response.headers.get("allow"), "GET, POST");

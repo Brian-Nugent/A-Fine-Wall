@@ -1,8 +1,17 @@
+import {
+  isClimbKind,
+  isDemoClimbId,
+  isSavedClimbId,
+  type ClimbKind,
+} from "../app/climbs/climb-activity";
+
 const WALL_HOLDS_PATH = "/api/wall-holds";
 const CLIMBS_PATH = "/api/climbs";
 const PROFILES_PATH = "/api/profiles";
+const SENDS_PATH = "/api/sends";
 const WALL_CONFIGURATION_ID = 1;
 const MAX_PROFILE_BODY_BYTES = 4 * 1024;
+const MAX_SEND_BODY_BYTES = 4 * 1024;
 const MAX_WALL_HOLDS_BODY_BYTES = 256 * 1024;
 const MAX_CLIMB_BODY_BYTES = 128 * 1024;
 const MAX_WALL_HOLDS = 1_000;
@@ -62,6 +71,23 @@ type ClimbRow = {
   setter: string;
   created_at: number;
   holds_json: string;
+};
+
+type SendAggregateRow = {
+  climb_kind: string;
+  climb_id: string;
+  average_rating: number;
+  rating_count: number;
+  user_rating?: number | null;
+};
+
+type ClimbSendRow = {
+  climb_kind: string;
+  climb_id: string;
+  profile_id: string;
+  rating: number;
+  sent_at: number;
+  updated_at: number;
 };
 
 class ApiError extends Error {
@@ -315,6 +341,32 @@ function parseClimbWriteBody(value: unknown) {
   };
 }
 
+function parseSendWriteBody(value: unknown) {
+  if (
+    !isPlainObject(value) ||
+    !hasOnlyKeys(value, ["climbKind", "climbId", "profileId", "rating"]) ||
+    !isClimbKind(value.climbKind) ||
+    (value.climbKind === "demo"
+      ? !isDemoClimbId(value.climbId)
+      : !isSavedClimbId(value.climbId)) ||
+    typeof value.profileId !== "string" ||
+    !recordIdPattern.test(value.profileId) ||
+    typeof value.rating !== "number" ||
+    !Number.isInteger(value.rating) ||
+    value.rating < 1 ||
+    value.rating > 5
+  ) {
+    throw new ApiError("Send a valid climb, user, and rating from 1 to 5.", 400);
+  }
+
+  return {
+    climbKind: value.climbKind,
+    climbId: value.climbId,
+    profileId: value.profileId,
+    rating: value.rating,
+  };
+}
+
 async function readLimitedJson(request: Request, maximumBytes: number) {
   const contentType = (request.headers.get("Content-Type") || "")
     .split(";", 1)[0]
@@ -405,8 +457,23 @@ async function ensureSchema(db: D1Database) {
       )
     `),
     db.prepare(`
+      CREATE TABLE IF NOT EXISTS climb_sends (
+        climb_kind TEXT NOT NULL CHECK (climb_kind IN ('demo', 'saved')),
+        climb_id TEXT NOT NULL,
+        profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        rating INTEGER NOT NULL CHECK (rating IN (1, 2, 3, 4, 5)),
+        sent_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (climb_kind, climb_id, profile_id)
+      )
+    `),
+    db.prepare(`
       CREATE INDEX IF NOT EXISTS idx_climbs_created_at
       ON climbs(created_at)
+    `),
+    db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_climb_sends_profile_id
+      ON climb_sends(profile_id)
     `),
     db.prepare(`
       INSERT OR IGNORE INTO wall_configuration (id, holds_json, updated_at)
@@ -426,6 +493,21 @@ function rowToProfile(row: ProfileRow): Profile {
     throw new ApiError("A saved user profile is invalid.", 500);
   }
   return { id: row.id, name, createdAt: row.created_at };
+}
+
+async function loadCanonicalProfile(db: D1Database, profileId: string) {
+  const row = await db
+    .prepare(
+      `SELECT canonical.id, canonical.name, canonical.created_at
+       FROM profiles AS requested
+       JOIN profiles AS canonical ON canonical.name = requested.name
+       WHERE requested.id = ?
+       ORDER BY canonical.created_at ASC, canonical.id ASC
+       LIMIT 1`,
+    )
+    .bind(profileId)
+    .first<ProfileRow>();
+  return row ? rowToProfile(row) : null;
 }
 
 function parseStoredHolds(raw: string): WallHold[] {
@@ -603,11 +685,19 @@ async function handleProfiles(request: Request, db: D1Database) {
   if (request.method === "GET") {
     const result = await db
       .prepare(
-        `SELECT id, name, created_at FROM profiles
-         WHERE id IN (
-           SELECT MIN(id) FROM profiles GROUP BY name
+        `SELECT current.id, current.name, current.created_at
+         FROM profiles AS current
+         WHERE NOT EXISTS (
+           SELECT 1 FROM profiles AS earlier
+           WHERE earlier.name = current.name
+             AND (
+               earlier.created_at < current.created_at OR
+               (earlier.created_at = current.created_at AND earlier.id < current.id)
+             )
          )
-         ORDER BY name COLLATE NOCASE ASC, created_at ASC, id ASC
+         ORDER BY current.name COLLATE NOCASE ASC,
+                  current.created_at ASC,
+                  current.id ASC
          LIMIT 200`,
       )
       .all<ProfileRow>();
@@ -622,18 +712,190 @@ async function handleProfiles(request: Request, db: D1Database) {
   const name = parseProfileBody(
     await readLimitedJson(request, MAX_PROFILE_BODY_BYTES),
   );
-  const profile: Profile = {
+  const candidate: Profile = {
     id: crypto.randomUUID(),
     name,
     createdAt: Date.now(),
   };
+  const inserted = await db
+    .prepare(
+      `INSERT INTO profiles (id, name, created_at)
+       SELECT ?, ?, ?
+       WHERE NOT EXISTS (SELECT 1 FROM profiles WHERE name = ?)
+       RETURNING id, name, created_at`,
+    )
+    .bind(candidate.id, candidate.name, candidate.createdAt, candidate.name)
+    .first<ProfileRow>();
+  if (inserted) return json({ profile: rowToProfile(inserted) }, 201);
 
-  await db
-    .prepare("INSERT INTO profiles (id, name, created_at) VALUES (?, ?, ?)")
-    .bind(profile.id, profile.name, profile.createdAt)
-    .run();
+  const existingProfile = await db
+    .prepare(
+      `SELECT id, name, created_at FROM profiles
+       WHERE name = ?
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1`,
+    )
+    .bind(name)
+    .first<ProfileRow>();
+  if (!existingProfile) {
+    throw new ApiError("The user profile could not be created.", 500);
+  }
+  return json({ profile: rowToProfile(existingProfile) });
+}
 
-  return json({ profile }, 201);
+function referenceFromRow(row: {
+  climb_kind: string;
+  climb_id: string;
+}): { climbKind: ClimbKind; climbId: string } {
+  if (
+    !isClimbKind(row.climb_kind) ||
+    (row.climb_kind === "demo"
+      ? !isDemoClimbId(row.climb_id)
+      : !isSavedClimbId(row.climb_id))
+  ) {
+    throw new ApiError("A saved climb rating is invalid.", 500);
+  }
+  return { climbKind: row.climb_kind, climbId: row.climb_id };
+}
+
+function activityFromAggregate(
+  row: SendAggregateRow,
+  userRating = row.user_rating ?? null,
+) {
+  const reference = referenceFromRow(row);
+  if (
+    !isFiniteNumber(row.average_rating) ||
+    row.average_rating < 1 ||
+    row.average_rating > 5 ||
+    !Number.isSafeInteger(row.rating_count) ||
+    row.rating_count < 1 ||
+    (userRating !== null &&
+      (!Number.isInteger(userRating) || userRating < 1 || userRating > 5))
+  ) {
+    throw new ApiError("A saved climb rating is invalid.", 500);
+  }
+
+  return {
+    ...reference,
+    averageRating: row.average_rating,
+    ratingCount: row.rating_count,
+    userRating,
+  };
+}
+
+async function handleSends(request: Request, db: D1Database) {
+  if (request.method === "GET") {
+    const profileId = new URL(request.url).searchParams.get("profileId");
+    if (!profileId || !recordIdPattern.test(profileId)) {
+      throw new ApiError("Choose your user name before loading sends.", 400);
+    }
+    const profile = await loadCanonicalProfile(db, profileId);
+    if (!profile) {
+      throw new ApiError("Choose your user name again before loading sends.", 404);
+    }
+
+    const aggregateResult = await db
+      .prepare(
+        `SELECT climb_kind, climb_id,
+                ROUND(AVG(rating), 1) AS average_rating,
+                COUNT(*) AS rating_count,
+                MAX(CASE WHEN profile_id = ? THEN rating END) AS user_rating
+         FROM climb_sends
+         GROUP BY climb_kind, climb_id
+         ORDER BY climb_kind ASC, climb_id ASC`,
+      )
+      .bind(profile.id)
+      .all<SendAggregateRow>();
+
+    return json({
+      activities: aggregateResult.results.flatMap((row) => {
+        if (row.climb_kind === "demo" && !isDemoClimbId(row.climb_id)) {
+          return [];
+        }
+        return [activityFromAggregate(row)];
+      }),
+    });
+  }
+
+  if (request.method === "POST") {
+    requireSameOrigin(request);
+    const send = parseSendWriteBody(
+      await readLimitedJson(request, MAX_SEND_BODY_BYTES),
+    );
+    const profile = await loadCanonicalProfile(db, send.profileId);
+    if (!profile) {
+      throw new ApiError("Choose your user name again before saving.", 400);
+    }
+
+    const now = Date.now();
+    const upsert =
+      send.climbKind === "demo"
+        ? db.prepare(
+            `INSERT INTO climb_sends
+               (climb_kind, climb_id, profile_id, rating, sent_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT (climb_kind, climb_id, profile_id)
+             DO UPDATE SET rating = excluded.rating,
+                           updated_at = excluded.updated_at
+             RETURNING climb_kind, climb_id, profile_id, rating, sent_at, updated_at`,
+          )
+        : db.prepare(
+            `INSERT INTO climb_sends
+               (climb_kind, climb_id, profile_id, rating, sent_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?
+             WHERE EXISTS (SELECT 1 FROM climbs WHERE id = ?)
+             ON CONFLICT (climb_kind, climb_id, profile_id)
+             DO UPDATE SET rating = excluded.rating,
+                           updated_at = excluded.updated_at
+             RETURNING climb_kind, climb_id, profile_id, rating, sent_at, updated_at`,
+          );
+    const values = [
+      send.climbKind,
+      send.climbId,
+      profile.id,
+      send.rating,
+      now,
+      now,
+      ...(send.climbKind === "saved" ? [send.climbId] : []),
+    ];
+    const saved = await upsert.bind(...values).first<ClimbSendRow>();
+    if (!saved) {
+      const wasDeleted = await db
+        .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+        .bind(send.climbId)
+        .first<{ id: string }>();
+      if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
+      throw new ApiError("Climb not found.", 404);
+    }
+
+    const aggregate = await db
+      .prepare(
+        `SELECT climb_kind, climb_id,
+                ROUND(AVG(rating), 1) AS average_rating,
+                COUNT(*) AS rating_count
+         FROM climb_sends
+         WHERE climb_kind = ? AND climb_id = ?
+         GROUP BY climb_kind, climb_id`,
+      )
+      .bind(send.climbKind, send.climbId)
+      .first<SendAggregateRow>();
+    if (!aggregate) {
+      if (send.climbKind === "saved") {
+        const wasDeleted = await db
+          .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+          .bind(send.climbId)
+          .first<{ id: string }>();
+        if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
+      }
+      throw new ApiError("The saved climb rating could not be loaded.", 500);
+    }
+
+    return json({
+      activities: [activityFromAggregate(aggregate, saved.rating)],
+    });
+  }
+
+  return methodNotAllowed(["GET", "POST"]);
 }
 
 async function handleProfileDetail(
@@ -849,6 +1111,11 @@ async function handleClimbDetail(
           "INSERT OR IGNORE INTO deleted_climbs (id, deleted_at) VALUES (?, ?)",
         )
         .bind(id, Date.now()),
+      db
+        .prepare(
+          "DELETE FROM climb_sends WHERE climb_kind = ? AND climb_id = ?",
+        )
+        .bind("saved", id),
       db.prepare("DELETE FROM climbs WHERE id = ?").bind(id),
     ]);
     return new Response(null, {
@@ -883,6 +1150,7 @@ export function isAppDataPath(pathname: string) {
     pathname === WALL_HOLDS_PATH ||
     pathname === CLIMBS_PATH ||
     pathname === PROFILES_PATH ||
+    pathname === SENDS_PATH ||
     /^\/api\/climbs\/[^/]+$/.test(pathname) ||
     /^\/api\/profiles\/[^/]+$/.test(pathname)
   );
@@ -900,6 +1168,7 @@ export async function handleAppDataRequest(
     if (pathname === WALL_HOLDS_PATH) return await handleWallHolds(request, db);
     if (pathname === PROFILES_PATH) return await handleProfiles(request, db);
     if (pathname === CLIMBS_PATH) return await handleClimbs(request, db);
+    if (pathname === SENDS_PATH) return await handleSends(request, db);
 
     const profileMatch = /^\/api\/profiles\/([^/]+)$/.exec(pathname);
     if (profileMatch) {
