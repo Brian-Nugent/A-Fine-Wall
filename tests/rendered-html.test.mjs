@@ -749,6 +749,7 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   assert.match(html, /href="\/wall-photo"/);
   assert.match(html, />Wall Setup<\/a>/);
   assert.match(html, /Loading hold spots/);
+  assert.match(html, /class="wall-hold-choice-layer"/);
   assert.doesNotMatch(html, /aria-label="Tap the wall to add a hold"/);
   assert.match(html, />Done<\/button>/);
 });
@@ -1879,6 +1880,30 @@ test("shows only clean colored circles for selected route holds", async () => {
   assert.match(choiceRule, /background:\s*transparent/);
   assert.doesNotMatch(choiceRule, /box-shadow/);
   assert.match(availableRule, /opacity:\s*0/);
+});
+
+test("allows native two-axis panning on interactive wall layers", async () => {
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  for (const selector of [
+    "wall-tap-layer",
+    "wall-hold-choice-layer",
+    "wall-holds-tap-layer",
+  ]) {
+    const rule = css.match(new RegExp(`\\.${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+    const value = rule.match(/touch-action:\s*([^;]+)/)?.[1]?.trim() ?? "";
+
+    assert.ok(
+      value === "auto" ||
+        ["pan-x", "pan-y", "pinch-zoom"].every((action) =>
+          value.split(/\s+/).includes(action),
+        ),
+      `Expected .${selector} to allow horizontal, vertical, and pinch gestures; received "${value}"`,
+    );
+  }
 });
 
 test("dims climb walls while restoring normal brightness inside route circles", async () => {

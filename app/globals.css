@@ -1149,7 +1149,7 @@ select:focus-visible {
   border: 0;
   background: transparent;
   cursor: crosshair;
-  touch-action: pan-y pinch-zoom;
+  touch-action: pan-x pan-y pinch-zoom;
 }
 
 .hold-choice {
@@ -1178,7 +1178,7 @@ select:focus-visible {
   border: 0;
   background: transparent;
   cursor: pointer;
-  touch-action: pan-y pinch-zoom;
+  touch-action: pan-x pan-y pinch-zoom;
 }
 
 .hold-choice::after {
@@ -1553,7 +1553,7 @@ select:focus-visible {
   border: 0;
   background: transparent;
   cursor: crosshair;
-  touch-action: pan-y pinch-zoom;
+  touch-action: pan-x pan-y pinch-zoom;
 }
 
 .wall-holds-tap-layer:disabled {
