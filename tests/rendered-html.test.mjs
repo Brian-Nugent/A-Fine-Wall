@@ -1039,7 +1039,29 @@ test("renders the browser-saved climb detail shell", async () => {
 
   const html = await response.text();
   assert.match(html, /href="\/climbs"/i);
-  assert.match(html, /Loading climb/);
+  assert.match(html, /Preparing the selected climb/);
+  assert.doesNotMatch(html, /Loading climb/i);
+});
+
+test("preloads a selected saved climb before rendering its page", async () => {
+  const [pageSource, loaderSource, detailSource] = await Promise.all([
+    readFile(new URL("../app/climbs/saved/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/climbs/saved/server-climb.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(pageSource, /await loadSavedClimbForPage\(climbId\)/);
+  assert.match(pageSource, /initialClimb=\{initialClimb\}/);
+  assert.match(loaderSource, /handleAppDataRequest\(/);
+  assert.match(loaderSource, /getD1Database\(\)/);
+  assert.match(detailSource, /useState<[^>]+>\(\s*initialClimb/);
+  assert.doesNotMatch(detailSource, /Loading climb(?:&hellip;|\.\.\.)/i);
 });
 
 test("limits the climb options menu to the setter and Admin", async () => {

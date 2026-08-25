@@ -172,19 +172,24 @@ export default function SavedClimbDetail({
   backHref,
   climbId,
   filters,
+  initialClimb,
 }: {
   backHref: string;
   climbId: string;
   filters: ClimbFilters;
+  initialClimb?: SavedClimb;
 }) {
   const { profile } = useActiveUser();
-  const [climb, setClimb] = useState<SavedClimb | null | undefined>(undefined);
+  const [climb, setClimb] = useState<SavedClimb | null | undefined>(
+    initialClimb,
+  );
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
+    let isActive = true;
     let browserClimb: SavedClimb | null = null;
 
     try {
@@ -195,8 +200,15 @@ export default function SavedClimbDetail({
       browserClimb = null;
     }
 
+    const fallbackClimb = initialClimb ?? browserClimb;
+    if (!initialClimb && browserClimb) {
+      queueMicrotask(() => {
+        if (isActive) setClimb(browserClimb);
+      });
+    }
+
     loadClimb(climbId, controller.signal)
-      .then((savedClimb) => setClimb(savedClimb ?? browserClimb))
+      .then((savedClimb) => setClimb(savedClimb ?? fallbackClimb))
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         if (error instanceof ClimbRequestError && error.status === 410) {
@@ -208,7 +220,7 @@ export default function SavedClimbDetail({
           setClimb(null);
           return;
         }
-        setClimb(browserClimb);
+        setClimb(fallbackClimb);
       });
 
     loadWallHolds(controller.signal)
@@ -217,8 +229,11 @@ export default function SavedClimbDetail({
         // Coordinate snapshots keep the climb view usable if spots are offline.
       });
 
-    return () => controller.abort();
-  }, [climbId]);
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [climbId, initialClimb]);
 
   async function handleDeleteClimb(climbToDelete: SavedClimb) {
     if (!profile || !canManageClimb(profile, climbToDelete.setter)) {
@@ -256,10 +271,10 @@ export default function SavedClimbDetail({
 
   if (climb === undefined) {
     return (
-      <DetailShell backHref={backHref} status="Loading">
-        <div className="empty-state">
-          <p>Loading climb&hellip;</p>
-        </div>
+      <DetailShell backHref={backHref}>
+        <p aria-live="polite" className="sr-only">
+          Preparing the selected climb.
+        </p>
       </DetailShell>
     );
   }
