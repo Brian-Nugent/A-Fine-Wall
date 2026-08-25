@@ -202,6 +202,7 @@ export async function loadWallHolds(signal?: AbortSignal): Promise<WallHold[]> {
 export async function saveWallHolds(
   holds: readonly WallHold[],
   expectedUpdatedAt: number,
+  profileId: string,
 ): Promise<WallHoldMap> {
   const normalized = parseWallHolds([...holds]);
   const response = await fetch(WALL_HOLDS_ENDPOINT, {
@@ -210,7 +211,7 @@ export async function saveWallHolds(
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ holds: normalized, expectedUpdatedAt }),
+    body: JSON.stringify({ holds: normalized, expectedUpdatedAt, profileId }),
   });
 
   if (!response.ok) {

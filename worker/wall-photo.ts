@@ -1,3 +1,6 @@
+import { ACTIVE_USER_PROFILE_HEADER } from "../app/user-access";
+import { isAdminProfileId } from "./app-data";
+
 export const WALL_PHOTO_PATH = "/api/wall-photo";
 export const MAX_WALL_PHOTO_BYTES = 20 * 1024 * 1024;
 
@@ -66,6 +69,7 @@ function imageBytesMatchType(bytes: ArrayBuffer, contentType: string) {
 export async function handleWallPhotoRequest(
   request: Request,
   bucket: WallPhotoBucket | undefined,
+  db: D1Database | undefined,
 ): Promise<Response> {
   if (!bucket) {
     return jsonError("Wall photo storage is unavailable.", 503);
@@ -118,6 +122,17 @@ export async function handleWallPhotoRequest(
       if (!writeRequestIsSameOrigin(request)) {
         return jsonError("Cross-origin uploads are not allowed.", 403);
       }
+      if (!db) {
+        return jsonError("Wall setup authorization is unavailable.", 503);
+      }
+      if (
+        !(await isAdminProfileId(
+          db,
+          request.headers.get(ACTIVE_USER_PROFILE_HEADER),
+        ))
+      ) {
+        return jsonError("Only Admin can change the wall setup.", 403);
+      }
 
       const contentType = (request.headers.get("Content-Type") || "")
         .split(";", 1)[0]
@@ -156,6 +171,17 @@ export async function handleWallPhotoRequest(
     if (request.method === "DELETE") {
       if (!writeRequestIsSameOrigin(request)) {
         return jsonError("Cross-origin changes are not allowed.", 403);
+      }
+      if (!db) {
+        return jsonError("Wall setup authorization is unavailable.", 503);
+      }
+      if (
+        !(await isAdminProfileId(
+          db,
+          request.headers.get(ACTIVE_USER_PROFILE_HEADER),
+        ))
+      ) {
+        return jsonError("Only Admin can change the wall setup.", 403);
       }
 
       await bucket.delete(WALL_PHOTO_KEY);

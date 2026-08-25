@@ -49,6 +49,13 @@ import {
   readUserProfile,
   removeUserProfile,
 } from "../app/user-profile.ts";
+import {
+  ACTIVE_USER_PROFILE_HEADER,
+  canManageClimb,
+  isAdminUser,
+  isAdminUserName,
+  isSameUserName,
+} from "../app/user-access.ts";
 
 async function render(pathname = "/") {
   const worker = await loadWorker();
@@ -544,13 +551,45 @@ test("starts at the climb list while preserving the first-time profile gate", as
   assert.doesNotMatch(css, /\.home-page/);
 });
 
+test("recognizes Admin and climb owners without case sensitivity", () => {
+  assert.equal(isAdminUserName("Admin"), true);
+  assert.equal(isAdminUserName("admin"), true);
+  assert.equal(isAdminUserName("aDmIn"), true);
+  assert.equal(isAdminUserName("Administrator"), false);
+  assert.equal(isAdminUser(null), false);
+  assert.equal(isAdminUser({ name: "ADMIN" }), true);
+  assert.equal(isSameUserName(" Sheafy ", "sHEAFY"), true);
+  assert.equal(canManageClimb({ name: "Sheafy" }, "sHEAFY"), true);
+  assert.equal(canManageClimb({ name: "Alex" }, "Sheafy"), false);
+  assert.equal(canManageClimb({ name: "admin" }, "Sheafy"), true);
+});
+
+test("guards every wall setup entry point with the Admin rule", async () => {
+  const sources = await Promise.all(
+    [
+      "../app/climbs/climb-list-client.tsx",
+      "../app/set-climb/page.tsx",
+      "../app/climbs/filter/holds/hold-filter-client.tsx",
+      "../app/wall-photo/page.tsx",
+      "../app/wall-holds/page.tsx",
+    ].map((relativePath) =>
+      readFile(new URL(relativePath, import.meta.url), "utf8"),
+    ),
+  );
+
+  for (const source of sources) {
+    assert.match(source, /isAdminUser\(profile\)/);
+  }
+  assert.match(sources[3], /<h1>Admin only<\/h1>/);
+  assert.match(sources[4], /<h1>Admin only<\/h1>/);
+});
+
 test("renders the shared-climb shell without prototype climbs", async () => {
   const response = await render("/climbs");
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /href="\/wall-photo"/i);
-  assert.match(html, />Wall Setup<\/a>/i);
+  assert.doesNotMatch(html, /href="\/wall-photo"/i);
   assert.match(html, /href="\/set-climb"/i);
   assert.match(html, />Set Climb<\/a>/i);
   assert.match(html, /href="\/climbs\/filter"/i);
@@ -844,8 +883,7 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   assert.match(html, /again for a yellow foothold/);
   assert.match(html, /A fifth tap clears it/);
   assert.match(html, /src="\/api\/wall-photo"/);
-  assert.match(html, /href="\/wall-photo"/);
-  assert.match(html, />Wall Setup<\/a>/);
+  assert.doesNotMatch(html, /href="\/wall-photo"/);
   assert.match(html, /Loading hold spots/);
   assert.match(html, /class="wall-hold-choice-layer"/);
   assert.doesNotMatch(html, /aria-label="Tap the wall to add a hold"/);
@@ -857,6 +895,8 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   );
   assert.match(source, /foot: "Yellow foothold"/);
   assert.match(source, /foot: "make it a yellow foothold"/);
+  assert.match(source, /isAdminUser\(profile\)/);
+  assert.match(source, /canManageClimb\(profile, savedClimb\.setter\)/);
   assert.doesNotMatch(source, /Yellow foothold hold/);
 });
 
@@ -881,33 +921,42 @@ test("omits setup step counters from wall setup and climb setting", async () => 
   }
 });
 
-test("renders the wall photo upload screen", async () => {
+test("reserves the wall photo upload screen for Admin", async () => {
   const response = await render("/wall-photo");
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /<h1 id="photo-heading">Upload your wall<\/h1>/);
-  assert.match(html, /src="\/api\/wall-photo"/);
-  assert.match(html, /type="file"/);
-  assert.match(html, /accept="image\/jpeg,image\/png,image\/webp"/);
-  assert.match(html, />Continue to Mark Holds<\/button>/);
-  assert.match(html, /href="\/wall-holds"/);
-  assert.match(html, />Edit Hold Spots<\/a>/);
-  assert.doesNotMatch(html, /Restore Test Photo/);
-  assert.match(html, /JPG, PNG, or WebP/);
-  assert.match(html, /Existing hold spots and climbs will carry over/);
+  assert.match(html, /<h1>Admin only<\/h1>/);
+  assert.doesNotMatch(html, /type="file"/);
+
+  const source = await readFile(
+    new URL("../app/wall-photo/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /<h1 id="photo-heading">Upload your wall<\/h1>/);
+  assert.match(source, /accept="image\/jpeg,image\/png,image\/webp"/);
+  assert.match(source, /ACTIVE_USER_PROFILE_HEADER/);
+  assert.match(source, /isAdminUser\(profile\)/);
+  assert.doesNotMatch(source, /Restore Test Photo/);
+  assert.match(source, /Existing hold spots and climbs will carry over/);
 });
 
-test("renders the preset hold spot editor after photo upload", async () => {
+test("reserves the preset hold spot editor for Admin", async () => {
   const response = await render("/wall-holds?from=photo");
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /<h1 id="wall-holds-heading">Mark every hold<\/h1>/);
-  assert.match(html, /Tap each hold on the photo to add a preset circle/);
-  assert.match(html, /src="\/api\/wall-photo"/);
-  assert.match(html, /aria-label="Tap the wall to add a preset hold spot"/);
-  assert.match(html, />Save Wall<\/button>/);
+  assert.match(html, /<h1>Admin only<\/h1>/);
+  assert.doesNotMatch(html, />Save Wall<\/button>/);
+
+  const source = await readFile(
+    new URL("../app/wall-holds/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /<h1 id="wall-holds-heading">Mark every hold<\/h1>/);
+  assert.match(source, /aria-label="Tap the wall to add a preset hold spot"/);
+  assert.match(source, /saveWallHolds\([\s\S]*profile\.id/);
+  assert.match(source, /isAdminUser\(profile\)/);
 });
 
 test("resizes selected wall circles with a direct manipulation handle", async () => {
@@ -968,7 +1017,7 @@ test("renders the browser-saved climb detail shell", async () => {
   assert.match(html, /Loading climb/);
 });
 
-test("puts climb editing and deletion in the detail overflow menu", async () => {
+test("limits the climb options menu to the setter and Admin", async () => {
   const source = await readFile(
     new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
     "utf8",
@@ -981,6 +1030,9 @@ test("puts climb editing and deletion in the detail overflow menu", async () => 
   assert.match(source, /aria-busy=\{isLeaving/);
   assert.match(source, /Loading climbs&hellip;/);
   assert.match(source, /requestAnimationFrame/);
+  assert.match(source, /canManageClimb\(profile, climb\.setter\)/);
+  assert.match(source, /canManage \? \(/);
+  assert.match(source, /deleteClimb\(climbToDelete\.id, profile\.id\)/);
   assert.doesNotMatch(source, /className="climb-detail-actions"/);
   assert.doesNotMatch(source, /className="delete-climb-button"/);
 });
@@ -1045,7 +1097,18 @@ test("returns not found for an unknown climb", async () => {
 test("uploads, serves, and resets the shared wall photo", async () => {
   const worker = await loadWorker();
   const bucket = createMemoryWallPhotoBucket();
-  const environment = createEnvironment({ WALL_PHOTOS: bucket });
+  const database = createMemoryAppDatabase();
+  database.seedProfile({
+    id: "profile-admin",
+    name: "aDmIn",
+    createdAt: 1,
+  });
+  database.seedProfile({
+    id: "profile-alex",
+    name: "Alex",
+    createdAt: 2,
+  });
+  const environment = createEnvironment({ DB: database, WALL_PHOTOS: bucket });
   const fetchWallPhoto = (request) =>
     worker.fetch(request, environment, createContext());
 
@@ -1058,6 +1121,7 @@ test("uploads, serves, and resets the shared wall photo", async () => {
     new Request("http://localhost/api/wall-photo", {
       method: "POST",
       headers: {
+        [ACTIVE_USER_PROFILE_HEADER]: "profile-admin",
         "Content-Type": "image/svg+xml",
         Origin: "http://localhost",
       },
@@ -1083,6 +1147,20 @@ test("uploads, serves, and resets the shared wall photo", async () => {
     new Request("http://localhost/api/wall-photo", {
       method: "POST",
       headers: {
+        [ACTIVE_USER_PROFILE_HEADER]: "profile-alex",
+        "Content-Type": "image/png",
+        Origin: "http://localhost",
+      },
+      body: imageBytes,
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "POST",
+      headers: {
+        [ACTIVE_USER_PROFILE_HEADER]: "profile-admin",
         "Content-Type": "image/png",
         Origin: "http://localhost",
       },
@@ -1124,7 +1202,26 @@ test("uploads, serves, and resets the shared wall photo", async () => {
   response = await fetchWallPhoto(
     new Request("http://localhost/api/wall-photo", {
       method: "DELETE",
-      headers: { Origin: "http://localhost" },
+      headers: {
+        [ACTIVE_USER_PROFILE_HEADER]: "profile-alex",
+        Origin: "http://localhost",
+      },
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo"),
+  );
+  assert.equal(response.status, 200);
+
+  response = await fetchWallPhoto(
+    new Request("http://localhost/api/wall-photo", {
+      method: "DELETE",
+      headers: {
+        [ACTIVE_USER_PROFILE_HEADER]: "profile-admin",
+        Origin: "http://localhost",
+      },
     }),
   );
   assert.equal(response.status, 204);
@@ -1154,7 +1251,14 @@ test("redirects to the bundled test wall when no photo has been uploaded", async
 
 test("rejects invalid and unsafe wall photo requests", async () => {
   const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  database.seedProfile({
+    id: "profile-admin",
+    name: "Admin",
+    createdAt: 1,
+  });
   const fetchWallPhoto = (request, environment = createEnvironment({
+    DB: database,
     WALL_PHOTOS: createMemoryWallPhotoBucket(),
   })) => worker.fetch(request, environment, createContext());
 
@@ -1162,6 +1266,7 @@ test("rejects invalid and unsafe wall photo requests", async () => {
     new Request("http://localhost/api/wall-photo", {
       method: "POST",
       headers: {
+        [ACTIVE_USER_PROFILE_HEADER]: "profile-admin",
         "Content-Type": "image/png",
         Origin: "http://localhost",
       },
@@ -1174,6 +1279,7 @@ test("rejects invalid and unsafe wall photo requests", async () => {
     new Request("http://localhost/api/wall-photo", {
       method: "POST",
       headers: {
+        [ACTIVE_USER_PROFILE_HEADER]: "profile-admin",
         "Content-Length": String(20 * 1024 * 1024 + 1),
         "Content-Type": "image/png",
         Origin: "http://localhost",
@@ -1187,6 +1293,7 @@ test("rejects invalid and unsafe wall photo requests", async () => {
     new Request("http://localhost/api/wall-photo", {
       method: "POST",
       headers: {
+        [ACTIVE_USER_PROFILE_HEADER]: "profile-admin",
         "Content-Type": "image/png",
         Origin: "http://localhost",
       },
@@ -1211,6 +1318,8 @@ test("rejects invalid and unsafe wall photo requests", async () => {
 test("persists preset wall spots and keeps their stable ids", async () => {
   const worker = await loadWorker();
   const database = createMemoryAppDatabase();
+  database.seedProfile({ id: "profile-admin", name: "Admin", createdAt: 1 });
+  database.seedProfile({ id: "profile-alex", name: "Alex", createdAt: 2 });
   const environment = createEnvironment({ DB: database });
   const fetchAppData = (request) =>
     worker.fetch(request, environment, createContext());
@@ -1234,7 +1343,11 @@ test("persists preset wall spots and keeps their stable ids", async () => {
         "Content-Type": "application/json",
         Origin: "http://localhost",
       },
-      body: JSON.stringify({ holds, expectedUpdatedAt: 0 }),
+      body: JSON.stringify({
+        holds,
+        expectedUpdatedAt: 0,
+        profileId: "profile-admin",
+      }),
     }),
   );
   assert.equal(response.status, 200);
@@ -1252,11 +1365,28 @@ test("persists preset wall spots and keeps their stable ids", async () => {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        holds,
+        expectedUpdatedAt: savedHoldMap.updatedAt,
+        profileId: "profile-alex",
+      }),
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/wall-holds", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
         Origin: "https://example.com",
       },
       body: JSON.stringify({
         holds,
         expectedUpdatedAt: savedHoldMap.updatedAt,
+        profileId: "profile-admin",
       }),
     }),
   );
@@ -1272,6 +1402,7 @@ test("persists preset wall spots and keeps their stable ids", async () => {
       body: JSON.stringify({
         holds: [holds[0], holds[0]],
         expectedUpdatedAt: savedHoldMap.updatedAt,
+        profileId: "profile-admin",
       }),
     }),
   );
@@ -1651,7 +1782,11 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   response = await fetchAppData(
     new Request("http://localhost/api/climbs/saved-route-one", {
       method: "DELETE",
-      headers: { Origin: "http://localhost" },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ profileId: "profile-alex" }),
     }),
   );
   assert.equal(response.status, 204);
@@ -1719,6 +1854,12 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
 test("stores climbs by preset hold id and resolves them from shared data", async () => {
   const worker = await loadWorker();
   const database = createMemoryAppDatabase();
+  const adminProfileId = "profile-admin";
+  database.seedProfile({
+    id: adminProfileId,
+    name: "aDmIn",
+    createdAt: 1,
+  });
   const environment = createEnvironment({ DB: database });
   const fetchAppData = (request) =>
     worker.fetch(request, environment, createContext());
@@ -1735,7 +1876,11 @@ test("stores climbs by preset hold id and resolves them from shared data", async
         "Content-Type": "application/json",
         Origin: "http://localhost",
       },
-      body: JSON.stringify({ holds: wallHolds, expectedUpdatedAt: 0 }),
+      body: JSON.stringify({
+        holds: wallHolds,
+        expectedUpdatedAt: 0,
+        profileId: adminProfileId,
+      }),
     }),
   );
   assert.equal(response.status, 200);
@@ -1753,6 +1898,12 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   );
   assert.equal(response.status, 201);
   const profileId = (await response.json()).profile.id;
+  const otherProfileId = "profile-sam";
+  database.seedProfile({
+    id: otherProfileId,
+    name: "Sam",
+    createdAt: 3,
+  });
 
   const climb = {
     id: "stable-route-one",
@@ -1939,6 +2090,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         holds: wallHolds.slice(1),
         expectedUpdatedAt: wallRevision,
+        profileId: adminProfileId,
       }),
     }),
   );
@@ -1954,6 +2106,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         holds: wallHolds,
         expectedUpdatedAt: 0,
+        profileId: adminProfileId,
       }),
     }),
   );
@@ -1974,6 +2127,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         holds: movedWallHolds,
         expectedUpdatedAt: wallRevision,
+        profileId: adminProfileId,
       }),
     }),
   );
@@ -2044,6 +2198,18 @@ test("stores climbs by preset hold id and resolves them from shared data", async
         "Content-Type": "application/json",
         Origin: "http://localhost",
       },
+      body: JSON.stringify({ ...climbUpdate, profileId: otherProfileId }),
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
       body: JSON.stringify({
         ...climbUpdate,
         expectedWallUpdatedAt: wallRevision,
@@ -2070,6 +2236,25 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(updatedClimb.createdAt, savedClimb.createdAt);
   assert.equal(updatedClimb.holds[0].x, movedWallHolds[0].x);
   assert.equal(updatedClimb.holds[1].role, "foot");
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        ...climbUpdate,
+        name: "Admin Revised Route",
+        profileId: adminProfileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  const adminUpdatedClimb = (await response.json()).climb;
+  assert.equal(adminUpdatedClimb.name, "Admin Revised Route");
+  assert.equal(adminUpdatedClimb.setter, "Alex Rivera");
 
   response = await fetchAppData(
     new Request(`http://localhost/api/sends?profileId=${profileId}`),
@@ -2138,6 +2323,18 @@ test("stores climbs by preset hold id and resolves them from shared data", async
 
   response = await fetchAppData(
     new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ profileId: otherProfileId }),
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
       method: "PATCH",
     }),
   );
@@ -2147,7 +2344,11 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   response = await fetchAppData(
     new Request("http://localhost/api/climbs/stable-route-one", {
       method: "DELETE",
-      headers: { Origin: "http://localhost" },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ profileId }),
     }),
   );
   assert.equal(response.status, 204);
@@ -2170,6 +2371,18 @@ test("stores climbs by preset hold id and resolves them from shared data", async
     new Request("http://localhost/api/climbs/stable-route-one", {
       method: "DELETE",
       headers: { Origin: "http://localhost" },
+    }),
+  );
+  assert.equal(response.status, 410);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/legacy-coordinate-route", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ profileId: adminProfileId }),
     }),
   );
   assert.equal(response.status, 204);

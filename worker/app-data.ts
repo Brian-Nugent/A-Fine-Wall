@@ -4,6 +4,10 @@ import {
   isSavedClimbId,
   type ClimbKind,
 } from "../app/climbs/climb-activity";
+import {
+  isAdminUserName,
+  isSameUserName,
+} from "../app/user-access";
 
 const WALL_HOLDS_PATH = "/api/wall-holds";
 const CLIMBS_PATH = "/api/climbs";
@@ -219,10 +223,12 @@ function parseWallHoldsBody(value: unknown): WallHold[] {
 function parseWallHoldsWriteBody(value: unknown) {
   if (
     !isPlainObject(value) ||
-    !hasOnlyKeys(value, ["holds", "expectedUpdatedAt"]) ||
+    !hasOnlyKeys(value, ["holds", "expectedUpdatedAt", "profileId"]) ||
     typeof value.expectedUpdatedAt !== "number" ||
     !Number.isSafeInteger(value.expectedUpdatedAt) ||
-    value.expectedUpdatedAt < 0
+    value.expectedUpdatedAt < 0 ||
+    typeof value.profileId !== "string" ||
+    !recordIdPattern.test(value.profileId)
   ) {
     throw new ApiError("Send a valid wall hold layout and revision.", 400);
   }
@@ -230,6 +236,7 @@ function parseWallHoldsWriteBody(value: unknown) {
   return {
     holds: parseWallHoldsBody({ holds: value.holds }),
     expectedUpdatedAt: value.expectedUpdatedAt,
+    profileId: value.profileId,
   };
 }
 
@@ -363,6 +370,19 @@ function parseClimbUpdateBody(value: unknown) {
     expectedWallUpdatedAt: value.expectedWallUpdatedAt,
     profileId: value.profileId,
   };
+}
+
+function parseClimbDeleteBody(value: unknown) {
+  if (
+    !isPlainObject(value) ||
+    !hasOnlyKeys(value, ["profileId"]) ||
+    typeof value.profileId !== "string" ||
+    !recordIdPattern.test(value.profileId)
+  ) {
+    throw new ApiError("Choose your user name before deleting.", 400);
+  }
+
+  return { profileId: value.profileId };
 }
 
 function parseClimbWriteBody(value: unknown) {
@@ -564,6 +584,28 @@ async function loadCanonicalProfile(db: D1Database, profileId: string) {
   return row ? rowToProfile(row) : null;
 }
 
+export async function isAdminProfileId(
+  db: D1Database,
+  profileId: string | null,
+) {
+  if (!profileId || !recordIdPattern.test(profileId)) return false;
+  await ensureSchema(db);
+  const profile = await loadCanonicalProfile(db, profileId);
+  return Boolean(profile && isAdminUserName(profile.name));
+}
+
+function requireClimbManager(
+  profile: Profile,
+  setter: string,
+  action: "edit" | "delete",
+) {
+  if (isAdminUserName(profile.name) || isSameUserName(profile.name, setter)) {
+    return;
+  }
+
+  throw new ApiError(`You can only ${action} climbs you set.`, 403);
+}
+
 function parseStoredHolds(raw: string): WallHold[] {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -688,9 +730,16 @@ async function handleWallHolds(request: Request, db: D1Database) {
 
   if (request.method === "PUT") {
     requireSameOrigin(request);
-    const { holds, expectedUpdatedAt } = parseWallHoldsWriteBody(
+    const { holds, expectedUpdatedAt, profileId } = parseWallHoldsWriteBody(
       await readLimitedJson(request, MAX_WALL_HOLDS_BODY_BYTES),
     );
+    const profile = await loadCanonicalProfile(db, profileId);
+    if (!profile) {
+      throw new ApiError("Choose your user name again before saving.", 400);
+    }
+    if (!isAdminUserName(profile.name)) {
+      throw new ApiError("Only Admin can change the wall setup.", 403);
+    }
     const currentConfiguration = await loadWallConfiguration(db);
     if (currentConfiguration.updated_at !== expectedUpdatedAt) {
       throw new ApiError(
@@ -1157,10 +1206,35 @@ async function handleClimbDetail(
     throw new ApiError("The climb id is invalid.", 400);
   }
 
-  if (request.method === "PUT") requireSameOrigin(request);
+  if (request.method === "PUT" || request.method === "DELETE") {
+    requireSameOrigin(request);
+  }
+
+  const row = await db
+    .prepare(
+      "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",
+    )
+    .bind(id)
+    .first<ClimbRow>();
+  if (!row) {
+    const wasDeleted = await db
+      .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+      .bind(id)
+      .first<{ id: string }>();
+    if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
+    throw new ApiError("Climb not found.", 404);
+  }
 
   if (request.method === "DELETE") {
-    requireSameOrigin(request);
+    const { profileId } = parseClimbDeleteBody(
+      await readLimitedJson(request, MAX_PROFILE_BODY_BYTES),
+    );
+    const profile = await loadCanonicalProfile(db, profileId);
+    if (!profile) {
+      throw new ApiError("Choose your user name again before deleting.", 400);
+    }
+    requireClimbManager(profile, row.setter, "delete");
+
     await db.batch([
       db
         .prepare(
@@ -1180,21 +1254,6 @@ async function handleClimbDetail(
     });
   }
 
-  const row = await db
-    .prepare(
-      "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",
-    )
-    .bind(id)
-    .first<ClimbRow>();
-  if (!row) {
-    const wasDeleted = await db
-      .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
-      .bind(id)
-      .first<{ id: string }>();
-    if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
-    throw new ApiError("Climb not found.", 404);
-  }
-
   if (request.method === "PUT") {
     const changes = parseClimbUpdateBody(
       await readLimitedJson(request, MAX_CLIMB_BODY_BYTES),
@@ -1203,6 +1262,7 @@ async function handleClimbDetail(
     if (!profile) {
       throw new ApiError("Choose your user name again before saving.", 400);
     }
+    requireClimbManager(profile, row.setter, "edit");
 
     const wallConfiguration = await loadWallConfiguration(db);
     if (wallConfiguration.updated_at !== changes.expectedWallUpdatedAt) {

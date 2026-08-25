@@ -21,6 +21,7 @@ import type { SavedClimb } from "./saved-climbs";
 import { loadClimbActivities } from "./send-api";
 import { loadSyncedClimbs } from "./synced-climbs";
 import { useActiveUser } from "../user-profile-provider";
+import { isAdminUser } from "../user-access";
 
 function ClimbRow({
   activity,
@@ -241,9 +242,11 @@ export default function ClimbListClient({
           A Fine Wall
         </a>
         <div className="list-header-actions">
-          <a className="wall-photo-link" href="/wall-photo">
-            Wall Setup
-          </a>
+          {isAdminUser(profile) ? (
+            <a className="wall-photo-link" href="/wall-photo">
+              Wall Setup
+            </a>
+          ) : null}
           <a className="set-climb-link" href="/set-climb">
             Set Climb
           </a>

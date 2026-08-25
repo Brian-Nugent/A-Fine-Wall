@@ -30,6 +30,7 @@ import {
   type WallHoldMap,
 } from "../climbs/wall-holds";
 import { useActiveUser } from "../user-profile-provider";
+import { canManageClimb, isAdminUser } from "../user-access";
 import WallPhoto from "../climbs/wall-photo";
 
 type DraftHold = {
@@ -128,6 +129,8 @@ export default function SetClimbPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
+    if (!profile) return;
+
     const controller = new AbortController();
     const searchParams = new URLSearchParams(window.location.search);
     const requestedEditId = searchParams.get("edit")?.trim() || null;
@@ -167,6 +170,11 @@ export default function SetClimbPage() {
           setEditLoadStatus("not-found");
           return;
         }
+        if (!canManageClimb(profile, savedClimb.setter)) {
+          setEditLoadError("You can only edit climbs you set.");
+          setEditLoadStatus("error");
+          return;
+        }
 
         const restoredHolds = restoreDraftHolds(savedClimb, wallMap.holds);
         if (!restoredHolds) {
@@ -196,7 +204,7 @@ export default function SetClimbPage() {
     void loadEditor();
 
     return () => controller.abort();
-  }, []);
+  }, [profile]);
 
   function cycleHold(holdId: string) {
     setSelectedHolds((current) => {
@@ -256,6 +264,7 @@ export default function SetClimbPage() {
     const trimmedName = name.trim();
     if (
       !profile ||
+      (editingClimb && !canManageClimb(profile, editingClimb.setter)) ||
       !trimmedName ||
       !grade ||
       !canFinish ||
@@ -374,22 +383,24 @@ export default function SetClimbPage() {
               Tap a hold for a blue circle, again for a yellow foothold, then
               for a green start and a red finish. A fifth tap clears it.
             </p>
-            <a
-              className="change-photo-link"
-              href="/wall-photo"
-              onClick={(event) => {
-                if (
-                  selectedHolds.length > 0 &&
-                  !window.confirm(
-                    "Changing the wall photo will clear the holds you selected. Continue?",
-                  )
-                ) {
-                  event.preventDefault();
-                }
-              }}
-            >
-              Wall Setup
-            </a>
+            {isAdminUser(profile) ? (
+              <a
+                className="change-photo-link"
+                href="/wall-photo"
+                onClick={(event) => {
+                  if (
+                    selectedHolds.length > 0 &&
+                    !window.confirm(
+                      "Changing the wall photo will clear the holds you selected. Continue?",
+                    )
+                  ) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                Wall Setup
+              </a>
+            ) : null}
           </section>
 
           {holdMapStatus === "loading" ? (
@@ -408,9 +419,13 @@ export default function SetClimbPage() {
           {holdMapStatus === "ready" && wallHolds.length === 0 ? (
             <div className="set-wall-notice">
               <p>Mark the holds on your wall before setting a climb.</p>
-              <a className="secondary-button" href="/wall-holds">
-                Mark Hold Spots
-              </a>
+              {isAdminUser(profile) ? (
+                <a className="secondary-button" href="/wall-holds">
+                  Mark Hold Spots
+                </a>
+              ) : (
+                <p>Ask Admin to mark the wall holds.</p>
+              )}
             </div>
           ) : null}
 

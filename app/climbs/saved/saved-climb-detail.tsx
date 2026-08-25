@@ -29,6 +29,8 @@ import {
   buildFilteredHref,
   type ClimbFilters,
 } from "../climb-filters";
+import { canManageClimb } from "../../user-access";
+import { useActiveUser } from "../../user-profile-provider";
 
 function DetailShell({
   backHref,
@@ -175,6 +177,7 @@ export default function SavedClimbDetail({
   climbId: string;
   filters: ClimbFilters;
 }) {
+  const { profile } = useActiveUser();
   const [climb, setClimb] = useState<SavedClimb | null | undefined>(undefined);
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -218,6 +221,11 @@ export default function SavedClimbDetail({
   }, [climbId]);
 
   async function handleDeleteClimb(climbToDelete: SavedClimb) {
+    if (!profile || !canManageClimb(profile, climbToDelete.setter)) {
+      setDeleteError("You can only delete climbs you set.");
+      return;
+    }
+
     if (
       !window.confirm(
         `Delete “${climbToDelete.name}”? This removes it from every device and cannot be undone.`,
@@ -229,7 +237,7 @@ export default function SavedClimbDetail({
     setIsDeleting(true);
     setDeleteError("");
     try {
-      await deleteClimb(climbToDelete.id);
+      await deleteClimb(climbToDelete.id, profile.id);
       try {
         removeSavedClimb(window.localStorage, climbToDelete.id);
       } catch {
@@ -280,16 +288,20 @@ export default function SavedClimbDetail({
   const editHref = buildFilteredHref("/set-climb", filters, {
     edit: climb.id,
   });
+  const canManage = canManageClimb(profile, climb.setter);
 
   return (
     <DetailShell
       backHref={backHref}
+      status={climb.grade}
       endAction={
-        <ClimbOptions
-          editHref={editHref}
-          isDeleting={isDeleting}
-          onDelete={() => handleDeleteClimb(climb)}
-        />
+        canManage ? (
+          <ClimbOptions
+            editHref={editHref}
+            isDeleting={isDeleting}
+            onDelete={() => handleDeleteClimb(climb)}
+          />
+        ) : undefined
       }
     >
       <section aria-labelledby="climb-name">

@@ -22,6 +22,7 @@ import {
   type AttributedSavedClimb,
 } from "../climbs/saved-climbs";
 import WallPhoto from "../climbs/wall-photo";
+import { isAdminUser } from "../user-access";
 import { useActiveUser } from "../user-profile-provider";
 import {
   MAX_WALL_HOLD_SIZE,
@@ -106,6 +107,7 @@ async function climbsNeedingMigration(
 
 export default function WallHoldsPage() {
   const { profile } = useActiveUser();
+  const isAdmin = isAdminUser(profile);
   const wallMap = useRef<HTMLElement | null>(null);
   const activeDrag = useRef<HoldDrag | null>(null);
   const activeResize = useRef<HoldResize | null>(null);
@@ -122,6 +124,8 @@ export default function WallHoldsPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!isAdmin) return;
+
     const controller = new AbortController();
 
     void loadWallHoldMap(controller.signal)
@@ -142,7 +146,7 @@ export default function WallHoldsPage() {
       });
 
     return () => controller.abort();
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!hasChanges) return;
@@ -164,6 +168,27 @@ export default function WallHoldsPage() {
   const selectedHoldIsSaved = Boolean(
     selectedHold && savedHoldIds.has(selectedHold.id),
   );
+
+  if (!isAdmin) {
+    return (
+      <main className="app-page wall-holds-page">
+        <header className="detail-header">
+          <a className="back-link" href="/climbs">
+            <span aria-hidden="true">&larr;</span>
+            Climbs
+          </a>
+          <span>Wall Setup</span>
+        </header>
+        <div className="empty-state">
+          <h1>Admin only</h1>
+          <p>Only Admin can change the wall photo or hold spots.</p>
+          <a className="primary-button" href="/climbs">
+            View Climbs
+          </a>
+        </div>
+      </main>
+    );
+  }
 
   function appendHold(hold: WallHold) {
     setHolds((current) => [...current, hold]);
@@ -449,7 +474,9 @@ export default function WallHoldsPage() {
   }
 
   async function saveHoldMap() {
-    if (!profile || isLoading || loadFailed || isSaving) return;
+    if (!profile || !isAdminUser(profile) || isLoading || loadFailed || isSaving) {
+      return;
+    }
     if (
       holds.length === 0 &&
       !window.confirm(
@@ -484,7 +511,11 @@ export default function WallHoldsPage() {
         );
       }
 
-      const savedMap = await saveWallHolds(holds, loadedRevision.current);
+      const savedMap = await saveWallHolds(
+        holds,
+        loadedRevision.current,
+        profile.id,
+      );
       setSavedHoldIds(new Set(savedMap.holds.map((hold) => hold.id)));
       loadedRevision.current = savedMap.updatedAt;
       setHolds(savedMap.holds);

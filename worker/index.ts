@@ -41,7 +41,11 @@ const worker = {
     }
 
     if (url.pathname === WALL_PHOTO_PATH) {
-      const response = await handleWallPhotoRequest(request, env.WALL_PHOTOS);
+      const response = await handleWallPhotoRequest(
+        request,
+        env.WALL_PHOTOS,
+        env.DB,
+      );
       if (
         response.status !== 404 ||
         (request.method !== "GET" && request.method !== "HEAD")

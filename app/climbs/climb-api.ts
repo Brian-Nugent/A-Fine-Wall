@@ -118,10 +118,14 @@ export async function updateClimb(
   return payload.climb;
 }
 
-export async function deleteClimb(id: string) {
+export async function deleteClimb(id: string, profileId: string) {
   const response = await fetch(
     `${CLIMBS_ENDPOINT}/${encodeURIComponent(id)}`,
-    { method: "DELETE" },
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId }),
+    },
   );
 
   if (!response.ok) {

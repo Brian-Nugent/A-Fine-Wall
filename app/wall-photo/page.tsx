@@ -7,6 +7,11 @@ import {
   DEFAULT_WALL_PHOTO,
   WALL_PHOTO_ENDPOINT,
 } from "../climbs/wall-photo";
+import {
+  ACTIVE_USER_PROFILE_HEADER,
+  isAdminUser,
+} from "../user-access";
+import { useActiveUser } from "../user-profile-provider";
 
 const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 const supportedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -16,6 +21,7 @@ function formatMegabytes(bytes: number) {
 }
 
 export default function WallPhotoPage() {
+  const { profile } = useActiveUser();
   const fileInput = useRef<HTMLInputElement | null>(null);
   const previewObjectUrl = useRef<string | null>(null);
   const [previewSrc, setPreviewSrc] = useState(WALL_PHOTO_ENDPOINT);
@@ -68,14 +74,17 @@ export default function WallPhotoPage() {
   }
 
   async function savePhoto() {
-    if (!selectedFile) return;
+    if (!selectedFile || !profile || !isAdminUser(profile)) return;
 
     setError("");
     setIsSaving(true);
     try {
       const response = await fetch(WALL_PHOTO_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": selectedFile.type },
+        headers: {
+          "Content-Type": selectedFile.type,
+          [ACTIVE_USER_PROFILE_HEADER]: profile.id,
+        },
         body: selectedFile,
       });
       const result = (await response.json().catch(() => null)) as {
@@ -95,6 +104,27 @@ export default function WallPhotoPage() {
       );
       setIsSaving(false);
     }
+  }
+
+  if (!isAdminUser(profile)) {
+    return (
+      <main className="app-page photo-page">
+        <header className="detail-header">
+          <a className="back-link" href="/climbs">
+            <span aria-hidden="true">&larr;</span>
+            Climbs
+          </a>
+          <span>Wall Setup</span>
+        </header>
+        <div className="empty-state">
+          <h1>Admin only</h1>
+          <p>Only Admin can change the wall photo or hold spots.</p>
+          <a className="primary-button" href="/climbs">
+            View Climbs
+          </a>
+        </div>
+      </main>
+    );
   }
 
   return (

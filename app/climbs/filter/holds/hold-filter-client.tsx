@@ -14,12 +14,15 @@ import {
 } from "../../climb-filters";
 import { loadWallHoldMap, type WallHold } from "../../wall-holds";
 import WallPhoto from "../../wall-photo";
+import { isAdminUser } from "../../../user-access";
+import { useActiveUser } from "../../../user-profile-provider";
 
 export default function HoldFilterClient({
   initialFilters,
 }: {
   initialFilters: ClimbFilters;
 }) {
+  const { profile } = useActiveUser();
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
   const [selectedHoldIds, setSelectedHoldIds] = useState(
     initialFilters.holdIds,
@@ -127,14 +130,18 @@ export default function HoldFilterClient({
       {status === "ready" && wallHolds.length === 0 ? (
         <div className="set-wall-notice">
           <p>Mark the holds on your wall before filtering by hold.</p>
-          <a
-            className="secondary-button"
-            href={`/wall-holds?returnTo=${encodeURIComponent(
-              buildFilteredHref("/climbs/filter/holds", currentFilters),
-            )}`}
-          >
-            Mark Hold Spots
-          </a>
+          {isAdminUser(profile) ? (
+            <a
+              className="secondary-button"
+              href={`/wall-holds?returnTo=${encodeURIComponent(
+                buildFilteredHref("/climbs/filter/holds", currentFilters),
+              )}`}
+            >
+              Mark Hold Spots
+            </a>
+          ) : (
+            <p>Ask Admin to mark the wall holds.</p>
+          )}
         </div>
       ) : null}
 
