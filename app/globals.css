@@ -53,27 +53,6 @@ select {
   color: #ffffff;
 }
 
-.home-page {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2rem;
-  min-height: 100vh;
-  min-height: 100svh;
-  padding: 2rem;
-  background: #ffffff;
-  text-align: center;
-}
-
-.home-page h1 {
-  margin: 0;
-  font-size: clamp(2.75rem, 10vw, 5.5rem);
-  font-weight: 600;
-  letter-spacing: -0.065em;
-  line-height: 0.95;
-}
-
 .profile-gate {
   position: fixed;
   z-index: 100;

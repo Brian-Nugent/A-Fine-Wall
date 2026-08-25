@@ -528,17 +528,20 @@ function createMemoryAppDatabase() {
   };
 }
 
-test("renders the minimal home screen", async () => {
+test("starts at the climb list while preserving the first-time profile gate", async () => {
   const response = await render();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+  assert.equal(response.status, 307);
+  assert.equal(response.headers.get("location"), "/climbs");
 
-  const html = await response.text();
-  assert.match(html, /Opening the wall/);
-  assert.match(html, /<title>A Fine Wall<\/title>/i);
-  assert.match(html, /<h1>A Fine Wall<\/h1>/i);
-  assert.match(html, /href="\/climbs"/i);
-  assert.match(html, />View Climbs<\/a>/i);
+  const [homeSource, profileSource, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/user-profile-provider.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(homeSource, /redirect\("\/climbs"\)/);
+  assert.doesNotMatch(homeSource, /View Climbs|home-page/);
+  assert.match(profileSource, /What's your name\?/);
+  assert.doesNotMatch(css, /\.home-page/);
 });
 
 test("renders the shared-climb shell without prototype climbs", async () => {
