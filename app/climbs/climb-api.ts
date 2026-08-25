@@ -2,6 +2,29 @@ import type { SavedClimb } from "./saved-climbs";
 
 export const CLIMBS_ENDPOINT = "/api/climbs";
 
+const climbsReadyForNavigation = new Map<string, SavedClimb>();
+
+export function primeClimbsForNavigation(climbs: readonly SavedClimb[]) {
+  for (const climb of climbs) {
+    climbsReadyForNavigation.set(climb.id, climb);
+  }
+}
+
+export function replacePrimedClimbsForNavigation(
+  climbs: readonly SavedClimb[],
+) {
+  climbsReadyForNavigation.clear();
+  primeClimbsForNavigation(climbs);
+}
+
+export function evictPrimedClimbForNavigation(id: string) {
+  climbsReadyForNavigation.delete(id);
+}
+
+export function readPrimedClimbForNavigation(id: string) {
+  return climbsReadyForNavigation.get(id);
+}
+
 export class ClimbRequestError extends Error {
   readonly status: number;
 
@@ -37,7 +60,10 @@ export async function loadClimb(id: string, signal?: AbortSignal) {
     `${CLIMBS_ENDPOINT}/${encodeURIComponent(id)}`,
     { cache: "no-store", signal },
   );
-  if (response.status === 404) return null;
+  if (response.status === 404) {
+    evictPrimedClimbForNavigation(id);
+    return null;
+  }
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
     const message =
@@ -48,7 +74,9 @@ export async function loadClimb(id: string, signal?: AbortSignal) {
   }
 
   const payload: unknown = await response.json();
-  return isClimbPayload(payload) ? payload.climb : null;
+  if (!isClimbPayload(payload)) return null;
+  primeClimbsForNavigation([payload.climb]);
+  return payload.climb;
 }
 
 export async function saveClimb(
@@ -136,4 +164,6 @@ export async function deleteClimb(id: string, profileId: string) {
         : "This climb could not be deleted.";
     throw new ClimbRequestError(message, response.status);
   }
+
+  evictPrimedClimbForNavigation(id);
 }

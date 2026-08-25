@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   climbActivityKey,
@@ -17,6 +18,7 @@ import {
   type ClimbFilters,
 } from "./climb-filters";
 import { getClimbListState } from "./climb-list-state";
+import { replacePrimedClimbsForNavigation } from "./climb-api";
 import type { SavedClimb } from "./saved-climbs";
 import { loadClimbActivities } from "./send-api";
 import { loadSyncedClimbs } from "./synced-climbs";
@@ -62,7 +64,7 @@ function ClimbRow({
 
   return (
     <li>
-      <a className="climb-row" href={href}>
+      <Link className="climb-row" href={href}>
         <span className="climb-row-copy">
           <strong>
             <span className="climb-name-text">{climb.name}</span>
@@ -88,7 +90,7 @@ function ClimbRow({
           <strong>{climb.grade}</strong>
           <span aria-hidden="true">&rarr;</span>
         </span>
-      </a>
+      </Link>
     </li>
   );
 }
@@ -124,6 +126,7 @@ export default function ClimbListClient({
     void loadSyncedClimbs(profile, window.localStorage, controller.signal)
       .then((result) => {
         if (!isActive) return;
+        replacePrimedClimbsForNavigation(result.climbs);
         setSavedClimbs(result.climbs);
         setSharedLoadFailed(result.sharedUnavailable);
         setLoadStatus("ready");
