@@ -838,7 +838,8 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   const html = await response.text();
   assert.match(html, /Choose your holds/);
   assert.match(html, /Tap a hold for a blue circle/);
-  assert.match(html, /A fourth tap clears it/);
+  assert.match(html, /again for a yellow foothold/);
+  assert.match(html, /A fifth tap clears it/);
   assert.match(html, /src="\/api\/wall-photo"/);
   assert.match(html, /href="\/wall-photo"/);
   assert.match(html, />Wall Setup<\/a>/);
@@ -846,6 +847,14 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   assert.match(html, /class="wall-hold-choice-layer"/);
   assert.doesNotMatch(html, /aria-label="Tap the wall to add a hold"/);
   assert.match(html, />Done<\/button>/);
+
+  const source = await readFile(
+    new URL("../app/set-climb/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /foot: "Yellow foothold"/);
+  assert.match(source, /foot: "make it a yellow foothold"/);
+  assert.doesNotMatch(source, /Yellow foothold hold/);
 });
 
 test("offers the complete V0 through V17 grade range", () => {
@@ -1686,6 +1695,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
 
   const wallHolds = [
     { id: "start-hold", x: 31, y: 88, size: 7 },
+    { id: "foot-hold", x: 48, y: 74, size: 6 },
     { id: "finish-hold", x: 67, y: 9, size: 8 },
   ];
   let response = await fetchAppData(
@@ -1722,6 +1732,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
     createdAt: 100,
     holds: [
       { holdId: "start-hold", x: 0, y: 0, size: 1, role: "start" },
+      { holdId: "foot-hold", x: 0, y: 0, size: 1, role: "foot" },
       { holdId: "finish-hold", x: 0, y: 0, size: 1, role: "finish" },
     ],
   };
@@ -1744,7 +1755,9 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(savedClimb.setter, "Alex Rivera");
   assert.equal(savedClimb.holds[0].holdId, "start-hold");
   assert.equal(savedClimb.holds[0].x, wallHolds[0].x);
+  assert.equal(savedClimb.holds[1].role, "foot");
   assert.equal(savedClimb.holds[1].y, wallHolds[1].y);
+  assert.equal(savedClimb.holds[2].y, wallHolds[2].y);
 
   response = await fetchAppData(
     new Request("http://localhost/api/climbs"),
@@ -1767,6 +1780,28 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       },
       body: JSON.stringify({
         climb: { ...climb, id: "outside-grade-range", grade: "V18" },
+        expectedWallUpdatedAt: wallRevision,
+        profileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 400);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb: {
+          ...climb,
+          id: "unknown-hold-role",
+          holds: climb.holds.map((hold, index) =>
+            index === 1 ? { ...hold, role: "feet" } : hold,
+          ),
+        },
         expectedWallUpdatedAt: wallRevision,
         profileId,
       }),
@@ -2004,6 +2039,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(updatedClimb.setter, savedClimb.setter);
   assert.equal(updatedClimb.createdAt, savedClimb.createdAt);
   assert.equal(updatedClimb.holds[0].x, movedWallHolds[0].x);
+  assert.equal(updatedClimb.holds[1].role, "foot");
 
   response = await fetchAppData(
     new Request(`http://localhost/api/sends?profileId=${profileId}`),
@@ -2217,6 +2253,23 @@ test("uses brighter blue and green specifically for hold circles", async () => {
   );
 });
 
+test("styles footholds as yellow circles", async () => {
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(css, /--hold-foot:\s*#ffd400/);
+  assert.match(
+    css.match(/\.hold-marker--foot\s*\{([^}]*)\}/)?.[1] ?? "",
+    /var\(--hold-foot\)/,
+  );
+  assert.match(
+    css.match(/\.hold-choice--foot\s*\{([^}]*)\}/)?.[1] ?? "",
+    /var\(--hold-foot\)/,
+  );
+});
+
 test("allows native two-axis panning on interactive wall layers", async () => {
   const css = await readFile(
     new URL("../app/globals.css", import.meta.url),
@@ -2302,7 +2355,8 @@ test("normalizes and remembers the active user profile", () => {
 });
 
 test("safely parses and stores device-local climbs", () => {
-  assert.equal(nextSavedHoldRole("hand"), "start");
+  assert.equal(nextSavedHoldRole("hand"), "foot");
+  assert.equal(nextSavedHoldRole("foot"), "start");
   assert.equal(nextSavedHoldRole("start"), "finish");
   assert.equal(nextSavedHoldRole("finish"), null);
 
@@ -2317,6 +2371,7 @@ test("safely parses and stores device-local climbs", () => {
       { x: 27, y: 91, size: 6, role: "start" },
       { x: 33, y: 84, size: 7, role: "start" },
       { x: 43, y: 78, size: 9, role: "hand" },
+      { x: 51, y: 66, size: 7, role: "foot" },
       { x: 66, y: 9, size: 9, role: "finish" },
       { x: 74, y: 7, size: 7, role: "finish" },
     ],

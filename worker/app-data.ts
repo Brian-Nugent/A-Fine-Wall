@@ -19,7 +19,7 @@ const MAX_CLIMB_HOLDS = 200;
 const MAX_LEGACY_HOLD_MATCH_DISTANCE = 3;
 const MIN_LEGACY_HOLD_MATCH_GAP = 0.75;
 
-const holdRoles = new Set(["start", "hand", "finish"]);
+const holdRoles = new Set(["start", "hand", "foot", "finish"]);
 const recordIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 const gradePattern = /^V(?:[0-9]|1[0-7])$/;
 
@@ -35,7 +35,7 @@ type ClimbHold = {
   x: number;
   y: number;
   size: number;
-  role: "start" | "hand" | "finish";
+  role: "start" | "hand" | "foot" | "finish";
 };
 
 type Climb = {

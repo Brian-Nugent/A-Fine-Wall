@@ -37,6 +37,20 @@ type DraftHold = {
   role: SavedHoldRole;
 };
 
+const holdRoleAccessibleLabels: Record<SavedHoldRole, string> = {
+  hand: "Blue climbing hold",
+  foot: "Yellow foothold",
+  start: "Green start hold",
+  finish: "Red finish hold",
+};
+
+const holdRoleActions: Record<SavedHoldRole, string> = {
+  hand: "add it as a blue climbing hold",
+  foot: "make it a yellow foothold",
+  start: "make it a green start",
+  finish: "make it a red finish",
+};
+
 const MAX_LEGACY_HOLD_MATCH_DISTANCE = 3;
 const MIN_LEGACY_HOLD_MATCH_GAP = 0.75;
 
@@ -226,6 +240,9 @@ export default function SetClimbPage() {
   const startCount = selectedHolds.filter(
     (hold) => hold.role === "start",
   ).length;
+  const footCount = selectedHolds.filter(
+    (hold) => hold.role === "foot",
+  ).length;
   const finishCount = selectedHolds.filter(
     (hold) => hold.role === "finish",
   ).length;
@@ -354,8 +371,8 @@ export default function SetClimbPage() {
               {editingClimb ? "Edit the holds" : "Choose your holds"}
             </h1>
             <p>
-              Tap a hold for a blue circle, again for a green start, and again
-              for a red finish. A fourth tap clears it.
+              Tap a hold for a blue circle, again for a yellow foothold, then
+              for a green start and a red finish. A fifth tap clears it.
             </p>
             <a
               className="change-photo-link"
@@ -416,16 +433,14 @@ export default function SetClimbPage() {
               const selection = selectedHolds.find(
                 (item) => item.holdId === hold.id,
               );
-              const nextAction =
-                !selection
-                  ? "add it as a climb hold"
-                  : selection.role === "hand"
-                  ? "make it a start"
-                  : selection.role === "start"
-                    ? "make it a finish"
-                    : "clear it";
+              const nextRole = selection
+                ? nextSavedHoldRole(selection.role)
+                : "hand";
+              const nextAction = nextRole
+                ? holdRoleActions[nextRole]
+                : "clear it";
               const accessibleLabel = selection
-                ? `${selection.role === "hand" ? "Blue climb" : selection.role === "start" ? "Green start" : "Red finish"} hold. Tap to ${nextAction}.`
+                ? `${holdRoleAccessibleLabels[selection.role]}. Tap to ${nextAction}.`
                 : `Available hold spot. Tap to ${nextAction}.`;
 
               return (
@@ -445,8 +460,9 @@ export default function SetClimbPage() {
               );
             })}
             <figcaption className="sr-only">
-              Preset hold spots on A Fine Wall. Choose one or more green start
-              holds, blue climbing holds, and one or more red finish holds.
+              Preset hold spots on A Fine Wall. Choose blue climbing holds,
+              optional yellow footholds, one or more green start holds, and one
+              or more red finish holds.
             </figcaption>
           </figure>
 
@@ -455,7 +471,7 @@ export default function SetClimbPage() {
               <strong>{selectedHolds.length} holds</strong>
               <span>
                 {canFinish
-                  ? `${startCount} start / ${finishCount} finish`
+                  ? `${startCount} start / ${footCount} ${footCount === 1 ? "foothold" : "footholds"} / ${finishCount} finish`
                   : "Need a start and finish"}
               </span>
             </div>

@@ -10,6 +10,7 @@
   --finish: #d92d3f;
   --hold-start: #20d968;
   --hold-hand: #168cff;
+  --hold-foot: #ffd400;
 }
 
 * {
@@ -917,6 +918,11 @@ select:focus-visible {
   color: var(--marker-color);
 }
 
+.hold-marker--foot {
+  --marker-color: var(--hold-foot);
+  color: var(--marker-color);
+}
+
 .hold-marker--finish {
   --marker-color: var(--finish);
   color: var(--marker-color);
@@ -1339,6 +1345,11 @@ select:focus-visible {
 
 .hold-choice--hand {
   --marker-color: var(--hold-hand);
+  color: var(--marker-color);
+}
+
+.hold-choice--foot {
+  --marker-color: var(--hold-foot);
   color: var(--marker-color);
 }
 
@@ -1858,6 +1869,10 @@ select:focus-visible {
 
 .legend-dot--hand {
   color: var(--hold-hand);
+}
+
+.legend-dot--foot {
+  color: var(--hold-foot);
 }
 
 .legend-dot--finish {

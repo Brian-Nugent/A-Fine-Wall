@@ -275,6 +275,7 @@ export default function SavedClimbDetail({
   );
   const startCount = resolvedHolds.filter((hold) => hold.role === "start").length;
   const handCount = resolvedHolds.filter((hold) => hold.role === "hand").length;
+  const footCount = resolvedHolds.filter((hold) => hold.role === "foot").length;
   const finishCount = resolvedHolds.filter((hold) => hold.role === "finish").length;
   const editHref = buildFilteredHref("/set-climb", filters, {
     edit: climb.id,
@@ -328,14 +329,17 @@ export default function SavedClimbDetail({
           <figcaption className="sr-only">
             {climb.name} uses {startCount} green-circled start{" "}
             {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled
-            climbing {handCount === 1 ? "hold" : "holds"}, and {finishCount}{" "}
-            red-circled finish {finishCount === 1 ? "hold" : "holds"}.
+            climbing {handCount === 1 ? "hold" : "holds"}, {footCount}{" "}
+            yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and{" "}
+            {finishCount} red-circled finish{" "}
+            {finishCount === 1 ? "hold" : "holds"}.
           </figcaption>
         </figure>
 
         <div className="hold-legend" aria-label="Hold marker legend">
-          <span><i className="legend-dot legend-dot--start" />Start</span>
           <span><i className="legend-dot legend-dot--hand" />Climb</span>
+          <span><i className="legend-dot legend-dot--foot" />Foothold</span>
+          <span><i className="legend-dot legend-dot--start" />Start</span>
           <span><i className="legend-dot legend-dot--finish" />Finish</span>
         </div>
 

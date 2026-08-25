@@ -1,4 +1,4 @@
-export type HoldRole = "start" | "hand" | "finish";
+export type HoldRole = "start" | "hand" | "foot" | "finish";
 
 export type HoldMarker = {
   x: number;

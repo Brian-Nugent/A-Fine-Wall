@@ -8,12 +8,13 @@ export function isClimbGrade(value: unknown): value is string {
   return typeof value === "string" && /^V(?:[0-9]|1[0-7])$/.test(value);
 }
 
-export type SavedHoldRole = "start" | "hand" | "finish";
+export type SavedHoldRole = "start" | "hand" | "foot" | "finish";
 
 export function nextSavedHoldRole(
   role: SavedHoldRole,
 ): SavedHoldRole | null {
-  if (role === "hand") return "start";
+  if (role === "hand") return "foot";
+  if (role === "foot") return "start";
   if (role === "start") return "finish";
   return null;
 }
@@ -98,7 +99,10 @@ function isSavedHold(value: unknown): value is SavedHold {
     isFiniteNumber(hold.size) &&
     hold.size > 0 &&
     hold.size <= 20 &&
-    (hold.role === "start" || hold.role === "hand" || hold.role === "finish")
+    (hold.role === "start" ||
+      hold.role === "hand" ||
+      hold.role === "foot" ||
+      hold.role === "finish")
   );
 }
 
