@@ -11,9 +11,7 @@ import {
 import {
   ClimbRequestError,
   deleteClimb,
-  evictPrimedClimbForNavigation,
   loadClimb,
-  readPrimedClimbForNavigation,
 } from "../climb-api";
 import {
   readSavedClimbs,
@@ -180,25 +178,21 @@ export default function SavedClimbDetail({
   filters: ClimbFilters;
 }) {
   const { profile } = useActiveUser();
-  const [climb, setClimb] = useState<SavedClimb | null | undefined>(() =>
-    readPrimedClimbForNavigation(climbId),
-  );
+  const [climb, setClimb] = useState<SavedClimb | null | undefined>(undefined);
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
-    let browserClimb = readPrimedClimbForNavigation(climbId) ?? null;
+    let browserClimb: SavedClimb | null = null;
 
     try {
-      const storedClimb =
-        readSavedClimbs(window.localStorage).find(
-          (item) => item.id === climbId,
-        ) ?? null;
-      browserClimb ??= storedClimb;
+      browserClimb = readSavedClimbs(window.localStorage).find(
+        (item) => item.id === climbId,
+      ) ?? null;
     } catch {
-      // Keep the climb carried over from the list if local storage is blocked.
+      browserClimb = null;
     }
 
     loadClimb(climbId, controller.signal)
@@ -206,7 +200,6 @@ export default function SavedClimbDetail({
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         if (error instanceof ClimbRequestError && error.status === 410) {
-          evictPrimedClimbForNavigation(climbId);
           try {
             removeSavedClimb(window.localStorage, climbId);
           } catch {

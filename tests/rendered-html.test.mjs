@@ -36,12 +36,6 @@ import {
 } from "../app/climbs/climb-activity.ts";
 import { climbs as demoClimbs } from "../app/climbs/data.ts";
 import {
-  evictPrimedClimbForNavigation,
-  primeClimbsForNavigation,
-  readPrimedClimbForNavigation,
-  replacePrimedClimbsForNavigation,
-} from "../app/climbs/climb-api.ts";
-import {
   resolveSavedHold,
   wallHoldSizeFromHorizontalDrag,
   wallSetupReturnPath,
@@ -1021,53 +1015,6 @@ test("renders the browser-saved climb detail shell", async () => {
   const html = await response.text();
   assert.match(html, /href="\/climbs"/i);
   assert.match(html, /Loading climb/);
-});
-
-test("keeps the climb list visible while an opened climb becomes ready", async () => {
-  const [listSource, detailSource] = await Promise.all([
-    readFile(
-      new URL("../app/climbs/climb-list-client.tsx", import.meta.url),
-      "utf8",
-    ),
-    readFile(
-      new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
-      "utf8",
-    ),
-  ]);
-
-  assert.match(listSource, /import Link from "next\/link"/);
-  assert.match(listSource, /<Link className="climb-row" href=\{href\}>/);
-  assert.doesNotMatch(listSource, /<a className="climb-row" href=\{href\}>/);
-  assert.match(
-    listSource,
-    /replacePrimedClimbsForNavigation\(result\.climbs\)/,
-  );
-  assert.match(detailSource, /readPrimedClimbForNavigation\(climbId\)/);
-});
-
-test("refreshes and evicts climbs carried through client navigation", () => {
-  const climbA = {
-    id: "navigation-a",
-    name: "Navigation A",
-    grade: "V3",
-    setter: "Alex",
-    createdAt: 1,
-    holds: [
-      { x: 10, y: 90, size: 5, role: "start" },
-      { x: 80, y: 10, size: 5, role: "finish" },
-    ],
-  };
-  const climbB = { ...climbA, id: "navigation-b", name: "Navigation B" };
-
-  replacePrimedClimbsForNavigation([climbA]);
-  assert.equal(readPrimedClimbForNavigation(climbA.id), climbA);
-  primeClimbsForNavigation([climbB]);
-  assert.equal(readPrimedClimbForNavigation(climbB.id), climbB);
-
-  replacePrimedClimbsForNavigation([climbB]);
-  assert.equal(readPrimedClimbForNavigation(climbA.id), undefined);
-  evictPrimedClimbForNavigation(climbB.id);
-  assert.equal(readPrimedClimbForNavigation(climbB.id), undefined);
 });
 
 test("limits the climb options menu to the setter and Admin", async () => {

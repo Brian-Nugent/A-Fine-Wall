@@ -12,7 +12,6 @@ export default async function SavedClimbPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const id = resolvedSearchParams.id;
-  const climbId = typeof id === "string" ? id : "";
   const filters = parseClimbFilters(resolvedSearchParams);
   return (
     <SavedClimbDetail
@@ -20,9 +19,8 @@ export default async function SavedClimbPage({
         "/climbs",
         filters,
       )}
-      climbId={climbId}
+      climbId={typeof id === "string" ? id : ""}
       filters={filters}
-      key={climbId}
     />
   );
 }
