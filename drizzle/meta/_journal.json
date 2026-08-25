@@ -36,6 +36,13 @@
       "when": 1787632929287,
       "tag": "0004_remove_sample_climbs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787672921336,
+      "tag": "0005_wealthy_madame_hydra",
+      "breakpoints": true
     }
   ]
 }

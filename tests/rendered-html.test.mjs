@@ -118,6 +118,7 @@ function createMemoryAppDatabase() {
 
   const memorySendKey = (climbKind, climbId, profileId) =>
     JSON.stringify([climbKind, climbId, profileId]);
+  const memoryProfileNameKey = (name) => name.toLocaleLowerCase("en-US");
 
   function aggregateSends(climbKind, climbId, profileId = null) {
     const matching = [...savedSends.values()].filter(
@@ -174,14 +175,15 @@ function createMemoryAppDatabase() {
         ) {
           const profilesByName = new Map();
           for (const profile of savedProfiles.values()) {
-            const current = profilesByName.get(profile.name);
+            const nameKey = memoryProfileNameKey(profile.name);
+            const current = profilesByName.get(nameKey);
             if (
               !current ||
               profile.created_at < current.created_at ||
               (profile.created_at === current.created_at &&
                 profile.id.localeCompare(current.id) < 0)
             ) {
-              profilesByName.set(profile.name, profile);
+              profilesByName.set(nameKey, profile);
             }
           }
           return {
@@ -232,7 +234,9 @@ function createMemoryAppDatabase() {
           if (
             name !== expectedName ||
             [...savedProfiles.values()].some(
-              (profile) => profile.name === expectedName,
+              (profile) =>
+                memoryProfileNameKey(profile.name) ===
+                memoryProfileNameKey(expectedName),
             )
           ) {
             return null;
@@ -336,7 +340,11 @@ function createMemoryAppDatabase() {
           if (!requested) return null;
           return (
             [...savedProfiles.values()]
-              .filter((profile) => profile.name === requested.name)
+              .filter(
+                (profile) =>
+                  memoryProfileNameKey(profile.name) ===
+                  memoryProfileNameKey(requested.name),
+              )
               .sort(
                 (a, b) =>
                   a.created_at - b.created_at || a.id.localeCompare(b.id),
@@ -349,7 +357,11 @@ function createMemoryAppDatabase() {
         ) {
           return (
             [...savedProfiles.values()]
-              .filter((profile) => profile.name === values[0])
+              .filter(
+                (profile) =>
+                  memoryProfileNameKey(profile.name) ===
+                  memoryProfileNameKey(values[0]),
+              )
               .sort(
                 (a, b) =>
                   a.created_at - b.created_at || a.id.localeCompare(b.id),
@@ -1133,6 +1145,46 @@ test("creates and reloads password-free user profiles", async () => {
   assert.deepEqual((await response.json()).profile, createdProfile);
 
   response = await fetchAppData(
+    new Request("http://localhost/api/profiles", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ name: "Sheafy" }),
+    }),
+  );
+  assert.equal(response.status, 201);
+  const sheafyProfile = (await response.json()).profile;
+  assert.equal(sheafyProfile.name, "Sheafy");
+
+  for (const name of ["sheafy", "shEafy", "SHEAFY"]) {
+    response = await fetchAppData(
+      new Request("http://localhost/api/profiles", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ name }),
+      }),
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).profile, sheafyProfile);
+  }
+
+  database.seedProfile({
+    id: "sheafy-legacy-alias",
+    name: "sHEAFY",
+    createdAt: sheafyProfile.createdAt + 1,
+  });
+  response = await fetchAppData(
+    new Request("http://localhost/api/profiles/sheafy-legacy-alias"),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).profile, sheafyProfile);
+
+  response = await fetchAppData(
     new Request(
       `http://localhost/api/profiles/${encodeURIComponent(createdProfile.id)}`,
     ),
@@ -1140,7 +1192,14 @@ test("creates and reloads password-free user profiles", async () => {
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).profile, createdProfile);
 
-  for (const name of ["   ", "You", "Bad\nName", "x".repeat(51)]) {
+  for (const name of [
+    "   ",
+    "You",
+    "you",
+    "yOu",
+    "Bad\nName",
+    "x".repeat(51),
+  ]) {
     response = await fetchAppData(
       new Request("http://localhost/api/profiles", {
         method: "POST",
@@ -1180,16 +1239,21 @@ test("creates and reloads password-free user profiles", async () => {
     name: "Zed",
     createdAt: 500,
   });
+  database.seedProfile({
+    id: "aaron-case-variant",
+    name: "aArOn",
+    createdAt: 501,
+  });
 
   response = await fetchAppData(
     new Request("http://localhost/api/profiles"),
   );
   assert.equal(response.status, 200);
   const profiles = (await response.json()).profiles;
-  assert.equal(profiles.length, 3);
+  assert.equal(profiles.length, 4);
   assert.deepEqual(
     profiles.map((profile) => profile.name).sort(),
-    ["Aaron", "Zed", createdProfile.name].sort(),
+    ["Aaron", "Sheafy", "Zed", createdProfile.name].sort(),
   );
   assert.equal(response.headers.get("cache-control"), "no-store");
 
@@ -1866,6 +1930,21 @@ test("cleanup migration removes only retired prototype send activity", async () 
   assert.doesNotMatch(migration, /DELETE FROM `climbs`/);
 });
 
+test("case-insensitive username migration preserves profiles and merges aliases", async () => {
+  const migration = await readFile(
+    new URL("../drizzle/0005_wealthy_madame_hydra.sql", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(migration, /COLLATE NOCASE/);
+  assert.match(migration, /UPDATE `climbs`/);
+  assert.match(migration, /INSERT INTO `climb_sends`/);
+  assert.match(migration, /DELETE FROM `climb_sends`/);
+  assert.match(migration, /CREATE INDEX `idx_profiles_name_nocase`/);
+  assert.doesNotMatch(migration, /CREATE UNIQUE INDEX/);
+  assert.doesNotMatch(migration, /DELETE FROM `profiles`/);
+});
+
 test("shows only clean colored circles for selected route holds", async () => {
   const css = await readFile(
     new URL("../app/globals.css", import.meta.url),
@@ -1927,6 +2006,8 @@ test("normalizes and remembers the active user profile", () => {
   assert.equal(normalizeUserName("  Zoë   O’Connor  "), "Zoë O’Connor");
   assert.equal(normalizeUserName("   "), null);
   assert.equal(normalizeUserName("You"), null);
+  assert.equal(normalizeUserName("you"), null);
+  assert.equal(normalizeUserName("yOu"), null);
   assert.equal(normalizeUserName("Bad\nName"), null);
   assert.equal(normalizeUserName("x".repeat(MAX_USER_NAME_LENGTH)), "x".repeat(50));
   assert.equal(normalizeUserName("x".repeat(MAX_USER_NAME_LENGTH + 1)), null);

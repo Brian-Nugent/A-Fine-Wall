@@ -149,7 +149,7 @@ function normalizeDisplayName(value: unknown) {
 
 function normalizeProfileName(value: unknown) {
   const name = normalizeDisplayName(value);
-  return name === "You" ? null : name;
+  return name?.toLocaleLowerCase("en-US") === "you" ? null : name;
 }
 
 function hasUnsafeNameCharacter(value: string) {
@@ -476,6 +476,10 @@ async function ensureSchema(db: D1Database) {
       ON climb_sends(profile_id)
     `),
     db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_profiles_name_nocase
+      ON profiles(name COLLATE NOCASE)
+    `),
+    db.prepare(`
       INSERT OR IGNORE INTO wall_configuration (id, holds_json, updated_at)
       VALUES (?, ?, ?)
     `).bind(WALL_CONFIGURATION_ID, "[]", 0),
@@ -500,7 +504,8 @@ async function loadCanonicalProfile(db: D1Database, profileId: string) {
     .prepare(
       `SELECT canonical.id, canonical.name, canonical.created_at
        FROM profiles AS requested
-       JOIN profiles AS canonical ON canonical.name = requested.name
+       JOIN profiles AS canonical
+         ON canonical.name = requested.name COLLATE NOCASE
        WHERE requested.id = ?
        ORDER BY canonical.created_at ASC, canonical.id ASC
        LIMIT 1`,
@@ -689,7 +694,7 @@ async function handleProfiles(request: Request, db: D1Database) {
          FROM profiles AS current
          WHERE NOT EXISTS (
            SELECT 1 FROM profiles AS earlier
-           WHERE earlier.name = current.name
+           WHERE earlier.name = current.name COLLATE NOCASE
              AND (
                earlier.created_at < current.created_at OR
                (earlier.created_at = current.created_at AND earlier.id < current.id)
@@ -721,7 +726,9 @@ async function handleProfiles(request: Request, db: D1Database) {
     .prepare(
       `INSERT INTO profiles (id, name, created_at)
        SELECT ?, ?, ?
-       WHERE NOT EXISTS (SELECT 1 FROM profiles WHERE name = ?)
+       WHERE NOT EXISTS (
+         SELECT 1 FROM profiles WHERE name = ? COLLATE NOCASE
+       )
        RETURNING id, name, created_at`,
     )
     .bind(candidate.id, candidate.name, candidate.createdAt, candidate.name)
@@ -731,7 +738,7 @@ async function handleProfiles(request: Request, db: D1Database) {
   const existingProfile = await db
     .prepare(
       `SELECT id, name, created_at FROM profiles
-       WHERE name = ?
+       WHERE name = ? COLLATE NOCASE
        ORDER BY created_at ASC, id ASC
        LIMIT 1`,
     )
@@ -915,13 +922,10 @@ async function handleProfileDetail(
     throw new ApiError("The user profile id is invalid.", 400);
   }
 
-  const row = await db
-    .prepare("SELECT id, name, created_at FROM profiles WHERE id = ?")
-    .bind(id)
-    .first<ProfileRow>();
-  if (!row) throw new ApiError("User profile not found.", 404);
+  const profile = await loadCanonicalProfile(db, id);
+  if (!profile) throw new ApiError("User profile not found.", 404);
 
-  return json({ profile: rowToProfile(row) });
+  return json({ profile });
 }
 
 async function handleClimbs(request: Request, db: D1Database) {
@@ -948,14 +952,11 @@ async function handleClimbs(request: Request, db: D1Database) {
       parseClimbWriteBody(
         await readLimitedJson(request, MAX_CLIMB_BODY_BYTES),
       );
-    const profile = await db
-      .prepare("SELECT id, name, created_at FROM profiles WHERE id = ?")
-      .bind(profileId)
-      .first<ProfileRow>();
+    const profile = await loadCanonicalProfile(db, profileId);
     if (!profile) {
       throw new ApiError("Choose your user name again before saving.", 400);
     }
-    const setter = rowToProfile(profile).name;
+    const setter = profile.name;
     const existing = await db
       .prepare(
         "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",

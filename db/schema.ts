@@ -8,11 +8,19 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-export const profiles = sqliteTable("profiles", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  createdAt: integer("created_at").notNull(),
-});
+export const profiles = sqliteTable(
+  "profiles",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_profiles_name_nocase").on(
+      sql`${table.name} COLLATE NOCASE`,
+    ),
+  ],
+);
 
 export const wallConfiguration = sqliteTable("wall_configuration", {
   id: integer("id").primaryKey(),

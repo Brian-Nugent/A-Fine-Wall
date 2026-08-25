@@ -21,7 +21,9 @@ export function normalizeUserName(value: unknown): string | null {
   if (typeof value !== "string" || hasUnsafeNameCharacter(value)) return null;
 
   const name = value.trim().replace(/\s+/g, " ");
-  return name && name !== "You" && name.length <= MAX_USER_NAME_LENGTH
+  return name &&
+    name.toLocaleLowerCase("en-US") !== "you" &&
+    name.length <= MAX_USER_NAME_LENGTH
     ? name
     : null;
 }
