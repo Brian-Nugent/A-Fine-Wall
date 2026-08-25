@@ -202,7 +202,8 @@ select {
 .wall-hold-remove-button:focus-visible,
 .wall-hold-reload-button:focus-visible,
 .climb-reload-button:focus-visible,
-.delete-climb-button:focus-visible,
+.climb-options-button:focus-visible,
+.climb-option:focus-visible,
 .user-switch-button:focus-visible,
 .wall-hold-size-slider:focus-visible,
 .secondary-button:focus-visible,
@@ -899,12 +900,78 @@ select:focus-visible {
   width: 100%;
 }
 
-.climb-detail-actions {
+.climb-options {
+  position: relative;
+}
+
+.climb-options-button {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.65rem;
+  line-height: 1;
+  place-items: center;
+}
+
+.climb-options-button:hover,
+.climb-options-button[aria-expanded="true"] {
+  background: var(--soft);
+}
+
+.climb-options-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  right: 0;
   display: flex;
+  min-width: 11rem;
+  padding: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: #ffffff;
+  box-shadow: 0 0.75rem 2rem rgba(15, 23, 42, 0.15);
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.25rem;
-  padding: 1.25rem 1.25rem max(2rem, env(safe-area-inset-bottom));
+}
+
+.climb-option {
+  display: flex;
+  width: 100%;
+  min-height: 2.75rem;
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-align: left;
+}
+
+.climb-option:hover {
+  background: var(--soft);
+}
+
+.climb-option--delete {
+  color: #b42331;
+}
+
+.climb-option:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.climb-action-error {
+  margin: 0 1.25rem 1rem;
 }
 
 .sent-page {
@@ -1056,23 +1123,6 @@ select:focus-visible {
 .sent-save-button {
   width: 100%;
   margin-top: 0.25rem;
-}
-
-.delete-climb-button {
-  min-height: 2.75rem;
-  padding: 0.65rem 0;
-  border: 0;
-  background: transparent;
-  color: #b42331;
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.delete-climb-button:disabled {
-  opacity: 0.55;
-  cursor: wait;
 }
 
 .set-page {

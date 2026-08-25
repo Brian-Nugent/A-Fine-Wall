@@ -9,8 +9,14 @@ import {
 } from "react";
 import {
   ClimbRequestError,
+  loadClimb,
   saveClimb as saveClimbToApp,
+  updateClimb as updateClimbInApp,
 } from "../climbs/climb-api";
+import {
+  buildFilteredHref,
+  parseClimbFilters,
+} from "../climbs/climb-filters";
 import {
   CLIMB_GRADES,
   nextSavedHoldRole,
@@ -18,7 +24,11 @@ import {
   type SavedClimb,
   type SavedHoldRole,
 } from "../climbs/saved-climbs";
-import { loadWallHoldMap, type WallHold } from "../climbs/wall-holds";
+import {
+  loadWallHoldMap,
+  type WallHold,
+  type WallHoldMap,
+} from "../climbs/wall-holds";
 import { useActiveUser } from "../user-profile-provider";
 import WallPhoto from "../climbs/wall-photo";
 
@@ -26,6 +36,52 @@ type DraftHold = {
   holdId: string;
   role: SavedHoldRole;
 };
+
+const MAX_LEGACY_HOLD_MATCH_DISTANCE = 3;
+const MIN_LEGACY_HOLD_MATCH_GAP = 0.75;
+
+function restoreDraftHolds(
+  climb: SavedClimb,
+  wallHolds: readonly WallHold[],
+): DraftHold[] | null {
+  const wallHoldsById = new Map(wallHolds.map((hold) => [hold.id, hold]));
+  const usedIds = new Set<string>();
+  const restored: DraftHold[] = [];
+
+  for (const climbHold of climb.holds) {
+    const savedSpot = climbHold.holdId
+      ? wallHoldsById.get(climbHold.holdId)
+      : undefined;
+    if (savedSpot && !usedIds.has(savedSpot.id)) {
+      usedIds.add(savedSpot.id);
+      restored.push({ holdId: savedSpot.id, role: climbHold.role });
+      continue;
+    }
+
+    const matches = wallHolds
+      .filter((hold) => !usedIds.has(hold.id))
+      .map((hold) => ({
+        hold,
+        distance: Math.hypot(hold.x - climbHold.x, hold.y - climbHold.y),
+      }))
+      .sort((left, right) => left.distance - right.distance);
+    const match = matches[0];
+    const runnerUp = matches[1];
+    if (
+      !match ||
+      match.distance > MAX_LEGACY_HOLD_MATCH_DISTANCE ||
+      (runnerUp &&
+        runnerUp.distance - match.distance < MIN_LEGACY_HOLD_MATCH_GAP)
+    ) {
+      return null;
+    }
+
+    usedIds.add(match.hold.id);
+    restored.push({ holdId: match.hold.id, role: climbHold.role });
+  }
+
+  return restored;
+}
 
 function makeClimbId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -37,6 +93,13 @@ function makeClimbId() {
 
 export default function SetClimbPage() {
   const { profile } = useActiveUser();
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editingClimb, setEditingClimb] = useState<SavedClimb | null>(null);
+  const [editLoadStatus, setEditLoadStatus] = useState<
+    "loading" | "ready" | "not-found" | "error"
+  >("loading");
+  const [editLoadError, setEditLoadError] = useState("");
+  const [backHref, setBackHref] = useState("/climbs");
   const [step, setStep] = useState<"holds" | "details">("holds");
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
   const [wallRevision, setWallRevision] = useState<number | null>(null);
@@ -52,17 +115,71 @@ export default function SetClimbPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const searchParams = new URLSearchParams(window.location.search);
+    const requestedEditId = searchParams.get("edit")?.trim() || null;
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      setEditId(requestedEditId);
+      setBackHref(
+        buildFilteredHref("/climbs", parseClimbFilters(searchParams)),
+      );
+    });
 
-    loadWallHoldMap(controller.signal)
-      .then((wallMap) => {
+    async function loadEditor() {
+      let wallMap: WallHoldMap;
+      try {
+        wallMap = await loadWallHoldMap(controller.signal);
         setWallHolds(wallMap.holds);
         setWallRevision(wallMap.updatedAt);
         setHoldMapStatus("ready");
-      })
-      .catch((error: unknown) => {
+      } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setHoldMapStatus("error");
-      });
+        if (requestedEditId) {
+          setEditLoadError("The wall hold spots could not be loaded for editing.");
+          setEditLoadStatus("error");
+        }
+        return;
+      }
+
+      if (!requestedEditId) {
+        setEditLoadStatus("ready");
+        return;
+      }
+
+      try {
+        const savedClimb = await loadClimb(requestedEditId, controller.signal);
+        if (!savedClimb) {
+          setEditLoadStatus("not-found");
+          return;
+        }
+
+        const restoredHolds = restoreDraftHolds(savedClimb, wallMap.holds);
+        if (!restoredHolds) {
+          setEditLoadError(
+            "This climb uses an older hold layout that cannot be matched safely. Adjust the preset hold spots and try again.",
+          );
+          setEditLoadStatus("error");
+          return;
+        }
+
+        setEditingClimb(savedClimb);
+        setSelectedHolds(restoredHolds);
+        setName(savedClimb.name);
+        setGrade(savedClimb.grade);
+        setEditLoadStatus("ready");
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setEditLoadError(
+          error instanceof Error
+            ? error.message
+            : "This climb could not be loaded for editing.",
+        );
+        setEditLoadStatus("error");
+      }
+    }
+
+    void loadEditor();
 
     return () => controller.abort();
   }, []);
@@ -131,12 +248,12 @@ export default function SetClimbPage() {
     }
 
     const climb: SavedClimb = {
-      id: makeClimbId(),
+      id: editingClimb?.id ?? makeClimbId(),
       name: trimmedName,
       grade,
-      setter: profile.name,
-      profileId: profile.id,
-      createdAt: Date.now(),
+      setter: editingClimb?.setter ?? profile.name,
+      profileId: editingClimb?.profileId ?? profile.id,
+      createdAt: editingClimb?.createdAt ?? Date.now(),
       holds: selectedHolds.flatMap((selection) => {
         const hold = wallHolds.find((item) => item.id === selection.holdId);
         return hold
@@ -153,11 +270,9 @@ export default function SetClimbPage() {
 
     setIsSaving(true);
     try {
-      const savedClimb = await saveClimbToApp(
-        climb,
-        wallRevision,
-        profile.id,
-      );
+      const savedClimb = editingClimb
+        ? await updateClimbInApp(climb, wallRevision, profile.id)
+        : await saveClimbToApp(climb, wallRevision, profile.id);
       try {
         persistSavedClimb(window.localStorage, {
           ...savedClimb,
@@ -167,7 +282,11 @@ export default function SetClimbPage() {
         // The durable app copy was saved; the browser copy is only a fallback.
       }
       window.location.assign(
-        `/climbs/saved?id=${encodeURIComponent(savedClimb.id)}`,
+        buildFilteredHref(
+          "/climbs/saved",
+          parseClimbFilters(new URLSearchParams(window.location.search)),
+          { id: savedClimb.id },
+        ),
       );
     } catch (error) {
       setHasSaveConflict(
@@ -199,18 +318,42 @@ export default function SetClimbPage() {
   return (
     <main className="app-page set-page">
       <header className="detail-header">
-        <a className="back-link" href="/climbs">
+        <a className="back-link" href={backHref}>
           <span aria-hidden="true">&larr;</span>
           Climbs
         </a>
-        <span>Set Climb</span>
+        <span>{editId ? "Edit Climb" : "Set Climb"}</span>
       </header>
 
-      {step === "holds" ? (
+      {editId && editLoadStatus !== "ready" ? (
+        <div className="empty-state">
+          {editLoadStatus === "loading" ? (
+            <p>Loading climb&hellip;</p>
+          ) : editLoadStatus === "not-found" ? (
+            <>
+              <h1>Climb not found</h1>
+              <p>This climb may have been removed.</p>
+              <a className="primary-button" href={backHref}>
+                View Climbs
+              </a>
+            </>
+          ) : (
+            <>
+              <h1>Climb could not be edited</h1>
+              <p>{editLoadError}</p>
+              <a className="primary-button" href={backHref}>
+                View Climbs
+              </a>
+            </>
+          )}
+        </div>
+      ) : step === "holds" ? (
         <>
           <section className="set-intro" aria-labelledby="set-climb-heading">
             <p className="step-label">Step 1 of 2</p>
-            <h1 id="set-climb-heading">Choose your holds</h1>
+            <h1 id="set-climb-heading">
+              {editingClimb ? "Edit the holds" : "Choose your holds"}
+            </h1>
             <p>
               Tap a hold for a blue circle, again for a green start, and again
               for a red finish. A fourth tap clears it.
@@ -348,10 +491,13 @@ export default function SetClimbPage() {
       ) : (
         <section className="finish-step" aria-labelledby="finish-heading">
           <p className="step-label">Step 2 of 2</p>
-          <h1 id="finish-heading">Name your climb</h1>
+          <h1 id="finish-heading">
+            {editingClimb ? "Edit climb details" : "Name your climb"}
+          </h1>
           <p>{selectedHolds.length} holds selected</p>
           <p className="setter-attribution">
-            Set by <strong>{profile?.name ?? "your user"}</strong>
+            Set by{" "}
+            <strong>{editingClimb?.setter ?? profile?.name ?? "your user"}</strong>
           </p>
 
           <form className="climb-form" onSubmit={saveClimb}>
@@ -406,7 +552,11 @@ export default function SetClimbPage() {
                 Back to holds
               </button>
               <button className="primary-button" disabled={isSaving} type="submit">
-                {isSaving ? "Saving..." : "Save Climb"}
+                {isSaving
+                  ? "Saving..."
+                  : editingClimb
+                    ? "Save Changes"
+                    : "Save Climb"}
               </button>
             </div>
           </form>

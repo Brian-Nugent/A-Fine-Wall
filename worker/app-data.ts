@@ -257,6 +257,36 @@ function parseClimbHold(value: unknown): ClimbHold | null {
   };
 }
 
+function parseClimbHolds(value: unknown): ClimbHold[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 2 ||
+    value.length > MAX_CLIMB_HOLDS
+  ) {
+    throw new ApiError("Every climb hold must be valid and unique.", 400);
+  }
+
+  const holds: ClimbHold[] = [];
+  const holdIds = new Set<string>();
+  for (const valueHold of value) {
+    const hold = parseClimbHold(valueHold);
+    if (!hold || (hold.holdId !== undefined && holdIds.has(hold.holdId))) {
+      throw new ApiError("Every climb hold must be valid and unique.", 400);
+    }
+    if (hold.holdId !== undefined) holdIds.add(hold.holdId);
+    holds.push(hold);
+  }
+
+  if (
+    !holds.some((hold) => hold.role === "start") ||
+    !holds.some((hold) => hold.role === "finish")
+  ) {
+    throw new ApiError("A climb needs at least one start and one finish hold.", 400);
+  }
+
+  return holds;
+}
+
 function parseClimbBody(value: unknown): Climb {
   if (
     !isPlainObject(value) ||
@@ -280,31 +310,12 @@ function parseClimbBody(value: unknown): Climb {
     !setter ||
     typeof createdAt !== "number" ||
     !Number.isSafeInteger(createdAt) ||
-    createdAt <= 0 ||
-    !Array.isArray(value.holds) ||
-    value.holds.length < 2 ||
-    value.holds.length > MAX_CLIMB_HOLDS
+    createdAt <= 0
   ) {
     throw new ApiError("Send valid climb details.", 400);
   }
 
-  const holds: ClimbHold[] = [];
-  const holdIds = new Set<string>();
-  for (const valueHold of value.holds) {
-    const hold = parseClimbHold(valueHold);
-    if (!hold || (hold.holdId !== undefined && holdIds.has(hold.holdId))) {
-      throw new ApiError("Every climb hold must be valid and unique.", 400);
-    }
-    if (hold.holdId !== undefined) holdIds.add(hold.holdId);
-    holds.push(hold);
-  }
-
-  if (
-    !holds.some((hold) => hold.role === "start") ||
-    !holds.some((hold) => hold.role === "finish")
-  ) {
-    throw new ApiError("A climb needs at least one start and one finish hold.", 400);
-  }
+  const holds = parseClimbHolds(value.holds);
 
   return {
     id,
@@ -313,6 +324,44 @@ function parseClimbBody(value: unknown): Climb {
     setter,
     createdAt,
     holds,
+  };
+}
+
+function parseClimbUpdateBody(value: unknown) {
+  if (
+    !isPlainObject(value) ||
+    !hasOnlyKeys(value, [
+      "name",
+      "grade",
+      "holds",
+      "expectedWallUpdatedAt",
+      "profileId",
+    ])
+  ) {
+    throw new ApiError("Send valid climb changes.", 400);
+  }
+
+  const name = typeof value.name === "string" ? value.name.trim() : "";
+  if (
+    !name ||
+    name.length > 50 ||
+    typeof value.grade !== "string" ||
+    !gradePattern.test(value.grade) ||
+    typeof value.expectedWallUpdatedAt !== "number" ||
+    !Number.isSafeInteger(value.expectedWallUpdatedAt) ||
+    value.expectedWallUpdatedAt < 0 ||
+    typeof value.profileId !== "string" ||
+    !recordIdPattern.test(value.profileId)
+  ) {
+    throw new ApiError("Send valid climb changes.", 400);
+  }
+
+  return {
+    name,
+    grade: value.grade,
+    holds: parseClimbHolds(value.holds),
+    expectedWallUpdatedAt: value.expectedWallUpdatedAt,
+    profileId: value.profileId,
   };
 }
 
@@ -1090,8 +1139,12 @@ async function handleClimbDetail(
   db: D1Database,
   encodedId: string,
 ) {
-  if (request.method !== "GET" && request.method !== "DELETE") {
-    return methodNotAllowed(["GET", "DELETE"]);
+  if (
+    request.method !== "GET" &&
+    request.method !== "PUT" &&
+    request.method !== "DELETE"
+  ) {
+    return methodNotAllowed(["GET", "PUT", "DELETE"]);
   }
 
   let id: string;
@@ -1103,6 +1156,8 @@ async function handleClimbDetail(
   if (!recordIdPattern.test(id)) {
     throw new ApiError("The climb id is invalid.", 400);
   }
+
+  if (request.method === "PUT") requireSameOrigin(request);
 
   if (request.method === "DELETE") {
     requireSameOrigin(request);
@@ -1138,6 +1193,61 @@ async function handleClimbDetail(
       .first<{ id: string }>();
     if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
     throw new ApiError("Climb not found.", 404);
+  }
+
+  if (request.method === "PUT") {
+    const changes = parseClimbUpdateBody(
+      await readLimitedJson(request, MAX_CLIMB_BODY_BYTES),
+    );
+    const profile = await loadCanonicalProfile(db, changes.profileId);
+    if (!profile) {
+      throw new ApiError("Choose your user name again before saving.", 400);
+    }
+
+    const wallConfiguration = await loadWallConfiguration(db);
+    if (wallConfiguration.updated_at !== changes.expectedWallUpdatedAt) {
+      throw new ApiError(
+        "The wall spots changed while you were editing. Reload the wall and try again.",
+        409,
+      );
+    }
+
+    const holds = resolveClimbHolds(
+      changes.holds,
+      parseStoredHolds(wallConfiguration.holds_json),
+    );
+    const updated = await db
+      .prepare(
+        `UPDATE climbs
+         SET name = ?, grade = ?, holds_json = ?
+         WHERE id = ?
+           AND EXISTS (
+             SELECT 1 FROM wall_configuration WHERE id = ? AND updated_at = ?
+           )
+         RETURNING id, name, grade, setter, created_at, holds_json`,
+      )
+      .bind(
+        changes.name,
+        changes.grade,
+        JSON.stringify(holds),
+        id,
+        WALL_CONFIGURATION_ID,
+        changes.expectedWallUpdatedAt,
+      )
+      .first<ClimbRow>();
+    if (!updated) {
+      const wasDeleted = await db
+        .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+        .bind(id)
+        .first<{ id: string }>();
+      if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
+      throw new ApiError(
+        "The wall spots changed while you were editing. Reload the wall and try again.",
+        409,
+      );
+    }
+
+    return json({ climb: rowToClimb(updated) });
   }
 
   const wallHolds = parseStoredHolds(

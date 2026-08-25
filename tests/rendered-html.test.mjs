@@ -317,6 +317,25 @@ function createMemoryAppDatabase() {
           };
           return { updated_at: values[1] };
         }
+        if (
+          normalized.startsWith("update climbs set name = ?") &&
+          normalized.endsWith(
+            "returning id, name, grade, setter, created_at, holds_json",
+          )
+        ) {
+          const climb = savedClimbs.get(values[3]);
+          if (
+            !climb ||
+            !wallConfiguration ||
+            wallConfiguration.updated_at !== values[5]
+          ) {
+            return null;
+          }
+          climb.name = values[0];
+          climb.grade = values[1];
+          climb.holds_json = values[2];
+          return climb;
+        }
         if (normalized.includes("from wall_configuration where id = ?")) {
           return wallConfiguration;
         }
@@ -812,6 +831,20 @@ test("renders the browser-saved climb detail shell", async () => {
   const html = await response.text();
   assert.match(html, /href="\/climbs"/i);
   assert.match(html, /Loading climb/);
+});
+
+test("puts climb editing and deletion in the detail overflow menu", async () => {
+  const source = await readFile(
+    new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /aria-label="Climb options"/);
+  assert.match(source, />\s*Edit climb\s*</);
+  assert.match(source, /Delete climb/);
+  assert.match(source, /buildFilteredHref\("\/set-climb"/);
+  assert.doesNotMatch(source, /className="climb-detail-actions"/);
+  assert.doesNotMatch(source, /className="delete-climb-button"/);
 });
 
 test("retires every prototype climb and rating route", async () => {
@@ -1779,6 +1812,95 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(migratedLegacyClimb.holds[1].holdId, "finish-hold");
 
   response = await fetchAppData(
+    new Request("http://localhost/api/sends", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climbKind: "saved",
+        climbId: climb.id,
+        profileId,
+        rating: 5,
+      }),
+    }),
+  );
+  assert.equal(response.status, 200);
+
+  const climbUpdate = {
+    name: "Stable Route Revised",
+    grade: "V8",
+    holds: climb.holds,
+    expectedWallUpdatedAt: movedWallRevision,
+    profileId,
+  };
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(climbUpdate),
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ ...climbUpdate, profileId: "unknown-profile" }),
+    }),
+  );
+  assert.equal(response.status, 400);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        ...climbUpdate,
+        expectedWallUpdatedAt: wallRevision,
+      }),
+    }),
+  );
+  assert.equal(response.status, 409);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify(climbUpdate),
+    }),
+  );
+  assert.equal(response.status, 200);
+  const updatedClimb = (await response.json()).climb;
+  assert.equal(updatedClimb.name, climbUpdate.name);
+  assert.equal(updatedClimb.grade, climbUpdate.grade);
+  assert.equal(updatedClimb.setter, savedClimb.setter);
+  assert.equal(updatedClimb.createdAt, savedClimb.createdAt);
+  assert.equal(updatedClimb.holds[0].x, movedWallHolds[0].x);
+
+  response = await fetchAppData(
+    new Request(`http://localhost/api/sends?profileId=${profileId}`),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(
+    (await response.json()).activities.find(
+      (activity) => activity.climbId === climb.id,
+    )?.userRating,
+    5,
+  );
+
+  response = await fetchAppData(
     new Request("http://localhost/api/climbs", {
       method: "POST",
       headers: {
@@ -1838,7 +1960,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
     }),
   );
   assert.equal(response.status, 405);
-  assert.equal(response.headers.get("allow"), "GET, DELETE");
+  assert.equal(response.headers.get("allow"), "GET, PUT, DELETE");
 
   response = await fetchAppData(
     new Request("http://localhost/api/climbs/stable-route-one", {

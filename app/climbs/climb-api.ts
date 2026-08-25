@@ -83,6 +83,41 @@ export async function saveClimb(
   return payload.climb;
 }
 
+export async function updateClimb(
+  climb: SavedClimb,
+  expectedWallUpdatedAt: number,
+  profileId: string,
+) {
+  const response = await fetch(
+    `${CLIMBS_ENDPOINT}/${encodeURIComponent(climb.id)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: climb.name,
+        grade: climb.grade,
+        holds: climb.holds,
+        expectedWallUpdatedAt,
+        profileId,
+      }),
+    },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload
+        ? String((payload as { error?: unknown }).error)
+        : "This climb could not be updated.";
+    throw new ClimbRequestError(message, response.status);
+  }
+
+  if (!isClimbPayload(payload)) {
+    throw new Error("This climb could not be updated.");
+  }
+  return payload.climb;
+}
+
 export async function deleteClimb(id: string) {
   const response = await fetch(
     `${CLIMBS_ENDPOINT}/${encodeURIComponent(id)}`,

@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ClimbRequestError,
   deleteClimb,
@@ -18,16 +24,21 @@ import {
 } from "../wall-holds";
 import WallPhoto from "../wall-photo";
 import ClimbActivityPanel from "../climb-activity-panel";
-import type { ClimbFilters } from "../climb-filters";
+import {
+  buildFilteredHref,
+  type ClimbFilters,
+} from "../climb-filters";
 
 function DetailShell({
   backHref,
   children,
+  endAction,
   status,
 }: {
   backHref: string;
-  children: React.ReactNode;
-  status: string;
+  children: ReactNode;
+  endAction?: ReactNode;
+  status?: string;
 }) {
   return (
     <main className="app-page detail-page">
@@ -36,10 +47,85 @@ function DetailShell({
           <span aria-hidden="true">&larr;</span>
           Climbs
         </a>
-        <span>{status}</span>
+        {endAction ?? <span>{status}</span>}
       </header>
       {children}
     </main>
+  );
+}
+
+function ClimbOptions({
+  editHref,
+  isDeleting,
+  onDelete,
+}: {
+  editHref: string;
+  isDeleting: boolean;
+  onDelete(): void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverId = useId();
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeFromOutside(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !containerRef.current?.contains(event.target)
+      ) {
+        setIsOpen(false);
+      }
+    }
+
+    function closeWithEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setIsOpen(false);
+      buttonRef.current?.focus();
+    }
+
+    document.addEventListener("pointerdown", closeFromOutside);
+    document.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutside);
+      document.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="climb-options" ref={containerRef}>
+      <button
+        aria-controls={popoverId}
+        aria-expanded={isOpen}
+        aria-label="Climb options"
+        className="climb-options-button"
+        onClick={() => setIsOpen((current) => !current)}
+        ref={buttonRef}
+        type="button"
+      >
+        <span aria-hidden="true">&#8942;</span>
+      </button>
+      {isOpen ? (
+        <div className="climb-options-popover" id={popoverId}>
+          <a className="climb-option" href={editHref}>
+            Edit climb
+          </a>
+          <button
+            className="climb-option climb-option--delete"
+            disabled={isDeleting}
+            onClick={() => {
+              setIsOpen(false);
+              onDelete();
+            }}
+            type="button"
+          >
+            {isDeleting ? "Deleting…" : "Delete climb"}
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -153,9 +239,21 @@ export default function SavedClimbDetail({
   const startCount = resolvedHolds.filter((hold) => hold.role === "start").length;
   const handCount = resolvedHolds.filter((hold) => hold.role === "hand").length;
   const finishCount = resolvedHolds.filter((hold) => hold.role === "finish").length;
+  const editHref = buildFilteredHref("/set-climb", filters, {
+    edit: climb.id,
+  });
 
   return (
-    <DetailShell backHref={backHref} status={climb.grade}>
+    <DetailShell
+      backHref={backHref}
+      endAction={
+        <ClimbOptions
+          editHref={editHref}
+          isDeleting={isDeleting}
+          onDelete={() => handleDeleteClimb(climb)}
+        />
+      }
+    >
       <section aria-labelledby="climb-name">
         <div className="detail-title">
           <div>
@@ -164,6 +262,12 @@ export default function SavedClimbDetail({
           </div>
           <strong>{climb.grade}</strong>
         </div>
+
+        {deleteError ? (
+          <p className="form-error climb-action-error" role="alert">
+            {deleteError}
+          </p>
+        ) : null}
 
         <figure className="wall-map wall-map--route">
           <WallPhoto
@@ -202,22 +306,6 @@ export default function SavedClimbDetail({
           filters={filters}
           reference={{ climbKind: "saved", climbId: climb.id }}
         />
-
-        <div className="climb-detail-actions">
-          <button
-            className="delete-climb-button"
-            disabled={isDeleting}
-            onClick={() => handleDeleteClimb(climb)}
-            type="button"
-          >
-            {isDeleting ? "Deleting…" : "Delete Climb"}
-          </button>
-          {deleteError ? (
-            <p className="form-error" role="alert">
-              {deleteError}
-            </p>
-          ) : null}
-        </div>
       </section>
     </DetailShell>
   );
