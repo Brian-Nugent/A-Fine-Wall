@@ -1,4 +1,9 @@
 import { notFound } from "next/navigation";
+import {
+  buildFilteredHref,
+  parseClimbFilters,
+  type FilterSearchParams,
+} from "../climb-filters";
 import { climbs, getClimb } from "../data";
 import WallPhoto from "../wall-photo";
 
@@ -8,10 +13,12 @@ export function generateStaticParams() {
 
 export default async function ClimbPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<FilterSearchParams>;
 }) {
-  const { slug } = await params;
+  const [{ slug }, rawFilters] = await Promise.all([params, searchParams]);
   const climb = getClimb(slug);
 
   if (!climb) notFound();
@@ -23,7 +30,13 @@ export default async function ClimbPage({
   return (
     <main className="app-page detail-page">
       <header className="detail-header">
-        <a className="back-link" href="/climbs">
+        <a
+          className="back-link"
+          href={buildFilteredHref(
+            "/climbs",
+            parseClimbFilters(rawFilters),
+          )}
+        >
           <span aria-hidden="true">&larr;</span>
           Climbs
         </a>

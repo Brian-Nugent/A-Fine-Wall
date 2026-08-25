@@ -6,17 +6,34 @@ import {
 
 export const PROFILES_ENDPOINT = "/api/profiles";
 
-function parseProfilePayload(value: unknown): UserProfile | null {
-  if (!value || typeof value !== "object" || !("profile" in value)) {
-    return null;
-  }
-
-  const profile = (value as { profile?: unknown }).profile;
+function parseProfile(profile: unknown): UserProfile | null {
   if (!profile || typeof profile !== "object") return null;
 
   const record = profile as Record<string, unknown>;
   const name = normalizeUserName(record.name);
   return isProfileId(record.id) && name ? { id: record.id, name } : null;
+}
+
+function parseProfilePayload(value: unknown): UserProfile | null {
+  if (!value || typeof value !== "object" || !("profile" in value)) {
+    return null;
+  }
+
+  return parseProfile((value as { profile?: unknown }).profile);
+}
+
+function parseProfilesPayload(value: unknown): UserProfile[] | null {
+  if (!value || typeof value !== "object" || !("profiles" in value)) {
+    return null;
+  }
+
+  const profiles = (value as { profiles?: unknown }).profiles;
+  if (!Array.isArray(profiles)) return null;
+
+  const parsed = profiles.map(parseProfile);
+  return parsed.every((profile): profile is UserProfile => profile !== null)
+    ? parsed
+    : null;
 }
 
 async function profileError(response: Response, fallback: string) {
@@ -53,4 +70,16 @@ export async function loadUserProfile(
   if (!response.ok) throw new Error("Your saved name could not be checked.");
 
   return parseProfilePayload(await response.json());
+}
+
+export async function loadUserProfiles(signal?: AbortSignal) {
+  const response = await fetch(PROFILES_ENDPOINT, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw new Error("The user list could not be loaded.");
+
+  const profiles = parseProfilesPayload(await response.json());
+  if (!profiles) throw new Error("The user list could not be loaded.");
+  return profiles;
 }

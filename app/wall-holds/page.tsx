@@ -64,6 +64,25 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function returnAfterSavingWall() {
+  const fallback = "/set-climb";
+  const candidate = new URL(window.location.href).searchParams.get("returnTo");
+  if (!candidate) return fallback;
+
+  try {
+    const destination = new URL(candidate, window.location.origin);
+    if (
+      destination.origin === window.location.origin &&
+      destination.pathname === "/climbs/filter/holds"
+    ) {
+      return `${destination.pathname}${destination.search}`;
+    }
+  } catch {
+    // Ignore malformed or external return locations.
+  }
+  return fallback;
+}
+
 type BrowserClimb = AttributedSavedClimb;
 
 function isCompletedClimbMigration(error: unknown) {
@@ -414,7 +433,7 @@ export default function WallHoldsPage() {
       }
 
       allowNavigation.current = true;
-      window.location.assign("/set-climb");
+      window.location.assign(returnAfterSavingWall());
     } catch (saveError) {
       setHasConflict(
         saveError instanceof WallHoldMapRequestError &&
@@ -466,9 +485,13 @@ export default function WallHoldsPage() {
       {loadFailed ? (
         <div className="set-wall-notice">
           <p>{error}</p>
-          <a className="secondary-button" href="/wall-holds">
+          <button
+            className="secondary-button"
+            onClick={() => window.location.reload()}
+            type="button"
+          >
             Retry
-          </a>
+          </button>
         </div>
       ) : null}
 

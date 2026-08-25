@@ -1,10 +1,24 @@
 import SavedClimbDetail from "./saved-climb-detail";
+import {
+  buildFilteredHref,
+  parseClimbFilters,
+  type FilterSearchParams,
+} from "../climb-filters";
 
 export default async function SavedClimbPage({
   searchParams,
 }: {
-  searchParams: Promise<{ id?: string | string[] }>;
+  searchParams: Promise<FilterSearchParams>;
 }) {
-  const { id } = await searchParams;
-  return <SavedClimbDetail climbId={typeof id === "string" ? id : ""} />;
+  const resolvedSearchParams = await searchParams;
+  const id = resolvedSearchParams.id;
+  return (
+    <SavedClimbDetail
+      backHref={buildFilteredHref(
+        "/climbs",
+        parseClimbFilters(resolvedSearchParams),
+      )}
+      climbId={typeof id === "string" ? id : ""}
+    />
+  );
 }

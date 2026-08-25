@@ -600,7 +600,23 @@ async function handleWallHolds(request: Request, db: D1Database) {
 }
 
 async function handleProfiles(request: Request, db: D1Database) {
-  if (request.method !== "POST") return methodNotAllowed(["POST"]);
+  if (request.method === "GET") {
+    const result = await db
+      .prepare(
+        `SELECT id, name, created_at FROM profiles
+         WHERE id IN (
+           SELECT MIN(id) FROM profiles GROUP BY name
+         )
+         ORDER BY name COLLATE NOCASE ASC, created_at ASC, id ASC
+         LIMIT 200`,
+      )
+      .all<ProfileRow>();
+    return json({ profiles: result.results.map(rowToProfile) });
+  }
+
+  if (request.method !== "POST") {
+    return methodNotAllowed(["GET", "POST"]);
+  }
 
   requireSameOrigin(request);
   const name = parseProfileBody(

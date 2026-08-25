@@ -1,21 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  ClimbRequestError,
-  loadClimbs,
-  saveClimb as saveClimbToApp,
-} from "./climb-api";
 import { climbs } from "./data";
 import {
-  attributeSavedClimb,
-  persistSavedClimbs,
-  readSavedClimbs,
-  removeSavedClimb,
-  type AttributedSavedClimb,
-  type SavedClimb,
-} from "./saved-climbs";
-import { loadWallHoldMap } from "./wall-holds";
+  activeClimbFilterCount,
+  buildFilteredHref,
+  filterClimbs,
+  hasActiveClimbFilters,
+  type ClimbFilters,
+} from "./climb-filters";
+import type { SavedClimb } from "./saved-climbs";
+import { loadSyncedClimbs } from "./synced-climbs";
 import { useActiveUser } from "../user-profile-provider";
 
 function ClimbRow({
@@ -41,78 +36,56 @@ function ClimbRow({
   );
 }
 
-export default function ClimbListClient() {
+export default function ClimbListClient({
+  initialFilters,
+}: {
+  initialFilters: ClimbFilters;
+}) {
   const { profile, changeUser } = useActiveUser();
   const [savedClimbs, setSavedClimbs] = useState<SavedClimb[]>([]);
+  const [loadStatus, setLoadStatus] = useState<"loading" | "ready">(
+    "loading",
+  );
+  const [sharedLoadFailed, setSharedLoadFailed] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
 
+    const controller = new AbortController();
     let isActive = true;
-    let browserClimbs: AttributedSavedClimb[] = [];
-
-    try {
-      const storedClimbs = readSavedClimbs(window.localStorage);
-      browserClimbs = storedClimbs.map((climb) =>
-        attributeSavedClimb(climb, profile),
-      );
-      if (browserClimbs.some((climb, index) => climb !== storedClimbs[index])) {
-        persistSavedClimbs(window.localStorage, browserClimbs);
-      }
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSavedClimbs(browserClimbs);
-    } catch {
-      browserClimbs = [];
-    }
-
-    async function syncClimbs() {
-      const wallMap = await loadWallHoldMap();
-      const syncResults = await Promise.allSettled(
-        browserClimbs.map((climb) =>
-          saveClimbToApp(climb, wallMap.updatedAt, climb.profileId),
-        ),
-      );
-      const deletedBrowserIds = new Set(
-        browserClimbs.flatMap((climb, index) => {
-          const result = syncResults[index];
-          return result.status === "rejected" &&
-            result.reason instanceof ClimbRequestError &&
-            result.reason.status === 410
-            ? [climb.id]
-            : [];
-        }),
-      );
-      for (const climbId of deletedBrowserIds) {
-        try {
-          removeSavedClimb(window.localStorage, climbId);
-        } catch {
-          // The durable tombstone still prevents this copy from returning.
-        }
-      }
-
-      const appClimbs = await loadClimbs();
+    queueMicrotask(() => {
       if (!isActive) return;
-
-      const appIds = new Set(appClimbs.map((climb) => climb.id));
-      setSavedClimbs([
-        ...appClimbs,
-        ...browserClimbs.filter(
-          (climb) =>
-            !appIds.has(climb.id) && !deletedBrowserIds.has(climb.id),
-        ),
-      ]);
-    }
-
-    syncClimbs().catch(() => {
-      // Keep showing the browser copies when the shared store is unavailable.
+      setLoadStatus("loading");
+      setSharedLoadFailed(false);
     });
+
+    void loadSyncedClimbs(profile, window.localStorage, controller.signal)
+      .then((result) => {
+        if (!isActive) return;
+        setSavedClimbs(result.climbs);
+        setSharedLoadFailed(result.sharedUnavailable);
+        setLoadStatus("ready");
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setSavedClimbs([]);
+        setSharedLoadFailed(true);
+        setLoadStatus("ready");
+      });
 
     return () => {
       isActive = false;
+      controller.abort();
     };
   }, [profile]);
 
+  const filteredSavedClimbs = filterClimbs(savedClimbs, initialFilters);
+  const filteredDemoClimbs = filterClimbs(climbs, initialFilters);
   const totalClimbs = climbs.length + savedClimbs.length;
+  const visibleClimbs = filteredDemoClimbs.length + filteredSavedClimbs.length;
+  const activeFilterCount = activeClimbFilterCount(initialFilters);
+  const hasActiveFilters = hasActiveClimbFilters(initialFilters);
+  const isLoadingClimbs = loadStatus === "loading";
 
   return (
     <main className="app-page">
@@ -130,7 +103,10 @@ export default function ClimbListClient() {
         </div>
       </header>
 
-      <section aria-labelledby="climbs-heading">
+      <section
+        aria-busy={isLoadingClimbs ? "true" : undefined}
+        aria-labelledby="climbs-heading"
+      >
         <div className="section-heading">
           <div className="section-heading-copy">
             <h1 id="climbs-heading">Climbs</h1>
@@ -143,25 +119,74 @@ export default function ClimbListClient() {
               Using {profile?.name ?? "no user"}
             </button>
           </div>
-          <p aria-live="polite">{totalClimbs} climbs</p>
+          <div className="section-heading-tools">
+            <p aria-live="polite">
+              {isLoadingClimbs
+                ? "Loading climbs..."
+                : hasActiveFilters
+                ? `${visibleClimbs} of ${totalClimbs} climbs`
+                : `${totalClimbs} climbs`}
+            </p>
+            <a
+              className={`filter-link${hasActiveFilters ? " filter-link--active" : ""}`}
+              href={buildFilteredHref("/climbs/filter", initialFilters)}
+            >
+              Filter
+              {activeFilterCount > 0 ? (
+                <span aria-label={`${activeFilterCount} active filter groups`}>
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </a>
+          </div>
         </div>
 
-        <ul className="climb-list">
-          {savedClimbs.map((climb) => (
-            <ClimbRow
-              climb={climb}
-              href={`/climbs/saved?id=${encodeURIComponent(climb.id)}`}
-              key={`saved-${climb.id}`}
-            />
-          ))}
-          {climbs.map((climb) => (
-            <ClimbRow
-              climb={climb}
-              href={`/climbs/${climb.slug}`}
-              key={climb.slug}
-            />
-          ))}
-        </ul>
+        {sharedLoadFailed ? (
+          <div className="climb-sync-notice" role="status">
+            Showing climbs saved on this device. Shared climbs could not be
+            refreshed.
+          </div>
+        ) : null}
+
+        {visibleClimbs > 0 ? (
+          <ul className="climb-list">
+            {filteredSavedClimbs.map((climb) => (
+              <ClimbRow
+                climb={climb}
+                href={buildFilteredHref(
+                  "/climbs/saved",
+                  initialFilters,
+                  { id: climb.id },
+                )}
+                key={`saved-${climb.id}`}
+              />
+            ))}
+            {filteredDemoClimbs.map((climb) => (
+              <ClimbRow
+                climb={climb}
+                href={buildFilteredHref(
+                  `/climbs/${climb.slug}`,
+                  initialFilters,
+                )}
+                key={climb.slug}
+              />
+            ))}
+          </ul>
+        ) : null}
+
+        {isLoadingClimbs ? (
+          <div className="climb-filter-loading" role="status">
+            Loading climbs&hellip;
+          </div>
+        ) : visibleClimbs === 0 ? (
+          <div className="climb-filter-empty">
+            <h2>No climbs match these filters</h2>
+            <p>Try a wider grade range or remove a hold or author.</p>
+            <a className="secondary-button" href="/climbs">
+              Clear Filters
+            </a>
+          </div>
+        ) : null}
       </section>
     </main>
   );

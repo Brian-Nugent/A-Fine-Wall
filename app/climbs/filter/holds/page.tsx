@@ -1,16 +1,16 @@
-import ClimbListClient from "./climb-list-client";
 import {
   parseClimbFilters,
   type FilterSearchParams,
-} from "./climb-filters";
+} from "../../climb-filters";
+import HoldFilterClient from "./hold-filter-client";
 
-export default async function ClimbsPage({
+export default async function HoldFilterPage({
   searchParams,
 }: {
   searchParams: Promise<FilterSearchParams>;
 }) {
   return (
-    <ClimbListClient
+    <HoldFilterClient
       initialFilters={parseClimbFilters(await searchParams)}
     />
   );

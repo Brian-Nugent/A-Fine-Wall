@@ -13,6 +13,15 @@ import {
   readSavedClimbs,
   removeSavedClimb,
 } from "../app/climbs/saved-climbs.ts";
+import {
+  activeClimbFilterCount,
+  buildFilteredHref,
+  filterClimbs,
+  matchesClimbFilters,
+  parseClimbFilters,
+  serializeClimbFilters,
+  uniqueFilterAuthors,
+} from "../app/climbs/climb-filters.ts";
 import { resolveSavedHold } from "../app/climbs/wall-holds.ts";
 import {
   MAX_USER_NAME_LENGTH,
@@ -117,6 +126,30 @@ function createMemoryAppDatabase() {
               id,
               holds_json,
             })),
+          };
+        }
+        if (
+          normalized.includes("from profiles where id in") &&
+          normalized.includes("group by name")
+        ) {
+          const profilesByName = new Map();
+          for (const profile of savedProfiles.values()) {
+            const current = profilesByName.get(profile.name);
+            if (!current || profile.id.localeCompare(current.id) < 0) {
+              profilesByName.set(profile.name, profile);
+            }
+          }
+          return {
+            results: [...profilesByName.values()]
+              .sort(
+                (a, b) =>
+                  a.name.localeCompare(b.name, undefined, {
+                    sensitivity: "base",
+                  }) ||
+                  a.created_at - b.created_at ||
+                  a.id.localeCompare(b.id),
+              )
+              .slice(0, 200),
           };
         }
         throw new Error(`Unsupported all query: ${normalized}`);
@@ -267,6 +300,13 @@ function createMemoryAppDatabase() {
         holds_json: JSON.stringify(climb.holds),
       });
     },
+    seedProfile(profile) {
+      savedProfiles.set(profile.id, {
+        id: profile.id,
+        name: profile.name,
+        created_at: profile.createdAt,
+      });
+    },
   };
 }
 
@@ -303,6 +343,121 @@ test("renders five linked climbs with names and grades", async () => {
     assert.match(html, new RegExp(name));
     assert.match(html, new RegExp(`>${grade}<`));
   }
+});
+
+test("renders the climb filter controls and applies URL filters", async () => {
+  let response = await render("/climbs");
+  assert.equal(response.status, 200);
+  let html = await response.text();
+  assert.match(html, /href="\/climbs\/filter"/i);
+  assert.match(html, />Filter<\/a>/i);
+
+  response = await render("/climbs?min=3&max=3&author=Sam");
+  assert.equal(response.status, 200);
+  html = await response.text();
+  assert.match(html, /Quiet Feet/);
+  assert.match(html, /Loading climbs/);
+  assert.doesNotMatch(html, /First Light/);
+  assert.doesNotMatch(html, /Barn Door Protocol/);
+  assert.doesNotMatch(html, /Static Bloom/);
+  assert.doesNotMatch(html, /Redline/);
+
+  response = await render("/climbs?hold=stable-hold");
+  assert.equal(response.status, 200);
+  html = await response.text();
+  assert.match(html, /Loading climbs/);
+  assert.doesNotMatch(html, /No climbs match these filters/);
+
+  response = await render("/climbs/filter?min=2&max=9&author=Sam");
+  assert.equal(response.status, 200);
+  html = await response.text();
+  assert.match(html, /<h1 id="filter-heading">Filter climbs<\/h1>/);
+  assert.match(html, /type="range"/);
+  assert.match(html, /Minimum/);
+  assert.match(html, /Maximum/);
+  assert.match(html, /Choose Holds/);
+  assert.match(html, /Author/);
+  assert.match(html, /Sam/);
+
+  response = await render("/climbs/filter/holds?hold=preset-one");
+  assert.equal(response.status, 200);
+  html = await response.text();
+  assert.match(html, /<h1 id="hold-filter-heading">Choose holds<\/h1>/);
+  assert.match(html, /src="\/api\/wall-photo"/);
+  assert.match(html, /Loading hold spots/);
+  assert.match(html, />Done<\/a>/);
+});
+
+test("normalizes, serializes, and combines climb filters", () => {
+  const filters = parseClimbFilters(
+    new URLSearchParams(
+      "min=11&max=3&author=Sam&author=Alex&author=Alex&hold=hold-b&hold=hold-a&hold=bad%20hold",
+    ),
+  );
+  assert.deepEqual(filters, {
+    minGrade: 3,
+    maxGrade: 11,
+    authors: ["Alex", "Sam"],
+    holdIds: ["hold-a", "hold-b"],
+  });
+  assert.equal(activeClimbFilterCount(filters), 3);
+  assert.equal(
+    serializeClimbFilters(filters),
+    "min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b",
+  );
+  assert.equal(
+    buildFilteredHref("/climbs/saved", filters, { id: "route 1" }),
+    "/climbs/saved?min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&id=route+1",
+  );
+
+  const candidates = [
+    {
+      name: "Lower bound",
+      grade: "V3",
+      setter: "Alex",
+      holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
+    },
+    {
+      name: "Author alternative",
+      grade: "V5",
+      setter: "Sam",
+      holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
+    },
+    {
+      name: "Upper bound",
+      grade: "V11",
+      setter: "Alex",
+      holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
+    },
+    {
+      name: "Missing hold",
+      grade: "V5",
+      setter: "Alex",
+      holds: [{ holdId: "hold-a" }],
+    },
+    {
+      name: "Coordinate only",
+      grade: "V5",
+      setter: "Alex",
+      holds: [{ x: 25, y: 40 }],
+    },
+    {
+      name: "Out of range",
+      grade: "V12",
+      setter: "Alex",
+      holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
+    },
+  ];
+
+  assert.deepEqual(
+    filterClimbs(candidates, filters).map((climb) => climb.name),
+    ["Lower bound", "Author alternative", "Upper bound"],
+  );
+  assert.equal(matchesClimbFilters(candidates[4], filters), false);
+  assert.deepEqual(
+    uniqueFilterAuthors([" Sam ", "Alex", "Sam", "Bad\nName"]),
+    ["Alex", "Sam"],
+  );
 });
 
 test("renders the climb setter with the wall and selectable holds", async () => {
@@ -707,11 +862,36 @@ test("creates and reloads password-free user profiles", async () => {
   );
   assert.equal(response.status, 404);
 
+  for (let index = 0; index < 205; index += 1) {
+    database.seedProfile({
+      id: `aaron-${String(index).padStart(3, "0")}`,
+      name: "Aaron",
+      createdAt: index + 1,
+    });
+  }
+  database.seedProfile({
+    id: "zed-profile",
+    name: "Zed",
+    createdAt: 500,
+  });
+
   response = await fetchAppData(
-    new Request("http://localhost/api/profiles", { method: "GET" }),
+    new Request("http://localhost/api/profiles"),
+  );
+  assert.equal(response.status, 200);
+  const profiles = (await response.json()).profiles;
+  assert.equal(profiles.length, 3);
+  assert.deepEqual(
+    profiles.map((profile) => profile.name).sort(),
+    ["Aaron", "Zed", createdProfile.name].sort(),
+  );
+  assert.equal(response.headers.get("cache-control"), "no-store");
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/profiles", { method: "DELETE" }),
   );
   assert.equal(response.status, 405);
-  assert.equal(response.headers.get("allow"), "POST");
+  assert.equal(response.headers.get("allow"), "GET, POST");
 });
 
 test("stores climbs by preset hold id and resolves them from shared data", async () => {

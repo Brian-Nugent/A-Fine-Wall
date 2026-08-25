@@ -18,11 +18,19 @@ import {
 } from "../wall-holds";
 import WallPhoto from "../wall-photo";
 
-function DetailShell({ children, status }: { children: React.ReactNode; status: string }) {
+function DetailShell({
+  backHref,
+  children,
+  status,
+}: {
+  backHref: string;
+  children: React.ReactNode;
+  status: string;
+}) {
   return (
     <main className="app-page detail-page">
       <header className="detail-header">
-        <a className="back-link" href="/climbs">
+        <a className="back-link" href={backHref}>
           <span aria-hidden="true">&larr;</span>
           Climbs
         </a>
@@ -33,7 +41,13 @@ function DetailShell({ children, status }: { children: React.ReactNode; status: 
   );
 }
 
-export default function SavedClimbDetail({ climbId }: { climbId: string }) {
+export default function SavedClimbDetail({
+  backHref,
+  climbId,
+}: {
+  backHref: string;
+  climbId: string;
+}) {
   const [climb, setClimb] = useState<SavedClimb | null | undefined>(undefined);
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -94,7 +108,7 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
       } catch {
         // The durable deletion prevents a stale browser copy from returning.
       }
-      window.location.replace("/climbs");
+      window.location.replace(backHref);
     } catch (error) {
       setDeleteError(
         error instanceof Error
@@ -107,7 +121,7 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
 
   if (climb === undefined) {
     return (
-      <DetailShell status="Loading">
+      <DetailShell backHref={backHref} status="Loading">
         <div className="empty-state">
           <p>Loading climb&hellip;</p>
         </div>
@@ -117,11 +131,11 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
 
   if (climb === null) {
     return (
-      <DetailShell status="Not found">
+      <DetailShell backHref={backHref} status="Not found">
         <div className="empty-state">
           <h1>Climb not found</h1>
           <p>This climb may have been removed or is temporarily unavailable.</p>
-          <a className="primary-button" href="/climbs">
+          <a className="primary-button" href={backHref}>
             View Climbs
           </a>
         </div>
@@ -137,7 +151,7 @@ export default function SavedClimbDetail({ climbId }: { climbId: string }) {
   const finishCount = resolvedHolds.filter((hold) => hold.role === "finish").length;
 
   return (
-    <DetailShell status={climb.grade}>
+    <DetailShell backHref={backHref} status={climb.grade}>
       <section aria-labelledby="climb-name">
         <div className="detail-title">
           <div>
