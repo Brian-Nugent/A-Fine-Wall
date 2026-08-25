@@ -6,13 +6,21 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
 import {
   ClimbRequestError,
   deleteClimb,
   loadClimb,
+  loadClimbs,
 } from "../climb-api";
+import {
+  climbActivityKey,
+  type ClimbActivity,
+  type ClimbReference,
+} from "../climb-activity";
 import {
   readSavedClimbs,
   removeSavedClimb,
@@ -26,11 +34,85 @@ import {
 import WallPhoto from "../wall-photo";
 import ClimbActivityPanel from "../climb-activity-panel";
 import {
+  adjacentClimbIds,
   buildFilteredHref,
+  requiresClimbActivity,
+  serializeClimbFilters,
   type ClimbFilters,
 } from "../climb-filters";
+import {
+  adjacentClimbReferences,
+  clearSessionClimbNavigationSnapshot,
+  readSessionClimbNavigationSnapshot,
+} from "../climb-navigation-snapshot";
+import { loadClimbActivities } from "../send-api";
+import {
+  horizontalSwipeDirection,
+  type SwipePoint,
+  type SwipeIntent,
+  updateSwipeIntent,
+} from "../swipe-gesture";
 import { canManageClimb } from "../../user-access";
 import { useActiveUser } from "../../user-profile-provider";
+
+function navigationHref(
+  reference: ClimbReference | null,
+  filters: ClimbFilters,
+) {
+  if (!reference) return null;
+  return reference.climbKind === "saved"
+    ? buildFilteredHref("/climbs/saved", filters, {
+        id: reference.climbId,
+      })
+    : buildFilteredHref(`/climbs/${reference.climbId}`, filters);
+}
+
+type TouchCollection = {
+  length: number;
+  item(index: number): {
+    clientX: number;
+    clientY: number;
+    identifier: number;
+  } | null;
+};
+
+function findTouch(touches: TouchCollection, identifier: number) {
+  for (let index = 0; index < touches.length; index += 1) {
+    const touch = touches.item(index);
+    if (touch?.identifier === identifier) return touch;
+  }
+  return null;
+}
+
+function ClimbPagerLink({
+  direction,
+  href,
+}: {
+  direction: "previous" | "next";
+  href: string | null;
+}) {
+  const label = direction === "previous" ? "Previous climb" : "Next climb";
+  const content = direction === "previous"
+    ? <><span aria-hidden="true">&larr;</span> Previous</>
+    : <>Next <span aria-hidden="true">&rarr;</span></>;
+
+  return href ? (
+    <a
+      aria-label={label}
+      className={`climb-pager-link climb-pager-link--${direction}`}
+      href={href}
+    >
+      {content}
+    </a>
+  ) : (
+    <span
+      aria-disabled="true"
+      className={`climb-pager-link climb-pager-link--${direction} climb-pager-link--disabled`}
+    >
+      {content}
+    </span>
+  );
+}
 
 function DetailShell({
   backHref,
@@ -184,8 +266,36 @@ export default function SavedClimbDetail({
     initialClimb,
   );
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
+  const [swipeHrefs, setSwipeHrefs] = useState<{
+    previous: string | null;
+    next: string | null;
+  }>({ previous: null, next: null });
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const swipeStartRef = useRef<{
+    touchIdentifier: number;
+    point: SwipePoint;
+    viewportWidth: number;
+    intent: SwipeIntent;
+  } | null>(null);
+  const mouseSwipeStartRef = useRef<{
+    pointerId: number;
+    point: SwipePoint;
+    viewportWidth: number;
+  } | null>(null);
+  const isSwipeNavigatingRef = useRef(false);
+
+  useEffect(() => {
+    function cancelInterruptedSwipe() {
+      swipeStartRef.current = null;
+      mouseSwipeStartRef.current = null;
+    }
+
+    document.addEventListener("visibilitychange", cancelInterruptedSwipe);
+    return () => {
+      document.removeEventListener("visibilitychange", cancelInterruptedSwipe);
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -235,6 +345,235 @@ export default function SavedClimbDetail({
     };
   }, [climbId, initialClimb]);
 
+  useEffect(() => {
+    if (!profile) return;
+
+    const serializedFilters = serializeClimbFilters(filters);
+    const snapshot = readSessionClimbNavigationSnapshot(
+      window,
+      profile.id,
+      serializedFilters,
+    );
+    if (snapshot) {
+      const adjacent = adjacentClimbReferences(snapshot, {
+        climbKind: "saved",
+        climbId,
+      });
+      if (adjacent) {
+        let isActive = true;
+        queueMicrotask(() => {
+          if (!isActive) return;
+          setSwipeHrefs({
+            previous: navigationHref(adjacent.previous, filters),
+            next: navigationHref(adjacent.next, filters),
+          });
+        });
+        return () => {
+          isActive = false;
+        };
+      }
+    }
+
+    const controller = new AbortController();
+    let isActive = true;
+    let browserClimbs: SavedClimb[] = [];
+    try {
+      browserClimbs = readSavedClimbs(window.localStorage);
+    } catch {
+      browserClimbs = [];
+    }
+
+    const needsActivity = requiresClimbActivity(filters);
+    const sharedClimbsRequest = loadClimbs(controller.signal).catch(
+      (error: unknown) => {
+        if (controller.signal.aborted) throw error;
+        return [];
+      },
+    );
+    const activitiesRequest: Promise<ClimbActivity[]> = needsActivity
+      ? loadClimbActivities(profile.id, controller.signal)
+      : Promise.resolve([]);
+
+    Promise.all([sharedClimbsRequest, activitiesRequest])
+      .then(([sharedClimbs, activities]) => {
+        if (!isActive) return;
+
+        const sharedIds = new Set(sharedClimbs.map((item) => item.id));
+        const availableClimbs = [
+          ...sharedClimbs,
+          ...browserClimbs.filter((item) => !sharedIds.has(item.id)),
+        ];
+        const activitiesByClimb = new Map(
+          activities.map((activity) => [
+            climbActivityKey(activity),
+            activity,
+          ]),
+        );
+        const adjacent = adjacentClimbIds(
+          availableClimbs.map((item) => ({
+            ...item,
+            activity:
+              activitiesByClimb.get(
+                climbActivityKey({
+                  climbKind: "saved",
+                  climbId: item.id,
+                }),
+              ) ?? null,
+          })),
+          climbId,
+          filters,
+        );
+
+        setSwipeHrefs({
+          previous: adjacent.previousId
+            ? buildFilteredHref("/climbs/saved", filters, {
+                id: adjacent.previousId,
+              })
+            : null,
+          next: adjacent.nextId
+            ? buildFilteredHref("/climbs/saved", filters, {
+                id: adjacent.nextId,
+              })
+            : null,
+        });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (isActive) setSwipeHrefs({ previous: null, next: null });
+      });
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [climbId, filters, profile]);
+
+  function startSwipe(event: ReactTouchEvent<HTMLElement>) {
+    if (isSwipeNavigatingRef.current) return;
+    if (
+      event.touches.length !== 1 ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) {
+      swipeStartRef.current = null;
+      return;
+    }
+
+    const touch = event.touches.item(0);
+    if (!touch) return;
+    swipeStartRef.current = {
+      touchIdentifier: touch.identifier,
+      point: { x: touch.clientX, y: touch.clientY, time: event.timeStamp },
+      viewportWidth: window.innerWidth,
+      intent: "pending",
+    };
+  }
+
+  function moveSwipe(event: ReactTouchEvent<HTMLElement>) {
+    const swipeStart = swipeStartRef.current;
+    if (
+      !swipeStart ||
+      event.touches.length !== 1 ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) {
+      swipeStartRef.current = null;
+      return;
+    }
+
+    const touch = findTouch(event.touches, swipeStart.touchIdentifier);
+    if (!touch) {
+      swipeStartRef.current = null;
+      return;
+    }
+
+    const intent = updateSwipeIntent(
+      swipeStart.intent,
+      swipeStart.point,
+      { x: touch.clientX, y: touch.clientY, time: event.timeStamp },
+    );
+    swipeStartRef.current =
+      intent === "vertical" ? null : { ...swipeStart, intent };
+  }
+
+  function finishSwipe(event: ReactTouchEvent<HTMLElement>) {
+    const swipeStart = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (
+      !swipeStart ||
+      event.touches.length > 0 ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) return;
+
+    const touch = findTouch(event.changedTouches, swipeStart.touchIdentifier);
+    if (!touch) return;
+    const endPoint = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: event.timeStamp,
+    };
+    const intent = updateSwipeIntent(
+      swipeStart.intent,
+      swipeStart.point,
+      endPoint,
+    );
+    if (intent !== "horizontal") return;
+
+    navigateFromSwipe(swipeStart.point, endPoint, swipeStart.viewportWidth);
+  }
+
+  function startMouseSwipe(event: ReactPointerEvent<HTMLElement>) {
+    if (
+      event.pointerType !== "mouse" ||
+      event.button !== 0 ||
+      isSwipeNavigatingRef.current ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) return;
+
+    mouseSwipeStartRef.current = {
+      pointerId: event.pointerId,
+      point: { x: event.clientX, y: event.clientY, time: event.timeStamp },
+      viewportWidth: window.innerWidth,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function finishMouseSwipe(event: ReactPointerEvent<HTMLElement>) {
+    const swipeStart = mouseSwipeStartRef.current;
+    mouseSwipeStartRef.current = null;
+    if (
+      event.pointerType !== "mouse" ||
+      !swipeStart ||
+      swipeStart.pointerId !== event.pointerId ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) return;
+
+    navigateFromSwipe(
+      swipeStart.point,
+      { x: event.clientX, y: event.clientY, time: event.timeStamp },
+      swipeStart.viewportWidth,
+    );
+  }
+
+  function cancelMouseSwipe() {
+    mouseSwipeStartRef.current = null;
+  }
+
+  function navigateFromSwipe(
+    start: SwipePoint,
+    end: SwipePoint,
+    viewportWidth: number,
+  ) {
+    const direction = horizontalSwipeDirection(start, end, viewportWidth);
+    const destination = direction ? swipeHrefs[direction] : null;
+    if (!destination) return;
+
+    isSwipeNavigatingRef.current = true;
+    window.location.assign(destination);
+  }
+
+  function cancelSwipe() {
+    swipeStartRef.current = null;
+  }
+
   async function handleDeleteClimb(climbToDelete: SavedClimb) {
     if (!profile || !canManageClimb(profile, climbToDelete.setter)) {
       setDeleteError("You can only delete climbs you set.");
@@ -258,6 +597,7 @@ export default function SavedClimbDetail({
       } catch {
         // The durable deletion prevents a stale browser copy from returning.
       }
+      clearSessionClimbNavigationSnapshot(window);
       window.location.replace(backHref);
     } catch (error) {
       setDeleteError(
@@ -334,10 +674,21 @@ export default function SavedClimbDetail({
           </p>
         ) : null}
 
-        <figure className="wall-map wall-map--route">
+        <figure
+          className="wall-map wall-map--route"
+          onLostPointerCapture={cancelMouseSwipe}
+          onPointerCancel={cancelMouseSwipe}
+          onPointerDown={startMouseSwipe}
+          onPointerUp={finishMouseSwipe}
+          onTouchCancel={cancelSwipe}
+          onTouchEnd={finishSwipe}
+          onTouchMove={moveSwipe}
+          onTouchStart={startSwipe}
+        >
           <WallPhoto
             className="wall-photo"
             alt="Climbing wall with the route holds marked"
+            draggable={false}
             width="1086"
             height="1448"
           />
@@ -362,6 +713,11 @@ export default function SavedClimbDetail({
             {finishCount === 1 ? "hold" : "holds"}.
           </figcaption>
         </figure>
+
+        <nav aria-label="Browse climbs" className="climb-pager">
+          <ClimbPagerLink direction="previous" href={swipeHrefs.previous} />
+          <ClimbPagerLink direction="next" href={swipeHrefs.next} />
+        </nav>
 
         <ClimbActivityPanel
           filters={filters}

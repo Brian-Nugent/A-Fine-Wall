@@ -5,17 +5,19 @@ import {
   climbActivityKey,
   formatAverageRating,
   type ClimbActivity,
+  type ClimbReference,
 } from "./climb-activity";
 import { climbs } from "./data";
 import {
   activeClimbFilterCount,
   buildFilteredHref,
-  compareClimbsByOrder,
   hasClimbFilterConstraints,
-  matchesClimbActivityFilters,
-  matchesClimbFilters,
+  requiresClimbActivity,
+  selectVisibleClimbs,
+  serializeClimbFilters,
   type ClimbFilters,
 } from "./climb-filters";
+import { writeSessionClimbNavigationSnapshot } from "./climb-navigation-snapshot";
 import { getClimbListState } from "./climb-list-state";
 import type { SavedClimb } from "./saved-climbs";
 import { loadClimbActivities } from "./send-api";
@@ -28,11 +30,13 @@ function ClimbRow({
   activityStatus,
   climb,
   href,
+  onOpen,
 }: {
   activity: ClimbActivity | null;
   activityStatus: "loading" | "ready" | "error";
   climb: Pick<SavedClimb, "name" | "grade" | "setter">;
   href: string;
+  onOpen(): void;
 }) {
   let ratingLabel = "Rating loading";
   let ratingContent = (
@@ -62,7 +66,7 @@ function ClimbRow({
 
   return (
     <li>
-      <a className="climb-row" href={href}>
+      <a className="climb-row" href={href} onClick={onOpen}>
         <span className="climb-row-copy">
           <strong>
             <span className="climb-name-text">{climb.name}</span>
@@ -180,10 +184,7 @@ export default function ClimbListClient({
       (activity) => [climbActivityKey(activity), activity],
     ),
   );
-  const needsActivityData =
-    initialFilters.hideSent ||
-    initialFilters.minStars > 0 ||
-    initialFilters.order === "ascents";
+  const needsActivityData = requiresClimbActivity(initialFilters);
   const activityOptionsUnavailable =
     needsActivityData && activityStatus === "error";
   const allClimbs = [
@@ -194,11 +195,18 @@ export default function ClimbListClient({
         ) ?? null,
       climb,
       createdAt: climb.createdAt,
+      grade: climb.grade,
       href: buildFilteredHref("/climbs/saved", initialFilters, {
         id: climb.id,
       }),
+      holds: climb.holds,
       id: climb.id,
       key: `saved-${climb.id}`,
+      reference: {
+        climbKind: "saved",
+        climbId: climb.id,
+      } satisfies ClimbReference,
+      setter: climb.setter,
     })),
     ...climbs.map((climb) => ({
       activity:
@@ -207,20 +215,19 @@ export default function ClimbListClient({
         ) ?? null,
       climb,
       createdAt: 0,
+      grade: climb.grade,
       href: buildFilteredHref(`/climbs/${climb.slug}`, initialFilters),
+      holds: climb.holds,
       id: climb.slug,
       key: `demo-${climb.slug}`,
+      reference: {
+        climbKind: "demo",
+        climbId: climb.slug,
+      } satisfies ClimbReference,
+      setter: climb.setter,
     })),
   ];
-  const filteredClimbs = allClimbs
-    .filter(
-      (entry) =>
-        matchesClimbFilters(entry.climb, initialFilters) &&
-        matchesClimbActivityFilters(entry.activity, initialFilters),
-    )
-    .sort((left, right) =>
-      compareClimbsByOrder(left, right, initialFilters),
-    );
+  const filteredClimbs = selectVisibleClimbs(allClimbs, initialFilters);
   const totalClimbs = allClimbs.length;
   const visibleClimbs = filteredClimbs.length;
   const activeFilterCount = activeClimbFilterCount(initialFilters);
@@ -234,6 +241,17 @@ export default function ClimbListClient({
     totalClimbs,
     visibleClimbs,
   });
+
+  function rememberClimbOrder() {
+    if (!profile || isLoadingClimbs || activityOptionsUnavailable) return;
+
+    writeSessionClimbNavigationSnapshot(
+      window,
+      profile.id,
+      serializeClimbFilters(initialFilters),
+      filteredClimbs.map((entry) => entry.reference),
+    );
+  }
 
   return (
     <main className="app-page">
@@ -315,6 +333,7 @@ export default function ClimbListClient({
                 climb={entry.climb}
                 href={entry.href}
                 key={entry.key}
+                onOpen={rememberClimbOrder}
               />
             ))}
           </ul>

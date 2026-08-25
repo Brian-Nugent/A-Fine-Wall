@@ -164,6 +164,7 @@ select {
 .primary-button:focus-visible,
 .climb-row:focus-visible,
 .back-link:focus-visible,
+.climb-pager-link:focus-visible,
 .small-brand:focus-visible,
 .set-climb-link:focus-visible,
 .wall-photo-link:focus-visible,
@@ -904,6 +905,35 @@ select:focus-visible {
   background: transparent;
   -webkit-backdrop-filter: brightness(1.67);
   backdrop-filter: brightness(1.67);
+}
+
+.climb-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.climb-pager-link {
+  display: inline-flex;
+  min-width: 6.5rem;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.climb-pager-link--next {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.climb-pager-link--disabled {
+  color: var(--muted);
+  opacity: 0.45;
 }
 
 .climb-activity-panel {
