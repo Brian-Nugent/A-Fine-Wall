@@ -226,14 +226,21 @@ export function adjacentClimbReferences(
   snapshot: ClimbNavigationSnapshot,
   current: NavigationClimbReference,
 ): AdjacentClimbReferences | null {
+  return adjacentClimbReferencesInOrder(snapshot.entries, current);
+}
+
+export function adjacentClimbReferencesInOrder(
+  entries: readonly NavigationClimbReference[],
+  current: NavigationClimbReference,
+): AdjacentClimbReferences | null {
   const currentKey = navigationKey(current);
-  const index = snapshot.entries.findIndex(
+  const index = entries.findIndex(
     (entry) => navigationKey(entry) === currentKey,
   );
   if (index < 0) return null;
 
   return {
-    previous: snapshot.entries[index - 1] ?? null,
-    next: snapshot.entries[index + 1] ?? null,
+    previous: entries[index - 1] ?? null,
+    next: entries[index + 1] ?? null,
   };
 }

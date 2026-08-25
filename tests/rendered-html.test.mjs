@@ -31,6 +31,7 @@ import {
 import {
   CLIMB_NAVIGATION_SNAPSHOT_KEY,
   adjacentClimbReferences,
+  adjacentClimbReferencesInOrder,
   clearClimbNavigationSnapshot,
   clearSessionClimbNavigationSnapshot,
   parseClimbNavigationSnapshot,
@@ -933,6 +934,10 @@ test("remembers the exact climb order for swipe navigation", () => {
     { previous: entries[0], next: entries[2] },
   );
   assert.deepEqual(
+    adjacentClimbReferencesInOrder(entries, entries[1]),
+    { previous: entries[0], next: entries[2] },
+  );
+  assert.deepEqual(
     adjacentClimbReferences(snapshot, entries[0]),
     { previous: null, next: entries[1] },
   );
@@ -1398,6 +1403,19 @@ test("supports swipe and ordinary previous or next climb navigation", async () =
   assert.match(detailSource, /aria-label=\{label\}/);
   assert.match(detailSource, /Previous climb/);
   assert.match(detailSource, /Next climb/);
+  assert.match(detailSource, /ensureClimbCached/);
+  assert.match(detailSource, /loadSyncedClimbs/);
+  assert.match(detailSource, /removeUnavailableClimbFromNavigation/);
+  // In-place browsing deliberately replaces the detail URL. Raw push entries
+  // would make Vinext's router restore the route and remount the wall on Back.
+  assert.match(detailSource, /window\.history\.replaceState/);
+  assert.doesNotMatch(detailSource, /window\.history\.pushState/);
+  assert.doesNotMatch(detailSource, /addEventListener\("popstate"/);
+  assert.match(detailSource, /setClimb\(nextClimb\)/);
+  assert.match(detailSource, /key=\{climb\.id\}/);
+  assert.match(detailSource, /window\.location\.assign\(target\.href\)/);
+  assert.equal((detailSource.match(/<WallPhoto\b/g) ?? []).length, 1);
+  assert.doesNotMatch(detailSource, /setClimb\(undefined\)/);
   assert.match(css, /\.climb-pager-link\s*\{[\s\S]*?min-height:\s*2\.75rem/);
   assert.doesNotMatch(
     css,
