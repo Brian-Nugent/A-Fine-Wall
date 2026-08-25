@@ -2199,6 +2199,24 @@ test("shows only clean colored circles for selected route holds", async () => {
   assert.match(availableRule, /opacity:\s*0/);
 });
 
+test("uses brighter blue and green specifically for hold circles", async () => {
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(css, /--hold-hand:\s*#168cff/);
+  assert.match(css, /--hold-start:\s*#20d968/);
+  assert.match(
+    css.match(/\.hold-marker--hand\s*\{([^}]*)\}/)?.[1] ?? "",
+    /var\(--hold-hand\)/,
+  );
+  assert.match(
+    css.match(/\.hold-choice--start\s*\{([^}]*)\}/)?.[1] ?? "",
+    /var\(--hold-start\)/,
+  );
+});
+
 test("allows native two-axis panning on interactive wall layers", async () => {
   const css = await readFile(
     new URL("../app/globals.css", import.meta.url),

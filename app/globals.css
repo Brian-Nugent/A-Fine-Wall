@@ -8,6 +8,8 @@
   --start: #16803a;
   --hand: #1769d2;
   --finish: #d92d3f;
+  --hold-start: #20d968;
+  --hold-hand: #168cff;
 }
 
 * {
@@ -906,12 +908,12 @@ select:focus-visible {
 }
 
 .hold-marker--start {
-  --marker-color: var(--start);
+  --marker-color: var(--hold-start);
   color: var(--marker-color);
 }
 
 .hold-marker--hand {
-  --marker-color: var(--hand);
+  --marker-color: var(--hold-hand);
   color: var(--marker-color);
 }
 
@@ -1331,12 +1333,12 @@ select:focus-visible {
 }
 
 .hold-choice--start {
-  --marker-color: var(--start);
+  --marker-color: var(--hold-start);
   color: var(--marker-color);
 }
 
 .hold-choice--hand {
-  --marker-color: var(--hand);
+  --marker-color: var(--hold-hand);
   color: var(--marker-color);
 }
 
@@ -1851,11 +1853,11 @@ select:focus-visible {
 }
 
 .legend-dot--start {
-  color: var(--start);
+  color: var(--hold-start);
 }
 
 .legend-dot--hand {
-  color: var(--hand);
+  color: var(--hold-hand);
 }
 
 .legend-dot--finish {
