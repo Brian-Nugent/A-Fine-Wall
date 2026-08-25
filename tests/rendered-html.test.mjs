@@ -972,6 +972,23 @@ test("puts climb editing and deletion in the detail overflow menu", async () => 
   assert.doesNotMatch(source, /className="delete-climb-button"/);
 });
 
+test("omits the visible color key from climb details", async () => {
+  for (const relativePath of [
+    "../app/climbs/saved/saved-climb-detail.tsx",
+    "../app/climbs/[slug]/page.tsx",
+  ]) {
+    const source = await readFile(new URL(relativePath, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /hold-legend|legend-dot|Hold marker legend/);
+    assert.match(source, /<figcaption className="sr-only">/);
+  }
+
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(css, /\.hold-legend|\.legend-dot/);
+});
+
 test("retires every prototype climb and rating route", async () => {
   for (const slug of [
     "first-light",

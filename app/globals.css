@@ -936,22 +936,6 @@ select:focus-visible {
   backdrop-filter: brightness(1.67);
 }
 
-.hold-legend {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(1rem, 7vw, 2.5rem);
-  padding: 1.15rem 1.25rem;
-  border-bottom: 1px solid var(--line);
-  font-size: 0.75rem;
-}
-
-.hold-legend > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
 .climb-activity-panel {
   display: flex;
   flex-direction: column;
@@ -1853,30 +1837,6 @@ select:focus-visible {
 
 .wall-holds-save-button {
   min-width: 6.5rem;
-}
-
-.legend-dot {
-  display: block;
-  width: 0.8rem;
-  height: 0.8rem;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-}
-
-.legend-dot--start {
-  color: var(--hold-start);
-}
-
-.legend-dot--hand {
-  color: var(--hold-hand);
-}
-
-.legend-dot--foot {
-  color: var(--hold-foot);
-}
-
-.legend-dot--finish {
-  color: var(--finish);
 }
 
 .sr-only {

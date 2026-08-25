@@ -79,13 +79,6 @@ export default async function ClimbPage({
           </figcaption>
         </figure>
 
-        <div className="hold-legend" aria-label="Hold marker legend">
-          <span><i className="legend-dot legend-dot--hand" />Climb</span>
-          <span><i className="legend-dot legend-dot--foot" />Foothold</span>
-          <span><i className="legend-dot legend-dot--start" />Start</span>
-          <span><i className="legend-dot legend-dot--finish" />Finish</span>
-        </div>
-
         <ClimbActivityPanel
           filters={filters}
           reference={{ climbKind: "demo", climbId: climb.slug }}
