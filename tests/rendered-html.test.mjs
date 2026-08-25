@@ -1386,7 +1386,7 @@ test("preloads a selected saved climb before rendering its page", async () => {
   assert.doesNotMatch(detailSource, /Loading climb(?:&hellip;|\.\.\.)/i);
 });
 
-test("supports swipe and ordinary previous or next climb navigation", async () => {
+test("supports in-place swipe navigation without pager buttons", async () => {
   const [detailSource, css] = await Promise.all([
     readFile(
       new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
@@ -1399,10 +1399,9 @@ test("supports swipe and ordinary previous or next climb navigation", async () =
   assert.match(detailSource, /onTouchMove=\{moveSwipe\}/);
   assert.match(detailSource, /onPointerDown=\{startMouseSwipe\}/);
   assert.match(detailSource, /window\.visualViewport\?\.scale/);
-  assert.match(detailSource, /aria-label="Browse climbs"/);
-  assert.match(detailSource, /aria-label=\{label\}/);
-  assert.match(detailSource, /Previous climb/);
-  assert.match(detailSource, /Next climb/);
+  assert.doesNotMatch(detailSource, /climb-pager/);
+  assert.doesNotMatch(detailSource, /Previous climb/);
+  assert.doesNotMatch(detailSource, /Next climb/);
   assert.match(detailSource, /ensureClimbCached/);
   assert.match(detailSource, /loadSyncedClimbs/);
   assert.match(detailSource, /removeUnavailableClimbFromNavigation/);
@@ -1416,7 +1415,7 @@ test("supports swipe and ordinary previous or next climb navigation", async () =
   assert.match(detailSource, /window\.location\.assign\(target\.href\)/);
   assert.equal((detailSource.match(/<WallPhoto\b/g) ?? []).length, 1);
   assert.doesNotMatch(detailSource, /setClimb\(undefined\)/);
-  assert.match(css, /\.climb-pager-link\s*\{[\s\S]*?min-height:\s*2\.75rem/);
+  assert.doesNotMatch(css, /\.climb-pager(?:-link)?\b/);
   assert.doesNotMatch(
     css,
     /\.wall-map--route\s*\{[^}]*touch-action:\s*none/,

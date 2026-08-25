@@ -57,7 +57,6 @@ import {
 import { canManageClimb } from "../../user-access";
 import { useActiveUser } from "../../user-profile-provider";
 
-type NavigationDirection = "previous" | "next";
 type ClimbNavigationTarget = {
   href: string;
   reference: NavigationClimbReference;
@@ -135,53 +134,6 @@ function findTouch(touches: TouchCollection, identifier: number) {
     if (touch?.identifier === identifier) return touch;
   }
   return null;
-}
-
-function ClimbPagerLink({
-  direction,
-  isNavigating,
-  isPending,
-  onNavigate,
-  target,
-}: {
-  direction: NavigationDirection;
-  isNavigating: boolean;
-  isPending: boolean;
-  onNavigate(
-    event: ReactMouseEvent<HTMLAnchorElement>,
-    direction: NavigationDirection,
-    target: ClimbNavigationTarget,
-  ): void;
-  target: ClimbNavigationTarget | null;
-}) {
-  const label = direction === "previous" ? "Previous climb" : "Next climb";
-  const content = isPending ? (
-    <>Opening&hellip;</>
-  ) : direction === "previous" ? (
-    <><span aria-hidden="true">&larr;</span> Previous</>
-  ) : (
-    <>Next <span aria-hidden="true">&rarr;</span></>
-  );
-
-  return target ? (
-    <a
-      aria-busy={isPending ? "true" : undefined}
-      aria-disabled={isNavigating ? "true" : undefined}
-      aria-label={label}
-      className={`climb-pager-link climb-pager-link--${direction}`}
-      href={target.href}
-      onClick={(event) => onNavigate(event, direction, target)}
-    >
-      {content}
-    </a>
-  ) : (
-    <span
-      aria-disabled="true"
-      className={`climb-pager-link climb-pager-link--${direction} climb-pager-link--disabled`}
-    >
-      {content}
-    </span>
-  );
 }
 
 function DetailShell({
@@ -342,8 +294,6 @@ export default function SavedClimbDetail({
     filters: "",
     profileId: null,
   });
-  const [pendingDirection, setPendingDirection] =
-    useState<NavigationDirection | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const activeClimbIdRef = useRef(climbId);
@@ -585,7 +535,6 @@ export default function SavedClimbDetail({
 
   const transitionToTarget = useCallback(async (
     target: ClimbNavigationTarget,
-    direction: NavigationDirection | null,
   ) => {
     if (target.reference.climbKind !== "saved") {
       window.location.assign(target.href);
@@ -602,7 +551,6 @@ export default function SavedClimbDetail({
     const transitionToken = transitionTokenRef.current + 1;
     transitionTokenRef.current = transitionToken;
     isSwipeNavigatingRef.current = true;
-    setPendingDirection(direction);
 
     try {
       const nextClimb = await ensureClimbCached(target.reference.climbId);
@@ -632,7 +580,6 @@ export default function SavedClimbDetail({
     } finally {
       if (transitionTokenRef.current === transitionToken) {
         isSwipeNavigatingRef.current = false;
-        setPendingDirection(null);
       }
     }
   }, [
@@ -760,28 +707,7 @@ export default function SavedClimbDetail({
     const target = direction ? navigationTargets[direction] : null;
     if (!direction || !target) return;
 
-    void transitionToTarget(target, direction);
-  }
-
-  function navigateFromPager(
-    event: ReactMouseEvent<HTMLAnchorElement>,
-    direction: NavigationDirection,
-    target: ClimbNavigationTarget,
-  ) {
-    if (
-      event.button !== 0 ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.altKey ||
-      target.reference.climbKind !== "saved"
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    if (isSwipeNavigatingRef.current || isDeleting) return;
-    void transitionToTarget(target, direction);
+    void transitionToTarget(target);
   }
 
   function cancelSwipe() {
@@ -928,30 +854,6 @@ export default function SavedClimbDetail({
             {finishCount === 1 ? "hold" : "holds"}.
           </figcaption>
         </figure>
-
-        <nav
-          aria-busy={pendingDirection ? "true" : undefined}
-          aria-label="Browse climbs"
-          className="climb-pager"
-        >
-          <ClimbPagerLink
-            direction="previous"
-            isNavigating={pendingDirection !== null}
-            isPending={pendingDirection === "previous"}
-            onNavigate={navigateFromPager}
-            target={navigationTargets.previous}
-          />
-          <p aria-live="polite" className="sr-only">
-            {pendingDirection ? "Opening climb." : ""}
-          </p>
-          <ClimbPagerLink
-            direction="next"
-            isNavigating={pendingDirection !== null}
-            isPending={pendingDirection === "next"}
-            onNavigate={navigateFromPager}
-            target={navigationTargets.next}
-          />
-        </nav>
 
         <ClimbActivityPanel
           filters={filters}
