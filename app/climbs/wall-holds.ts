@@ -88,6 +88,28 @@ export function wallHoldSizeFromHorizontalDrag(
   );
 }
 
+export function wallSetupReturnPath(currentUrl: string) {
+  const fallback = "/climbs";
+
+  try {
+    const current = new URL(currentUrl);
+    const candidate = current.searchParams.get("returnTo");
+    if (!candidate) return fallback;
+
+    const destination = new URL(candidate, current.origin);
+    if (
+      destination.origin === current.origin &&
+      destination.pathname === "/climbs/filter/holds"
+    ) {
+      return `${destination.pathname}${destination.search}`;
+    }
+  } catch {
+    // Ignore malformed or external return locations.
+  }
+
+  return fallback;
+}
+
 function normalizeWallHold(hold: WallHold): WallHold {
   return {
     id: hold.id,

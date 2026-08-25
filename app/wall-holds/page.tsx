@@ -31,6 +31,7 @@ import {
   saveWallHolds,
   type WallHold,
   wallHoldSizeFromHorizontalDrag,
+  wallSetupReturnPath,
   WallHoldMapRequestError,
 } from "../climbs/wall-holds";
 
@@ -71,25 +72,6 @@ function clampHoldCoordinate(value: number, size: number) {
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function returnAfterSavingWall() {
-  const fallback = "/set-climb";
-  const candidate = new URL(window.location.href).searchParams.get("returnTo");
-  if (!candidate) return fallback;
-
-  try {
-    const destination = new URL(candidate, window.location.origin);
-    if (
-      destination.origin === window.location.origin &&
-      destination.pathname === "/climbs/filter/holds"
-    ) {
-      return `${destination.pathname}${destination.search}`;
-    }
-  } catch {
-    // Ignore malformed or external return locations.
-  }
-  return fallback;
 }
 
 type BrowserClimb = AttributedSavedClimb;
@@ -524,7 +506,7 @@ export default function WallHoldsPage() {
       }
 
       allowNavigation.current = true;
-      window.location.assign(returnAfterSavingWall());
+      window.location.assign(wallSetupReturnPath(window.location.href));
     } catch (saveError) {
       setHasConflict(
         saveError instanceof WallHoldMapRequestError &&

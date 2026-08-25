@@ -38,6 +38,7 @@ import { climbs as demoClimbs } from "../app/climbs/data.ts";
 import {
   resolveSavedHold,
   wallHoldSizeFromHorizontalDrag,
+  wallSetupReturnPath,
 } from "../app/climbs/wall-holds.ts";
 import {
   MAX_USER_NAME_LENGTH,
@@ -914,6 +915,26 @@ test("resizes selected wall circles with a direct manipulation handle", async ()
   assert.equal(wallHoldSizeFromHorizontalDrag(7, -100, 350), 1);
   assert.equal(wallHoldSizeFromHorizontalDrag(7, 100, 350), 20);
   assert.equal(wallHoldSizeFromHorizontalDrag(7, 100, 0), 7);
+});
+
+test("returns to climbs after wall setup while preserving hold-filter returns", () => {
+  assert.equal(
+    wallSetupReturnPath("https://example.com/wall-holds"),
+    "/climbs",
+  );
+  assert.equal(
+    wallSetupReturnPath(
+      "https://example.com/wall-holds?returnTo=%2Fclimbs%2Ffilter%2Fholds%3Fmin%3DV4",
+    ),
+    "/climbs/filter/holds?min=V4",
+  );
+  assert.equal(
+    wallSetupReturnPath(
+      "https://example.com/wall-holds?returnTo=https%3A%2F%2Fevil.example%2Fclimbs%2Ffilter%2Fholds",
+    ),
+    "/climbs",
+  );
+  assert.equal(wallSetupReturnPath("not a valid URL"), "/climbs");
 });
 
 test("renders the browser-saved climb detail shell", async () => {
