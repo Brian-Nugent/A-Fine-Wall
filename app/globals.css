@@ -1715,8 +1715,8 @@ select:focus-visible {
   position: absolute;
   z-index: 3;
   display: grid;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1rem;
+  height: 1rem;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: transparent;

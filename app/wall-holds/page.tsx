@@ -639,7 +639,7 @@ export default function WallHoldsPage() {
                   onPointerUp={finishResize}
                   role="slider"
                   style={{
-                    left: `min(${hold.x + hold.size / 2}%, calc(100% - 0.875rem))`,
+                    left: `min(${hold.x + hold.size / 2}%, calc(100% - 0.5rem))`,
                     top: `${hold.y}%`,
                   }}
                   tabIndex={isSaving ? -1 : 0}

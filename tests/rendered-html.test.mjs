@@ -912,11 +912,21 @@ test("resizes selected wall circles with a direct manipulation handle", async ()
     new URL("../app/wall-holds/page.tsx", import.meta.url),
     "utf8",
   );
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  const resizeHandleRule =
+    css.match(/\.wall-hold-resize-handle\s*\{([^}]*)\}/)?.[1] ?? "";
 
   assert.match(source, /className="wall-hold-resize-handle"/);
   assert.match(source, /role="slider"/);
   assert.match(source, /setPointerCapture/);
   assert.match(source, /onPointerCancel=\{finishResize\}/);
+  assert.match(source, /calc\(100% - 0\.5rem\)/);
+  assert.match(resizeHandleRule, /width:\s*1rem/);
+  assert.match(resizeHandleRule, /height:\s*1rem/);
+  assert.doesNotMatch(resizeHandleRule, /1\.75rem/);
   assert.doesNotMatch(source, /wall-hold-size-slider/);
   assert.doesNotMatch(source, /id="wall-hold-size"/);
 
