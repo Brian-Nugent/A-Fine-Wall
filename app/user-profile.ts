@@ -1,4 +1,5 @@
 export const USER_PROFILE_KEY = "a-fine-wall:user-profile:v1";
+export const USER_PROFILE_COOKIE_KEY = "a-fine-wall-user-profile-v1";
 export const MAX_USER_NAME_LENGTH = 50;
 
 const profileIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
@@ -61,6 +62,36 @@ export function parseUserProfile(raw: string | null): UserProfile | null {
   } catch {
     return null;
   }
+}
+
+export function serializeUserProfileCookie(profile: UserProfile) {
+  return encodeURIComponent(JSON.stringify(profile));
+}
+
+export function parseUserProfileCookie(
+  cookieHeader: string | null,
+): UserProfile | null {
+  if (!cookieHeader) return null;
+
+  const encodedProfile = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${USER_PROFILE_COOKIE_KEY}=`))
+    ?.slice(USER_PROFILE_COOKIE_KEY.length + 1);
+  if (!encodedProfile) return null;
+
+  try {
+    return parseUserProfile(decodeURIComponent(encodedProfile));
+  } catch {
+    return null;
+  }
+}
+
+export function resolveCachedUserProfile(
+  browserProfile: UserProfile | null,
+  serverProfile: UserProfile | null,
+) {
+  return browserProfile ?? serverProfile;
 }
 
 export function readUserProfile(storage: StorageReader): UserProfile | null {

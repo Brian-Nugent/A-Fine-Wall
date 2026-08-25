@@ -42,12 +42,16 @@ import {
 } from "../app/climbs/wall-holds.ts";
 import {
   MAX_USER_NAME_LENGTH,
+  USER_PROFILE_COOKIE_KEY,
   USER_PROFILE_KEY,
   normalizeUserName,
+  parseUserProfileCookie,
   parseUserProfile,
   persistUserProfile,
   readUserProfile,
   removeUserProfile,
+  resolveCachedUserProfile,
+  serializeUserProfileCookie,
 } from "../app/user-profile.ts";
 import {
   ACTIVE_USER_PROFILE_HEADER,
@@ -57,12 +61,12 @@ import {
   isSameUserName,
 } from "../app/user-access.ts";
 
-async function render(pathname = "/") {
+async function render(pathname = "/", requestHeaders = {}) {
   const worker = await loadWorker();
 
   return worker.fetch(
     new Request(`http://localhost${pathname}`, {
-      headers: { accept: "text/html" },
+      headers: { accept: "text/html", ...requestHeaders },
     }),
     createEnvironment(),
     createContext(),
@@ -548,7 +552,28 @@ test("starts at the climb list while preserving the first-time profile gate", as
   assert.match(homeSource, /redirect\("\/climbs"\)/);
   assert.doesNotMatch(homeSource, /View Climbs|home-page/);
   assert.match(profileSource, /What's your name\?/);
+  assert.doesNotMatch(profileSource, /Opening the wall|profile-gate--loading/);
   assert.doesNotMatch(css, /\.home-page/);
+  assert.doesNotMatch(css, /\.profile-gate--loading/);
+});
+
+test("restores returning users without a branded loading screen", async () => {
+  const profile = { id: "profile-cookie-test", name: "Cookie Tester" };
+  const cookie = `${USER_PROFILE_COOKIE_KEY}=${serializeUserProfileCookie(profile)}`;
+  const response = await render("/climbs", { cookie });
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /Current user: Cookie Tester/);
+  assert.match(html, /Loading climbs/);
+  assert.doesNotMatch(html, /Opening the wall|profile-gate--loading/);
+
+  const firstVisitResponse = await render("/climbs");
+  assert.equal(firstVisitResponse.status, 200);
+  assert.doesNotMatch(
+    await firstVisitResponse.text(),
+    /Opening the wall|profile-gate--loading/,
+  );
 });
 
 test("recognizes Admin and climb owners without case sensitivity", () => {
@@ -2569,6 +2594,27 @@ test("normalizes and remembers the active user profile", () => {
   assert.equal(normalizeUserName("x".repeat(MAX_USER_NAME_LENGTH + 1)), null);
   assert.equal(parseUserProfile(null), null);
   assert.equal(parseUserProfile("not json"), null);
+
+  const cookieProfile = { id: "profile-cookie", name: "ZoÃ« Oâ€™Connor" };
+  const cookieValue = serializeUserProfileCookie(cookieProfile);
+  assert.deepEqual(
+    parseUserProfileCookie(
+      `unrelated=value; ${USER_PROFILE_COOKIE_KEY}=${cookieValue}; theme=dark`,
+    ),
+    cookieProfile,
+  );
+  assert.equal(parseUserProfileCookie(null), null);
+  assert.equal(
+    parseUserProfileCookie(`${USER_PROFILE_COOKIE_KEY}=not-json`),
+    null,
+  );
+  assert.equal(resolveCachedUserProfile(null, cookieProfile), cookieProfile);
+  const newerBrowserProfile = { id: "profile-newer", name: "Newer User" };
+  assert.equal(
+    resolveCachedUserProfile(newerBrowserProfile, cookieProfile),
+    newerBrowserProfile,
+  );
+  assert.equal(resolveCachedUserProfile(null, null), null);
 
   const profile = { id: "profile-1", name: "Alex Rivera" };
   assert.deepEqual(parseUserProfile(JSON.stringify(profile)), profile);
