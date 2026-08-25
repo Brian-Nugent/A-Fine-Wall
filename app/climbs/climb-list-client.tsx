@@ -8,11 +8,15 @@ import {
 } from "./climb-api";
 import { climbs } from "./data";
 import {
+  attributeSavedClimb,
+  persistSavedClimbs,
   readSavedClimbs,
   removeSavedClimb,
+  type AttributedSavedClimb,
   type SavedClimb,
 } from "./saved-climbs";
 import { loadWallHoldMap } from "./wall-holds";
+import { useActiveUser } from "../user-profile-provider";
 
 function ClimbRow({
   climb,
@@ -38,14 +42,23 @@ function ClimbRow({
 }
 
 export default function ClimbListClient() {
+  const { profile, changeUser } = useActiveUser();
   const [savedClimbs, setSavedClimbs] = useState<SavedClimb[]>([]);
 
   useEffect(() => {
+    if (!profile) return;
+
     let isActive = true;
-    let browserClimbs: SavedClimb[] = [];
+    let browserClimbs: AttributedSavedClimb[] = [];
 
     try {
-      browserClimbs = readSavedClimbs(window.localStorage);
+      const storedClimbs = readSavedClimbs(window.localStorage);
+      browserClimbs = storedClimbs.map((climb) =>
+        attributeSavedClimb(climb, profile),
+      );
+      if (browserClimbs.some((climb, index) => climb !== storedClimbs[index])) {
+        persistSavedClimbs(window.localStorage, browserClimbs);
+      }
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSavedClimbs(browserClimbs);
     } catch {
@@ -56,7 +69,7 @@ export default function ClimbListClient() {
       const wallMap = await loadWallHoldMap();
       const syncResults = await Promise.allSettled(
         browserClimbs.map((climb) =>
-          saveClimbToApp(climb, wallMap.updatedAt),
+          saveClimbToApp(climb, wallMap.updatedAt, climb.profileId),
         ),
       );
       const deletedBrowserIds = new Set(
@@ -97,7 +110,7 @@ export default function ClimbListClient() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [profile]);
 
   const totalClimbs = climbs.length + savedClimbs.length;
 
@@ -119,7 +132,17 @@ export default function ClimbListClient() {
 
       <section aria-labelledby="climbs-heading">
         <div className="section-heading">
-          <h1 id="climbs-heading">Climbs</h1>
+          <div className="section-heading-copy">
+            <h1 id="climbs-heading">Climbs</h1>
+            <button
+              aria-label={`Change user. Current user: ${profile?.name ?? "not selected"}`}
+              className="user-switch-button"
+              onClick={changeUser}
+              type="button"
+            >
+              Using {profile?.name ?? "no user"}
+            </button>
+          </div>
           <p aria-live="polite">{totalClimbs} climbs</p>
         </div>
 

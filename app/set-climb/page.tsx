@@ -19,6 +19,7 @@ import {
   type SavedHoldRole,
 } from "../climbs/saved-climbs";
 import { loadWallHoldMap, type WallHold } from "../climbs/wall-holds";
+import { useActiveUser } from "../user-profile-provider";
 import WallPhoto from "../climbs/wall-photo";
 
 type DraftHold = {
@@ -35,6 +36,7 @@ function makeClimbId() {
 }
 
 export default function SetClimbPage() {
+  const { profile } = useActiveUser();
   const [step, setStep] = useState<"holds" | "details">("holds");
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
   const [wallRevision, setWallRevision] = useState<number | null>(null);
@@ -118,13 +120,22 @@ export default function SetClimbPage() {
     setHasSaveConflict(false);
 
     const trimmedName = name.trim();
-    if (!trimmedName || !grade || !canFinish || wallRevision === null) return;
+    if (
+      !profile ||
+      !trimmedName ||
+      !grade ||
+      !canFinish ||
+      wallRevision === null
+    ) {
+      return;
+    }
 
     const climb: SavedClimb = {
       id: makeClimbId(),
       name: trimmedName,
       grade,
-      setter: "You",
+      setter: profile.name,
+      profileId: profile.id,
       createdAt: Date.now(),
       holds: selectedHolds.flatMap((selection) => {
         const hold = wallHolds.find((item) => item.id === selection.holdId);
@@ -142,13 +153,22 @@ export default function SetClimbPage() {
 
     setIsSaving(true);
     try {
-      await saveClimbToApp(climb, wallRevision);
+      const savedClimb = await saveClimbToApp(
+        climb,
+        wallRevision,
+        profile.id,
+      );
       try {
-        persistSavedClimb(window.localStorage, climb);
+        persistSavedClimb(window.localStorage, {
+          ...savedClimb,
+          profileId: profile.id,
+        });
       } catch {
         // The durable app copy was saved; the browser copy is only a fallback.
       }
-      window.location.assign(`/climbs/saved?id=${encodeURIComponent(climb.id)}`);
+      window.location.assign(
+        `/climbs/saved?id=${encodeURIComponent(savedClimb.id)}`,
+      );
     } catch (error) {
       setHasSaveConflict(
         error instanceof ClimbRequestError &&
@@ -330,6 +350,9 @@ export default function SetClimbPage() {
           <p className="step-label">Step 2 of 2</p>
           <h1 id="finish-heading">Name your climb</h1>
           <p>{selectedHolds.length} holds selected</p>
+          <p className="setter-attribution">
+            Set by <strong>{profile?.name ?? "your user"}</strong>
+          </p>
 
           <form className="climb-form" onSubmit={saveClimb}>
             <label htmlFor="climb-name-input">Name</label>

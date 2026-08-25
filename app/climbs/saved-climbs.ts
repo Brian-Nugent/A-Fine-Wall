@@ -31,8 +31,18 @@ export type SavedClimb = {
   name: string;
   grade: string;
   setter: string;
+  profileId?: string;
   createdAt: number;
   holds: SavedHold[];
+};
+
+export type AttributedSavedClimb = SavedClimb & {
+  profileId: string;
+};
+
+type ClimbProfile = {
+  id: string;
+  name: string;
 };
 
 type StorageReader = {
@@ -45,6 +55,31 @@ type StorageWriter = StorageReader & {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isStoredProfileId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(value)
+  );
+}
+
+function isStoredSetterName(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (!normalized || normalized !== value || normalized.length > 50) return false;
+
+  return ![...value].some((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return (
+      code <= 0x1f ||
+      (code >= 0x7f && code <= 0x9f) ||
+      (code >= 0x200b && code <= 0x200f) ||
+      (code >= 0x202a && code <= 0x202e) ||
+      (code >= 0x2060 && code <= 0x206f) ||
+      code === 0xfeff
+    );
+  });
 }
 
 function isSavedHold(value: unknown): value is SavedHold {
@@ -78,7 +113,8 @@ function isSavedClimb(value: unknown): value is SavedClimb {
     climb.name.trim().length > 0 &&
     climb.name.length <= 50 &&
     isClimbGrade(climb.grade) &&
-    climb.setter === "You" &&
+    isStoredSetterName(climb.setter) &&
+    (climb.profileId === undefined || isStoredProfileId(climb.profileId)) &&
     isFiniteNumber(climb.createdAt) &&
     Array.isArray(climb.holds) &&
     climb.holds.length >= 2
@@ -116,6 +152,26 @@ export function addSavedClimb(
   climb: SavedClimb,
 ): SavedClimb[] {
   return [climb, ...existing.filter((item) => item.id !== climb.id)];
+}
+
+export function attributeSavedClimb(
+  climb: SavedClimb,
+  profile: ClimbProfile,
+): AttributedSavedClimb {
+  if (climb.profileId) return climb as AttributedSavedClimb;
+
+  return {
+    ...climb,
+    setter: profile.name,
+    profileId: profile.id,
+  };
+}
+
+export function persistSavedClimbs(
+  storage: StorageWriter,
+  climbs: readonly SavedClimb[],
+) {
+  storage.setItem(SAVED_CLIMBS_KEY, JSON.stringify(climbs));
 }
 
 export function persistSavedClimb(

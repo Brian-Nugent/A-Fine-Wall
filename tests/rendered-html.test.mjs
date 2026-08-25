@@ -3,15 +3,26 @@ import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import {
   addSavedClimb,
+  attributeSavedClimb,
   CLIMB_GRADES,
   isClimbGrade,
   nextSavedHoldRole,
   parseSavedClimbs,
   persistSavedClimb,
+  persistSavedClimbs,
   readSavedClimbs,
   removeSavedClimb,
 } from "../app/climbs/saved-climbs.ts";
 import { resolveSavedHold } from "../app/climbs/wall-holds.ts";
+import {
+  MAX_USER_NAME_LENGTH,
+  USER_PROFILE_KEY,
+  normalizeUserName,
+  parseUserProfile,
+  persistUserProfile,
+  readUserProfile,
+  removeUserProfile,
+} from "../app/user-profile.ts";
 
 async function render(pathname = "/") {
   const worker = await loadWorker();
@@ -83,6 +94,7 @@ function createMemoryAppDatabase() {
   let wallConfiguration = null;
   const savedClimbs = new Map();
   const deletedClimbs = new Map();
+  const savedProfiles = new Map();
 
   function createStatement(sql, values = []) {
     const normalized = sql.replace(/\s+/g, " ").trim().toLowerCase();
@@ -156,6 +168,12 @@ function createMemoryAppDatabase() {
         if (normalized === "select id from deleted_climbs where id = ?") {
           return deletedClimbs.has(values[0]) ? { id: values[0] } : null;
         }
+        if (
+          normalized ===
+          "select id, name, created_at from profiles where id = ?"
+        ) {
+          return savedProfiles.get(values[0]) ?? null;
+        }
         if (normalized.includes("from climbs where id = ?")) {
           return savedClimbs.get(values[0]) ?? null;
         }
@@ -173,6 +191,14 @@ function createMemoryAppDatabase() {
             holds_json: values[1],
             updated_at: values[2],
           };
+          return { success: true };
+        }
+        if (normalized.startsWith("insert into profiles")) {
+          savedProfiles.set(values[0], {
+            id: values[0],
+            name: values[1],
+            created_at: values[2],
+          });
           return { success: true };
         }
         if (normalized.startsWith("update wall_configuration set")) {
@@ -201,6 +227,14 @@ function createMemoryAppDatabase() {
           if (climb) climb.holds_json = values[0];
           return { success: true };
         }
+        if (normalized.startsWith("update climbs set setter")) {
+          const climb = savedClimbs.get(values[2]);
+          if (climb?.setter === values[3]) {
+            climb.setter = values[0];
+            climb.holds_json = values[1];
+          }
+          return { success: true };
+        }
         if (normalized.startsWith("insert or ignore into deleted_climbs")) {
           if (!deletedClimbs.has(values[0])) {
             deletedClimbs.set(values[0], values[1]);
@@ -223,6 +257,16 @@ function createMemoryAppDatabase() {
     async batch(statements) {
       return Promise.all(statements.map((statement) => statement.run()));
     },
+    seedClimb(climb) {
+      savedClimbs.set(climb.id, {
+        id: climb.id,
+        name: climb.name,
+        grade: climb.grade,
+        setter: climb.setter,
+        created_at: climb.createdAt,
+        holds_json: JSON.stringify(climb.holds),
+      });
+    },
   };
 }
 
@@ -232,6 +276,7 @@ test("renders the minimal home screen", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
+  assert.match(html, /Opening the wall/);
   assert.match(html, /<title>A Fine Wall<\/title>/i);
   assert.match(html, /<h1>A Fine Wall<\/h1>/i);
   assert.match(html, /href="\/climbs"/i);
@@ -603,6 +648,72 @@ test("persists preset wall spots and keeps their stable ids", async () => {
   assert.equal(response.headers.get("allow"), "GET, PUT");
 });
 
+test("creates and reloads password-free user profiles", async () => {
+  const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  const environment = createEnvironment({ DB: database });
+  const fetchAppData = (request) =>
+    worker.fetch(request, environment, createContext());
+
+  let response = await fetchAppData(
+    new Request("http://localhost/api/profiles", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ name: "  Zoë   O’Connor  " }),
+    }),
+  );
+  assert.equal(response.status, 201);
+  const createdProfile = (await response.json()).profile;
+  assert.match(createdProfile.id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/);
+  assert.equal(createdProfile.name, "Zoë O’Connor");
+  assert.equal(Number.isSafeInteger(createdProfile.createdAt), true);
+
+  response = await fetchAppData(
+    new Request(
+      `http://localhost/api/profiles/${encodeURIComponent(createdProfile.id)}`,
+    ),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).profile, createdProfile);
+
+  for (const name of ["   ", "You", "Bad\nName", "x".repeat(51)]) {
+    response = await fetchAppData(
+      new Request("http://localhost/api/profiles", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ name }),
+      }),
+    );
+    assert.equal(response.status, 400);
+  }
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Alex" }),
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/profiles/not-found"),
+  );
+  assert.equal(response.status, 404);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/profiles", { method: "GET" }),
+  );
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("allow"), "POST");
+});
+
 test("stores climbs by preset hold id and resolves them from shared data", async () => {
   const worker = await loadWorker();
   const database = createMemoryAppDatabase();
@@ -627,11 +738,24 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(response.status, 200);
   const wallRevision = (await response.json()).updatedAt;
 
+  response = await fetchAppData(
+    new Request("http://localhost/api/profiles", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ name: "Alex Rivera" }),
+    }),
+  );
+  assert.equal(response.status, 201);
+  const profileId = (await response.json()).profile.id;
+
   const climb = {
     id: "stable-route-one",
     name: "Stable Route",
     grade: "V17",
-    setter: "You",
+    setter: "Forged Name",
     createdAt: 100,
     holds: [
       { holdId: "start-hold", x: 0, y: 0, size: 1, role: "start" },
@@ -648,11 +772,13 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         climb,
         expectedWallUpdatedAt: wallRevision,
+        profileId,
       }),
     }),
   );
   assert.equal(response.status, 201);
   const savedClimb = (await response.json()).climb;
+  assert.equal(savedClimb.setter, "Alex Rivera");
   assert.equal(savedClimb.holds[0].holdId, "start-hold");
   assert.equal(savedClimb.holds[0].x, wallHolds[0].x);
   assert.equal(savedClimb.holds[1].y, wallHolds[1].y);
@@ -679,6 +805,38 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         climb: { ...climb, id: "outside-grade-range", grade: "V18" },
         expectedWallUpdatedAt: wallRevision,
+        profileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 400);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb: { ...climb, id: "missing-profile-route" },
+        expectedWallUpdatedAt: wallRevision,
+      }),
+    }),
+  );
+  assert.equal(response.status, 400);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb: { ...climb, id: "unknown-profile-route" },
+        expectedWallUpdatedAt: wallRevision,
+        profileId: "unknown-profile",
       }),
     }),
   );
@@ -694,6 +852,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         climb,
         expectedWallUpdatedAt: wallRevision,
+        profileId,
       }),
     }),
   );
@@ -703,11 +862,13 @@ test("stores climbs by preset hold id and resolves them from shared data", async
     ...climb,
     id: "legacy-coordinate-route",
     name: "Legacy Route",
+    setter: "You",
     holds: [
       { x: 31.5, y: 87.5, size: 6, role: "start" },
       { x: 67.5, y: 9.5, size: 7, role: "finish" },
     ],
   };
+  database.seedClimb(legacyClimb);
   response = await fetchAppData(
     new Request("http://localhost/api/climbs", {
       method: "POST",
@@ -721,7 +882,24 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       }),
     }),
   );
-  assert.equal(response.status, 201);
+  assert.equal(response.status, 400);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb: legacyClimb,
+        expectedWallUpdatedAt: wallRevision,
+        profileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).climb.setter, "Alex Rivera");
 
   response = await fetchAppData(
     new Request("http://localhost/api/wall-holds", {
@@ -796,6 +974,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         climb: { ...climb, id: "stale-wall-route" },
         expectedWallUpdatedAt: wallRevision,
+        profileId,
       }),
     }),
   );
@@ -818,6 +997,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
           ],
         },
         expectedWallUpdatedAt: movedWallRevision,
+        profileId,
       }),
     }),
   );
@@ -886,6 +1066,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         climb,
         expectedWallUpdatedAt: movedWallRevision,
+        profileId,
       }),
     }),
   );
@@ -948,6 +1129,43 @@ test("dims climb walls while restoring normal brightness inside route circles", 
   assert.match(markerRule, /(?<!webkit-)backdrop-filter:\s*brightness\(1\.39\)/);
 });
 
+test("normalizes and remembers the active user profile", () => {
+  assert.equal(normalizeUserName("  Zoë   O’Connor  "), "Zoë O’Connor");
+  assert.equal(normalizeUserName("   "), null);
+  assert.equal(normalizeUserName("You"), null);
+  assert.equal(normalizeUserName("Bad\nName"), null);
+  assert.equal(normalizeUserName("x".repeat(MAX_USER_NAME_LENGTH)), "x".repeat(50));
+  assert.equal(normalizeUserName("x".repeat(MAX_USER_NAME_LENGTH + 1)), null);
+  assert.equal(parseUserProfile(null), null);
+  assert.equal(parseUserProfile("not json"), null);
+
+  const profile = { id: "profile-1", name: "Alex Rivera" };
+  assert.deepEqual(parseUserProfile(JSON.stringify(profile)), profile);
+  assert.equal(
+    parseUserProfile(JSON.stringify({ ...profile, id: "bad id" })),
+    null,
+  );
+
+  const values = new Map();
+  const storage = {
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    setItem(key, value) {
+      values.set(key, value);
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+  };
+
+  persistUserProfile(storage, profile);
+  assert.equal(values.has(USER_PROFILE_KEY), true);
+  assert.deepEqual(readUserProfile(storage), profile);
+  removeUserProfile(storage);
+  assert.equal(readUserProfile(storage), null);
+});
+
 test("safely parses and stores device-local climbs", () => {
   assert.equal(nextSavedHoldRole("hand"), "start");
   assert.equal(nextSavedHoldRole("start"), "finish");
@@ -957,7 +1175,8 @@ test("safely parses and stores device-local climbs", () => {
     id: "corner-pocket-1",
     name: "Corner Pocket",
     grade: "V17",
-    setter: "You",
+    setter: "Alex Rivera",
+    profileId: "profile-1",
     createdAt: 100,
     holds: [
       { x: 27, y: 91, size: 6, role: "start" },
@@ -973,6 +1192,36 @@ test("safely parses and stores device-local climbs", () => {
   assert.deepEqual(parseSavedClimbs(JSON.stringify([climb, { broken: true }])), [
     climb,
   ]);
+  const legacyClimb = {
+    ...climb,
+    id: "legacy-climb",
+    setter: "You",
+  };
+  delete legacyClimb.profileId;
+  assert.deepEqual(parseSavedClimbs(JSON.stringify([legacyClimb])), [
+    legacyClimb,
+  ]);
+  const attributedLegacyClimb = attributeSavedClimb(legacyClimb, {
+    id: "profile-2",
+    name: "Casey",
+  });
+  assert.deepEqual(attributedLegacyClimb, {
+    ...legacyClimb,
+    setter: "Casey",
+    profileId: "profile-2",
+  });
+  assert.equal(
+    attributeSavedClimb(climb, { id: "profile-2", name: "Casey" }),
+    climb,
+  );
+  assert.deepEqual(
+    parseSavedClimbs(JSON.stringify([{ ...climb, setter: " " }])),
+    [],
+  );
+  assert.deepEqual(
+    parseSavedClimbs(JSON.stringify([{ ...climb, setter: "x".repeat(51) }])),
+    [],
+  );
   assert.deepEqual(
     parseSavedClimbs(JSON.stringify([{ ...climb, grade: "V18" }])),
     [],
@@ -1028,6 +1277,11 @@ test("safely parses and stores device-local climbs", () => {
 
   persistSavedClimb(storage, climb);
   assert.deepEqual(readSavedClimbs(storage), [climb]);
-  assert.deepEqual(removeSavedClimb(storage, climb.id), []);
+  persistSavedClimbs(storage, [climb, attributedLegacyClimb]);
+  assert.deepEqual(readSavedClimbs(storage), [climb, attributedLegacyClimb]);
+  assert.deepEqual(removeSavedClimb(storage, climb.id), [
+    attributedLegacyClimb,
+  ]);
+  removeSavedClimb(storage, attributedLegacyClimb.id);
   assert.deepEqual(readSavedClimbs(storage), []);
 });

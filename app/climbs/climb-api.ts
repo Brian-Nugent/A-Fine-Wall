@@ -54,11 +54,18 @@ export async function loadClimb(id: string, signal?: AbortSignal) {
 export async function saveClimb(
   climb: SavedClimb,
   expectedWallUpdatedAt: number,
+  profileId: string,
 ) {
+  const climbPayload = { ...climb };
+  delete climbPayload.profileId;
   const response = await fetch(CLIMBS_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ climb, expectedWallUpdatedAt }),
+    body: JSON.stringify({
+      climb: climbPayload,
+      expectedWallUpdatedAt,
+      profileId,
+    }),
   });
   const payload: unknown = await response.json().catch(() => null);
 

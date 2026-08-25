@@ -1,6 +1,8 @@
 const WALL_HOLDS_PATH = "/api/wall-holds";
 const CLIMBS_PATH = "/api/climbs";
+const PROFILES_PATH = "/api/profiles";
 const WALL_CONFIGURATION_ID = 1;
+const MAX_PROFILE_BODY_BYTES = 4 * 1024;
 const MAX_WALL_HOLDS_BODY_BYTES = 256 * 1024;
 const MAX_CLIMB_BODY_BYTES = 128 * 1024;
 const MAX_WALL_HOLDS = 1_000;
@@ -34,6 +36,18 @@ type Climb = {
   setter: string;
   createdAt: number;
   holds: ClimbHold[];
+};
+
+type Profile = {
+  id: string;
+  name: string;
+  createdAt: number;
+};
+
+type ProfileRow = {
+  id: string;
+  name: string;
+  created_at: number;
 };
 
 type WallConfigurationRow = {
@@ -99,6 +113,41 @@ function isCoordinate(value: unknown): value is number {
 
 function isSize(value: unknown): value is number {
   return isFiniteNumber(value) && value > 0 && value <= 20;
+}
+
+function normalizeDisplayName(value: unknown) {
+  if (typeof value !== "string" || hasUnsafeNameCharacter(value)) return null;
+  const name = value.trim().replace(/\s+/g, " ");
+  return name && name.length <= 50 ? name : null;
+}
+
+function normalizeProfileName(value: unknown) {
+  const name = normalizeDisplayName(value);
+  return name === "You" ? null : name;
+}
+
+function hasUnsafeNameCharacter(value: string) {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return (
+      code <= 0x1f ||
+      (code >= 0x7f && code <= 0x9f) ||
+      (code >= 0x200b && code <= 0x200f) ||
+      (code >= 0x202a && code <= 0x202e) ||
+      (code >= 0x2060 && code <= 0x206f) ||
+      code === 0xfeff
+    );
+  });
+}
+
+function parseProfileBody(value: unknown) {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ["name"])) {
+    throw new ApiError("Send a valid name.", 400);
+  }
+
+  const name = normalizeProfileName(value.name);
+  if (!name) throw new ApiError("Send a valid name.", 400);
+  return name;
 }
 
 function parseWallHold(value: unknown): WallHold | null {
@@ -191,7 +240,7 @@ function parseClimbBody(value: unknown): Climb {
   }
 
   const name = typeof value.name === "string" ? value.name.trim() : "";
-  const setter = typeof value.setter === "string" ? value.setter.trim() : "You";
+  const setter = normalizeDisplayName(value.setter);
   const id = value.id === undefined ? crypto.randomUUID() : value.id;
   const createdAt = value.createdAt === undefined ? Date.now() : value.createdAt;
 
@@ -203,7 +252,6 @@ function parseClimbBody(value: unknown): Climb {
     typeof value.grade !== "string" ||
     !gradePattern.test(value.grade) ||
     !setter ||
-    setter.length > 50 ||
     typeof createdAt !== "number" ||
     !Number.isSafeInteger(createdAt) ||
     createdAt <= 0 ||
@@ -245,7 +293,7 @@ function parseClimbBody(value: unknown): Climb {
 function parseClimbWriteBody(value: unknown) {
   if (
     !isPlainObject(value) ||
-    !hasOnlyKeys(value, ["climb", "expectedWallUpdatedAt"]) ||
+    !hasOnlyKeys(value, ["climb", "expectedWallUpdatedAt", "profileId"]) ||
     typeof value.expectedWallUpdatedAt !== "number" ||
     !Number.isSafeInteger(value.expectedWallUpdatedAt) ||
     value.expectedWallUpdatedAt < 0
@@ -253,9 +301,17 @@ function parseClimbWriteBody(value: unknown) {
     throw new ApiError("Send valid climb details and a wall revision.", 400);
   }
 
+  if (
+    typeof value.profileId !== "string" ||
+    !recordIdPattern.test(value.profileId)
+  ) {
+    throw new ApiError("Choose your user name before saving.", 400);
+  }
+
   return {
     climb: parseClimbBody(value.climb),
     expectedWallUpdatedAt: value.expectedWallUpdatedAt,
+    profileId: value.profileId,
   };
 }
 
@@ -319,6 +375,13 @@ function requireSameOrigin(request: Request) {
 async function ensureSchema(db: D1Database) {
   await db.batch([
     db.prepare(`
+      CREATE TABLE IF NOT EXISTS profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `),
+    db.prepare(`
       CREATE TABLE IF NOT EXISTS wall_configuration (
         id INTEGER PRIMARY KEY,
         holds_json TEXT NOT NULL,
@@ -352,6 +415,19 @@ async function ensureSchema(db: D1Database) {
   ]);
 }
 
+function rowToProfile(row: ProfileRow): Profile {
+  const name = normalizeProfileName(row.name);
+  if (
+    !recordIdPattern.test(row.id) ||
+    !name ||
+    !Number.isSafeInteger(row.created_at) ||
+    row.created_at <= 0
+  ) {
+    throw new ApiError("A saved user profile is invalid.", 500);
+  }
+  return { id: row.id, name, createdAt: row.created_at };
+}
+
 function parseStoredHolds(raw: string): WallHold[] {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -375,6 +451,16 @@ function rowToClimb(row: ClimbRow): Climb {
   } catch {
     throw new ApiError("A saved climb is invalid.", 500);
   }
+}
+
+function isMatchingLegacyClimb(existing: Climb, submitted: Climb) {
+  return (
+    existing.setter === "You" &&
+    existing.id === submitted.id &&
+    existing.name === submitted.name &&
+    existing.grade === submitted.grade &&
+    existing.createdAt === submitted.createdAt
+  );
 }
 
 function resolveClimbHolds(
@@ -513,6 +599,53 @@ async function handleWallHolds(request: Request, db: D1Database) {
   return methodNotAllowed(["GET", "PUT"]);
 }
 
+async function handleProfiles(request: Request, db: D1Database) {
+  if (request.method !== "POST") return methodNotAllowed(["POST"]);
+
+  requireSameOrigin(request);
+  const name = parseProfileBody(
+    await readLimitedJson(request, MAX_PROFILE_BODY_BYTES),
+  );
+  const profile: Profile = {
+    id: crypto.randomUUID(),
+    name,
+    createdAt: Date.now(),
+  };
+
+  await db
+    .prepare("INSERT INTO profiles (id, name, created_at) VALUES (?, ?, ?)")
+    .bind(profile.id, profile.name, profile.createdAt)
+    .run();
+
+  return json({ profile }, 201);
+}
+
+async function handleProfileDetail(
+  request: Request,
+  db: D1Database,
+  encodedId: string,
+) {
+  if (request.method !== "GET") return methodNotAllowed(["GET"]);
+
+  let id: string;
+  try {
+    id = decodeURIComponent(encodedId);
+  } catch {
+    throw new ApiError("The user profile id is invalid.", 400);
+  }
+  if (!recordIdPattern.test(id)) {
+    throw new ApiError("The user profile id is invalid.", 400);
+  }
+
+  const row = await db
+    .prepare("SELECT id, name, created_at FROM profiles WHERE id = ?")
+    .bind(id)
+    .first<ProfileRow>();
+  if (!row) throw new ApiError("User profile not found.", 404);
+
+  return json({ profile: rowToProfile(row) });
+}
+
 async function handleClimbs(request: Request, db: D1Database) {
   if (request.method === "GET") {
     const [result, wallConfiguration] = await Promise.all([
@@ -533,14 +666,66 @@ async function handleClimbs(request: Request, db: D1Database) {
 
   if (request.method === "POST") {
     requireSameOrigin(request);
-    const { climb: parsedClimb, expectedWallUpdatedAt } = parseClimbWriteBody(
-      await readLimitedJson(request, MAX_CLIMB_BODY_BYTES),
-    );
+    const { climb: parsedClimb, expectedWallUpdatedAt, profileId } =
+      parseClimbWriteBody(
+        await readLimitedJson(request, MAX_CLIMB_BODY_BYTES),
+      );
+    const profile = await db
+      .prepare("SELECT id, name, created_at FROM profiles WHERE id = ?")
+      .bind(profileId)
+      .first<ProfileRow>();
+    if (!profile) {
+      throw new ApiError("Choose your user name again before saving.", 400);
+    }
+    const setter = rowToProfile(profile).name;
     const existing = await db
-      .prepare("SELECT id FROM climbs WHERE id = ?")
+      .prepare(
+        "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",
+      )
       .bind(parsedClimb.id)
-      .first<{ id: string }>();
-    if (existing) throw new ApiError("A climb with this id already exists.", 409);
+      .first<ClimbRow>();
+    if (existing) {
+      const existingClimb = rowToClimb(existing);
+      if (!isMatchingLegacyClimb(existingClimb, parsedClimb)) {
+        throw new ApiError("A climb with this id already exists.", 409);
+      }
+
+      let claimedHolds = existingClimb.holds;
+      const wallConfiguration = await loadWallConfiguration(db);
+      try {
+        claimedHolds = resolveClimbHolds(
+          existingClimb.holds,
+          parseStoredHolds(wallConfiguration.holds_json),
+        );
+      } catch (error) {
+        if (
+          !(error instanceof ApiError) ||
+          (error.status !== 400 && error.status !== 409)
+        ) {
+          throw error;
+        }
+        // Attribution can still succeed if an old coordinate-only climb no
+        // longer lines up with the current wall photo.
+      }
+
+      await db
+        .prepare(
+          "UPDATE climbs SET setter = ?, holds_json = ? WHERE id = ? AND setter = ?",
+        )
+        .bind(setter, JSON.stringify(claimedHolds), parsedClimb.id, "You")
+        .run();
+      const claimed = await db
+        .prepare(
+          "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",
+        )
+        .bind(parsedClimb.id)
+        .first<ClimbRow>();
+      if (!claimed || rowToClimb(claimed).setter !== setter) {
+        throw new ApiError("A climb with this id already exists.", 409);
+      }
+
+      return json({ climb: rowToClimb(claimed) });
+    }
 
     const wasDeleted = await db
       .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
@@ -560,6 +745,7 @@ async function handleClimbs(request: Request, db: D1Database) {
     const wallHolds = parseStoredHolds(wallConfiguration.holds_json);
     const climb: Climb = {
       ...parsedClimb,
+      setter,
       holds: resolveClimbHolds(parsedClimb.holds, wallHolds),
     };
 
@@ -680,7 +866,9 @@ export function isAppDataPath(pathname: string) {
   return (
     pathname === WALL_HOLDS_PATH ||
     pathname === CLIMBS_PATH ||
-    /^\/api\/climbs\/[^/]+$/.test(pathname)
+    pathname === PROFILES_PATH ||
+    /^\/api\/climbs\/[^/]+$/.test(pathname) ||
+    /^\/api\/profiles\/[^/]+$/.test(pathname)
   );
 }
 
@@ -694,7 +882,13 @@ export async function handleAppDataRequest(
     await ensureSchema(db);
     const pathname = new URL(request.url).pathname;
     if (pathname === WALL_HOLDS_PATH) return await handleWallHolds(request, db);
+    if (pathname === PROFILES_PATH) return await handleProfiles(request, db);
     if (pathname === CLIMBS_PATH) return await handleClimbs(request, db);
+
+    const profileMatch = /^\/api\/profiles\/([^/]+)$/.exec(pathname);
+    if (profileMatch) {
+      return await handleProfileDetail(request, db, profileMatch[1]);
+    }
 
     const detailMatch = /^\/api\/climbs\/([^/]+)$/.exec(pathname);
     if (detailMatch) return await handleClimbDetail(request, db, detailMatch[1]);

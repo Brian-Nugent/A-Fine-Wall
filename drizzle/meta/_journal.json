@@ -15,6 +15,13 @@
       "when": 1787613006575,
       "tag": "0001_fresh_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787625649475,
+      "tag": "0002_reflective_jack_power",
+      "breakpoints": true
     }
   ]
 }

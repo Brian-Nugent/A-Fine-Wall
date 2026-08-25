@@ -14,8 +14,14 @@ import {
   ClimbRequestError,
   saveClimb as saveClimbToApp,
 } from "../climbs/climb-api";
-import { readSavedClimbs } from "../climbs/saved-climbs";
+import {
+  attributeSavedClimb,
+  persistSavedClimbs,
+  readSavedClimbs,
+  type AttributedSavedClimb,
+} from "../climbs/saved-climbs";
 import WallPhoto from "../climbs/wall-photo";
+import { useActiveUser } from "../user-profile-provider";
 import {
   MAX_WALL_HOLD_SIZE,
   MIN_WALL_HOLD_SIZE,
@@ -58,7 +64,7 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-type BrowserClimb = ReturnType<typeof readSavedClimbs>[number];
+type BrowserClimb = AttributedSavedClimb;
 
 function isCompletedClimbMigration(error: unknown) {
   return (
@@ -74,7 +80,9 @@ async function climbsNeedingMigration(
   wallRevision: number,
 ) {
   const results = await Promise.allSettled(
-    climbs.map((climb) => saveClimbToApp(climb, wallRevision)),
+    climbs.map((climb) =>
+      saveClimbToApp(climb, wallRevision, climb.profileId),
+    ),
   );
 
   return climbs.filter((_, index) => {
@@ -87,6 +95,7 @@ async function climbsNeedingMigration(
 }
 
 export default function WallHoldsPage() {
+  const { profile } = useActiveUser();
   const wallMap = useRef<HTMLElement | null>(null);
   const activeDrag = useRef<HoldDrag | null>(null);
   const allowNavigation = useRef(false);
@@ -348,7 +357,7 @@ export default function WallHoldsPage() {
   }
 
   async function saveHoldMap() {
-    if (isLoading || loadFailed || isSaving) return;
+    if (!profile || isLoading || loadFailed || isSaving) return;
     if (
       holds.length === 0 &&
       !window.confirm(
@@ -364,7 +373,13 @@ export default function WallHoldsPage() {
     try {
       let browserClimbs: BrowserClimb[] = [];
       try {
-        browserClimbs = readSavedClimbs(window.localStorage);
+        const storedClimbs = readSavedClimbs(window.localStorage);
+        browserClimbs = storedClimbs.map((climb) =>
+          attributeSavedClimb(climb, profile),
+        );
+        if (browserClimbs.some((climb, index) => climb !== storedClimbs[index])) {
+          persistSavedClimbs(window.localStorage, browserClimbs);
+        }
       } catch {
         // Shared climbs already in the app remain the source of truth.
       }

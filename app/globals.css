@@ -71,6 +71,98 @@ select {
   line-height: 0.95;
 }
 
+.profile-gate {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100svh;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 2rem 1.25rem;
+  background: #ffffff;
+  overflow-y: auto;
+}
+
+.profile-app[aria-hidden="true"] {
+  visibility: hidden;
+}
+
+.profile-gate--loading {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.85rem;
+  text-align: center;
+}
+
+.profile-gate--loading h1,
+.profile-card h1 {
+  margin: 0;
+  font-size: clamp(2.3rem, 10vw, 4.5rem);
+  font-weight: 650;
+  letter-spacing: -0.06em;
+  line-height: 0.98;
+}
+
+.profile-gate--loading p,
+.profile-card > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.profile-card {
+  display: flex;
+  width: min(100%, 26rem);
+  margin-block: auto;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.profile-card .profile-kicker {
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 1.15rem;
+}
+
+.profile-form label {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.profile-form input {
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid #bdbdbd;
+  border-radius: 0.65rem;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.profile-form input::placeholder {
+  color: #929292;
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
 .primary-button {
   display: inline-flex;
   align-items: center;
@@ -111,6 +203,7 @@ select {
 .wall-hold-reload-button:focus-visible,
 .climb-reload-button:focus-visible,
 .delete-climb-button:focus-visible,
+.user-switch-button:focus-visible,
 .wall-hold-size-slider:focus-visible,
 .secondary-button:focus-visible,
 .text-button:focus-visible,
@@ -221,6 +314,35 @@ select:focus-visible {
   font-weight: 650;
   letter-spacing: -0.055em;
   line-height: 1;
+}
+
+.section-heading-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.user-switch-button {
+  overflow: hidden;
+  max-width: min(60vw, 18rem);
+  min-height: 2.75rem;
+  padding: 0.7rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.user-switch-button:hover {
+  border-color: var(--ink);
+  color: var(--ink);
 }
 
 .climb-list {
@@ -472,6 +594,10 @@ select:focus-visible {
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.55;
+}
+
+.finish-step .setter-attribution strong {
+  color: var(--ink);
 }
 
 .change-photo-link {

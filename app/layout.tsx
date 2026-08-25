@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import UserProfileProvider from "./user-profile-provider";
 import "./globals.css";
 
 const title = "A Fine Wall";
@@ -53,7 +54,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <UserProfileProvider>{children}</UserProfileProvider>
+      </body>
     </html>
   );
 }
