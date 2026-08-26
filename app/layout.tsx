@@ -17,11 +17,43 @@ export async function generateMetadata(): Promise<Metadata> {
     ?.trim();
   const protocol = forwardedProtocol || (host.startsWith("localhost") ? "http" : "https");
   const origin = new URL(`${protocol}://${host}`).origin;
-  const socialImage = `${origin}/og-climbs.png`;
+  const socialImage = `${origin}/a-fine-wall-icon.png`;
 
   return {
+    applicationName: title,
     title,
     description,
+    manifest: "/manifest.webmanifest",
+    icons: {
+      icon: [
+        {
+          url: "/a-fine-wall-icon-32.png",
+          sizes: "32x32",
+          type: "image/png",
+        },
+        {
+          url: "/a-fine-wall-icon-192.png",
+          sizes: "192x192",
+          type: "image/png",
+        },
+      ],
+      shortcut: "/a-fine-wall-icon-32.png",
+      apple: [
+        {
+          url: "/a-fine-wall-icon-180.png",
+          sizes: "180x180",
+          type: "image/png",
+        },
+      ],
+    },
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "default",
+      title,
+    },
+    other: {
+      "apple-mobile-web-app-capable": "yes",
+    },
     openGraph: {
       title,
       description,
@@ -29,14 +61,14 @@ export async function generateMetadata(): Promise<Metadata> {
       images: [
         {
           url: socialImage,
-          width: 1536,
-          height: 1024,
-          alt: "A Fine Wall",
+          width: 1254,
+          height: 1254,
+          alt: "A dog in front of the A Fine Wall climbing wall",
         },
       ],
     },
     twitter: {
-      card: "summary_large_image",
+      card: "summary",
       title,
       description,
       images: [socialImage],
@@ -45,7 +77,9 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
+  initialScale: 1,
   themeColor: "#ffffff",
+  width: "device-width",
 };
 
 export default async function RootLayout({

@@ -148,6 +148,8 @@ function createMemoryWallPhotoBucket() {
 
 function createMemoryAppDatabase() {
   let wallConfiguration = null;
+  let climbsTableExists = false;
+  let climbsHaveRockoApproval = false;
   const savedClimbs = new Map();
   const deletedClimbs = new Map();
   const savedProfiles = new Map();
@@ -191,6 +193,13 @@ function createMemoryAppDatabase() {
         return createStatement(sql, nextValues);
       },
       async all() {
+        if (normalized === "pragma table_info(climbs)") {
+          return {
+            results: climbsHaveRockoApproval
+              ? [{ name: "rocko_approved" }]
+              : [],
+          };
+        }
         if (normalized.includes("from climbs order by created_at desc")) {
           return {
             results: [...savedClimbs.values()].sort(
@@ -338,6 +347,7 @@ function createMemoryAppDatabase() {
             setter: values[3],
             created_at: values[4],
             holds_json: values[5],
+            rocko_approved: 0,
           });
           return { id: values[0] };
         }
@@ -357,7 +367,7 @@ function createMemoryAppDatabase() {
         if (
           normalized.startsWith("update climbs set name = ?") &&
           normalized.endsWith(
-            "returning id, name, grade, setter, created_at, holds_json",
+            "returning id, name, grade, setter, created_at, holds_json, rocko_approved",
           )
         ) {
           const climb = savedClimbs.get(values[3]);
@@ -371,6 +381,17 @@ function createMemoryAppDatabase() {
           climb.name = values[0];
           climb.grade = values[1];
           climb.holds_json = values[2];
+          return climb;
+        }
+        if (
+          normalized.startsWith("update climbs set rocko_approved = ?") &&
+          normalized.endsWith(
+            "returning id, name, grade, setter, created_at, holds_json, rocko_approved",
+          )
+        ) {
+          const climb = savedClimbs.get(values[1]);
+          if (!climb) return null;
+          climb.rocko_approved = values[0];
           return climb;
         }
         if (normalized.includes("from wall_configuration where id = ?")) {
@@ -430,10 +451,21 @@ function createMemoryAppDatabase() {
         throw new Error(`Unsupported first query: ${normalized}`);
       },
       async run() {
-        if (
-          normalized.startsWith("create table") ||
-          normalized.startsWith("create index")
-        ) {
+        if (normalized.startsWith("create table if not exists climbs")) {
+          if (!climbsTableExists) {
+            climbsTableExists = true;
+            climbsHaveRockoApproval = normalized.includes("rocko_approved");
+          }
+          return { success: true };
+        }
+        if (normalized.startsWith("create table") || normalized.startsWith("create index")) {
+          return { success: true };
+        }
+        if (normalized.startsWith("alter table climbs add column rocko_approved")) {
+          climbsHaveRockoApproval = true;
+          for (const climb of savedClimbs.values()) {
+            climb.rocko_approved = 0;
+          }
           return { success: true };
         }
         if (normalized.startsWith("insert or ignore into wall_configuration")) {
@@ -469,6 +501,7 @@ function createMemoryAppDatabase() {
             setter: values[3],
             created_at: values[4],
             holds_json: values[5],
+            rocko_approved: 0,
           });
           return { success: true };
         }
@@ -523,6 +556,7 @@ function createMemoryAppDatabase() {
       return Promise.all(statements.map((statement) => statement.run()));
     },
     seedClimb(climb) {
+      climbsTableExists = true;
       savedClimbs.set(climb.id, {
         id: climb.id,
         name: climb.name,
@@ -530,6 +564,7 @@ function createMemoryAppDatabase() {
         setter: climb.setter,
         created_at: climb.createdAt,
         holds_json: JSON.stringify(climb.holds),
+        rocko_approved: 0,
       });
     },
     seedProfile(profile) {
@@ -657,15 +692,42 @@ test("renders the climb filter controls and applies URL filters", async () => {
   let html = await response.text();
   assert.match(html, /href="\/climbs\/filter"/i);
   assert.match(html, />Filter<\/a>/i);
+  assert.match(html, /class="small-brand" href="\/climbs"/i);
+  assert.doesNotMatch(html, /aria-label="Clear all filters"/i);
 
   response = await render("/climbs?min=3&max=3");
   assert.equal(response.status, 200);
   html = await response.text();
   assert.match(html, /Loading climbs/);
+  assert.match(
+    html,
+    /class="small-brand" href="\/climbs\?min=3&amp;max=3"/i,
+  );
+  assert.match(
+    html,
+    /aria-label="Clear all filters"[^>]*href="\/climbs"/i,
+  );
+  assert.match(
+    html,
+    /class="filter-link" href="\/climbs\/filter\?min=3&amp;max=3"/i,
+  );
   assert.doesNotMatch(html, /First Light/);
   assert.doesNotMatch(html, /Barn Door Protocol/);
   assert.doesNotMatch(html, /Static Bloom/);
   assert.doesNotMatch(html, /Redline/);
+
+  const climbListSource = await readFile(
+    new URL("../app/climbs/climb-list-client.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(climbListSource, /onClick=\{reloadClimbList\}/);
+  assert.match(climbListSource, /window\.location\.reload\(\)/);
+  assert.match(climbListSource, /No climbs match these filters/);
+  assert.match(climbListSource, />\s*Clear Filters\s*</);
+  assert.doesNotMatch(
+    climbListSource,
+    /Try a wider grade range or remove a hold or author\./,
+  );
 
   response = await render("/climbs?hold=stable-hold");
   assert.equal(response.status, 200);
@@ -684,7 +746,11 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /Minimum community rating/);
   assert.match(html, /Most ascents/);
   assert.match(html, /Choose Holds/);
-  assert.match(html, /Author/);
+  assert.match(html, /<h2 id="order-filter-heading">Order<\/h2>/);
+  assert.match(html, /role="radiogroup"/);
+  assert.match(html, /<h2 id="author-filter-heading">Author<\/h2>/);
+  assert.match(html, /role="group"/);
+  assert.doesNotMatch(html, /<legend>(?:Order|Author)<\/legend>/);
   for (const fakeAuthor of ["Ben", "Maya", "Sam", "Lena", "Jordan"]) {
     assert.doesNotMatch(html, new RegExp(`>${fakeAuthor}<`));
   }
@@ -1244,6 +1310,13 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   assert.match(source, /foot: "make it a yellow foothold"/);
   assert.match(source, /isAdminUser\(profile\)/);
   assert.match(source, /canManageClimb\(profile, savedClimb\.setter\)/);
+  assert.match(source, /placeholder="e\.g\. 85 Degrees"/);
+  assert.doesNotMatch(source, /placeholder="e\.g\. Corner Pocket"/);
+  assert.match(source, /Please enter a name\./);
+  assert.match(source, /Please select a grade\./);
+  assert.match(source, /<form className="climb-form" noValidate/);
+  assert.match(source, /aria-invalid=\{nameError/);
+  assert.match(source, /aria-invalid=\{gradeError/);
   assert.doesNotMatch(source, /Yellow foothold hold/);
 });
 
@@ -1437,9 +1510,70 @@ test("limits the climb options menu to the setter and Admin", async () => {
   assert.match(source, /requestAnimationFrame/);
   assert.match(source, /canManageClimb\(profile, climb\.setter\)/);
   assert.match(source, /canManage \? \(/);
+  assert.match(source, /const canChangeApproval = isAdminUser\(profile\)/);
+  assert.match(source, /Give Rocko's Approval/);
+  assert.match(source, /Remove Rocko's Approval/);
+  assert.match(source, /setRockoApproval\(/);
   assert.match(source, /deleteClimb\(climbToDelete\.id, profile\.id\)/);
   assert.doesNotMatch(source, /className="climb-detail-actions"/);
   assert.doesNotMatch(source, /className="delete-climb-button"/);
+});
+
+test("shows Rocko approval on climb lists and in the requested detail rows", async () => {
+  const [listSource, savedDetailSource, demoDetailSource, css] =
+    await Promise.all([
+      readFile(
+        new URL("../app/climbs/climb-list-client.tsx", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL(
+          "../app/climbs/saved/saved-climb-detail.tsx",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+      readFile(
+        new URL("../app/climbs/[slug]/page.tsx", import.meta.url),
+        "utf8",
+      ),
+      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    ]);
+
+  assert.match(listSource, /climb\.rockoApproved \? \(/);
+  assert.match(listSource, /aria-label="Rocko Approved"/);
+  assert.match(listSource, /className="rocko-approved-icon"/);
+  assert.match(savedDetailSource, /className="rocko-approved-tag"/);
+  assert.match(savedDetailSource, />Rocko Approved</);
+  for (const source of [savedDetailSource, demoDetailSource]) {
+    assert.match(source, /className="detail-title-line"/);
+    assert.match(source, /className="detail-grade"/);
+    assert.match(source, /className="detail-meta-line"/);
+  }
+  const iconRule = css.match(/\.rocko-approved-icon\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(iconRule, /background:\s*transparent[^;]*\/rocko-approved\.png/);
+  assert.doesNotMatch(iconRule, /border(?:-radius)?:|box-shadow:/);
+  const tagRule = css.match(/\.rocko-approved-tag\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(tagRule, /border:\s*1px\s+solid\s+#d99f00/i);
+  assert.match(tagRule, /background:\s*rgba\(250,\s*187,\s*0,\s*0\.12\)/i);
+  assert.match(tagRule, /color:\s*#d99f00/i);
+  assert.match(tagRule, /white-space:\s*nowrap/);
+});
+
+test("allows long climb names to wrap without entering the grade column", async () => {
+  const css = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  const rowRule = css.match(/\.climb-row\s*\{([^}]*)\}/)?.[1] ?? "";
+  const nameRule =
+    css.match(/\.climb-name-text\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.match(rowRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
+  assert.match(nameRule, /flex:\s*1\s+1\s+auto/);
+  assert.match(nameRule, /overflow-wrap:\s*anywhere/);
+  assert.match(nameRule, /white-space:\s*normal/);
+  assert.doesNotMatch(nameRule, /text-overflow:\s*ellipsis/);
 });
 
 test("omits the visible color key from climb details", async () => {
@@ -2339,6 +2473,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(response.status, 201);
   const savedClimb = (await response.json()).climb;
   assert.equal(savedClimb.setter, "Alex Rivera");
+  assert.equal(savedClimb.rockoApproved, false);
   assert.equal(savedClimb.holds[0].holdId, "start-hold");
   assert.equal(savedClimb.holds[0].x, wallHolds[0].x);
   assert.equal(savedClimb.holds[1].role, "foot");
@@ -2356,6 +2491,137 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   );
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).climb, savedClimb);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb: {
+          ...climb,
+          id: "forged-rocko-approval",
+          rockoApproved: true,
+        },
+        expectedWallUpdatedAt: wallRevision,
+        profileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 400);
+
+  const approvalUrl =
+    "http://localhost/api/climbs/stable-route-one/rocko-approval";
+  response = await fetchAppData(
+    new Request(approvalUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId: adminProfileId }),
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request(approvalUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({ profileId, rockoApproved: true }),
+    }),
+  );
+  assert.equal(response.status, 403);
+
+  response = await fetchAppData(
+    new Request(approvalUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        profileId: "unknown-profile",
+        rockoApproved: true,
+      }),
+    }),
+  );
+  assert.equal(response.status, 400);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    response = await fetchAppData(
+      new Request(approvalUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({
+          profileId: adminProfileId,
+          rockoApproved: true,
+        }),
+      }),
+    );
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).climb.rockoApproved, true);
+  }
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one"),
+  );
+  assert.equal((await response.json()).climb.rockoApproved, true);
+
+  response = await fetchAppData(new Request("http://localhost/api/climbs"));
+  assert.equal(
+    (await response.json()).climbs.find((item) => item.id === climb.id)
+      ?.rockoApproved,
+    true,
+  );
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    response = await fetchAppData(
+      new Request(approvalUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({
+          profileId: adminProfileId,
+          rockoApproved: false,
+        }),
+      }),
+    );
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).climb.rockoApproved, false);
+  }
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one"),
+  );
+  assert.equal((await response.json()).climb.rockoApproved, false);
+
+  response = await fetchAppData(
+    new Request(approvalUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        profileId: adminProfileId,
+        rockoApproved: true,
+      }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).climb.rockoApproved, true);
+
+  response = await fetchAppData(new Request(approvalUrl));
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("allow"), "PUT");
 
   response = await fetchAppData(
     new Request("http://localhost/api/climbs", {
@@ -2639,6 +2905,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(updatedClimb.grade, climbUpdate.grade);
   assert.equal(updatedClimb.setter, savedClimb.setter);
   assert.equal(updatedClimb.createdAt, savedClimb.createdAt);
+  assert.equal(updatedClimb.rockoApproved, true);
   assert.equal(updatedClimb.holds[0].x, movedWallHolds[0].x);
   assert.equal(updatedClimb.holds[1].role, "foot");
 
@@ -2660,6 +2927,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   const adminUpdatedClimb = (await response.json()).climb;
   assert.equal(adminUpdatedClimb.name, "Admin Revised Route");
   assert.equal(adminUpdatedClimb.setter, "Alex Rivera");
+  assert.equal(adminUpdatedClimb.rockoApproved, true);
 
   response = await fetchAppData(
     new Request(`http://localhost/api/sends?profileId=${profileId}`),
@@ -2765,6 +3033,21 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.match((await response.json()).error, /deleted/i);
 
   response = await fetchAppData(
+    new Request(approvalUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        profileId: adminProfileId,
+        rockoApproved: true,
+      }),
+    }),
+  );
+  assert.equal(response.status, 410);
+
+  response = await fetchAppData(
     new Request("http://localhost/api/climbs"),
   );
   assert.equal(
@@ -2813,6 +3096,21 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   );
   assert.equal(response.status, 404);
 
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/not-found/rocko-approval", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        profileId: adminProfileId,
+        rockoApproved: true,
+      }),
+    }),
+  );
+  assert.equal(response.status, 404);
+
   response = await worker.fetch(
     new Request("http://localhost/api/climbs"),
     createEnvironment(),
@@ -2821,15 +3119,87 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(response.status, 503);
 });
 
-test("includes the wall and social preview image assets", async () => {
+test("includes the wall, app icon, and social preview image assets", async () => {
   for (const relativePath of [
     "../public/wall-prototype.png",
-    "../public/og-climbs.png",
+    "../public/a-fine-wall-icon.png",
   ]) {
     const asset = await stat(new URL(relativePath, import.meta.url));
     assert.ok(asset.isFile());
     assert.ok(asset.size > 100_000);
   }
+
+  for (const relativePath of [
+    "../public/a-fine-wall-icon-32.png",
+    "../public/a-fine-wall-icon-180.png",
+    "../public/a-fine-wall-icon-192.png",
+    "../public/a-fine-wall-icon-512.png",
+    "../public/rocko-approved.png",
+  ]) {
+    const asset = await stat(new URL(relativePath, import.meta.url));
+    assert.ok(asset.isFile());
+    assert.ok(asset.size > 1_000);
+  }
+
+  const rockoIcon = await readFile(
+    new URL("../public/rocko-approved.png", import.meta.url),
+  );
+  assert.equal(rockoIcon[25], 6, "Rocko icon must be an RGBA PNG");
+});
+
+test("configures a standalone home-screen app with the new icon", async () => {
+  const [layoutSource, manifestSource] = await Promise.all([
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../public/manifest.webmanifest", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  const manifest = JSON.parse(manifestSource);
+
+  assert.equal(manifest.name, "A Fine Wall");
+  assert.equal(manifest.id, "/");
+  assert.equal(manifest.start_url, "/climbs");
+  assert.equal(manifest.scope, "/");
+  assert.equal(manifest.display, "standalone");
+  assert.deepEqual(
+    manifest.icons.map(({ src, sizes, purpose }) => ({
+      src,
+      sizes,
+      purpose,
+    })),
+    [
+      {
+        src: "/a-fine-wall-icon-192.png",
+        sizes: "192x192",
+        purpose: "any",
+      },
+      {
+        src: "/a-fine-wall-icon-512.png",
+        sizes: "512x512",
+        purpose: "any",
+      },
+    ],
+  );
+
+  assert.match(layoutSource, /manifest:\s*"\/manifest\.webmanifest"/);
+  assert.match(layoutSource, /appleWebApp:\s*\{/);
+  assert.match(layoutSource, /"apple-mobile-web-app-capable":\s*"yes"/);
+  assert.match(layoutSource, /\/a-fine-wall-icon-180\.png/);
+  assert.match(layoutSource, /\/a-fine-wall-icon\.png/);
+  assert.match(layoutSource, /card:\s*"summary"/);
+
+  const response = await render("/set-climb");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /href="\/manifest\.webmanifest"/);
+  assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
+  assert.match(html, /rel="apple-touch-icon"/);
+  assert.match(html, /href="\/a-fine-wall-icon-180\.png"/);
+  assert.match(
+    html,
+    /content="http:\/\/localhost(?::3000)?\/a-fine-wall-icon\.png"/,
+  );
 });
 
 test("cleanup migration removes only retired prototype send activity", async () => {
@@ -2865,6 +3235,19 @@ test("case-insensitive username migration preserves profiles and merges aliases"
   assert.match(migration, /CREATE INDEX `idx_profiles_name_nocase`/);
   assert.doesNotMatch(migration, /CREATE UNIQUE INDEX/);
   assert.doesNotMatch(migration, /DELETE FROM `profiles`/);
+});
+
+test("adds Rocko approval without replacing or deleting existing climbs", async () => {
+  const migration = await readFile(
+    new URL("../drizzle/0006_peaceful_mercury.sql", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    migration,
+    /ALTER TABLE `climbs` ADD `rocko_approved` integer DEFAULT false NOT NULL/,
+  );
+  assert.doesNotMatch(migration, /DROP TABLE|DELETE FROM|CREATE TABLE/);
 });
 
 test("shows only clean colored circles for selected route holds", async () => {
@@ -3051,6 +3434,16 @@ test("safely parses and stores device-local climbs", () => {
   assert.deepEqual(parseSavedClimbs(JSON.stringify([climb, { broken: true }])), [
     climb,
   ]);
+  const approvedClimb = { ...climb, rockoApproved: true };
+  assert.deepEqual(parseSavedClimbs(JSON.stringify([approvedClimb])), [
+    approvedClimb,
+  ]);
+  assert.deepEqual(
+    parseSavedClimbs(
+      JSON.stringify([{ ...climb, rockoApproved: "true" }]),
+    ),
+    [],
+  );
   const legacyClimb = {
     ...climb,
     id: "legacy-climb",

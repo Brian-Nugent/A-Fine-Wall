@@ -47,11 +47,13 @@ export default async function ClimbPage({
 
       <section aria-labelledby="climb-name">
         <div className="detail-title">
-          <div>
+          <div className="detail-title-line">
             <h1 id="climb-name">{climb.name}</h1>
+            <strong className="detail-grade">{climb.grade}</strong>
+          </div>
+          <div className="detail-meta-line">
             <p>Set by {climb.setter}</p>
           </div>
-          <strong>{climb.grade}</strong>
         </div>
 
         <figure className="wall-map wall-map--route">

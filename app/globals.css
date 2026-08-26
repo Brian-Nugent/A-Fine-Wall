@@ -181,6 +181,7 @@ select {
 .secondary-button:focus-visible,
 .text-button:focus-visible,
 .compact-primary-button:focus-visible,
+.filter-clear-link:focus-visible,
 .filter-link:focus-visible,
 .filter-hold-link:focus-visible,
 .hold-choice:focus-visible,
@@ -307,32 +308,55 @@ select:focus-visible {
   gap: 0.55rem;
 }
 
-.filter-link {
+.filter-pill {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
+  align-items: stretch;
   min-height: 2.75rem;
-  padding: 0.55rem 0.9rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #ffffff;
-  font-size: 0.8rem;
-  font-weight: 700;
   transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
 }
 
-.filter-link:hover {
+.filter-pill:hover {
   border-color: var(--ink);
 }
 
-.filter-link--active {
+.filter-pill--active {
   border-color: var(--ink);
   background: var(--ink);
   color: #ffffff;
 }
 
-.filter-link > span {
+.filter-link,
+.filter-clear-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.filter-link {
+  gap: 0.45rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.filter-clear-link {
+  width: 2.75rem;
+  min-height: 2.75rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px 0 0 999px;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.filter-clear-link:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.filter-link-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -421,10 +445,18 @@ select:focus-visible {
 }
 
 .climb-name-text {
-  overflow: hidden;
+  flex: 1 1 auto;
   min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.rocko-approved-icon {
+  display: inline-block;
+  width: 1.65rem;
+  height: 1.65rem;
+  background: transparent url("/rocko-approved.png") center / contain no-repeat;
+  flex: 0 0 auto;
 }
 
 .sent-check {
@@ -609,8 +641,8 @@ select:focus-visible {
 }
 
 .filter-section h2,
-.filter-author-section legend,
-.filter-order-section legend {
+.filter-author-section h2,
+.filter-order-section h2 {
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -704,10 +736,6 @@ select:focus-visible {
   max-width: 12rem;
 }
 
-.filter-order-section legend {
-  padding: 0;
-}
-
 .filter-order-choices {
   border-top: 1px solid var(--line);
 }
@@ -740,10 +768,6 @@ select:focus-visible {
   padding-bottom: 1.75rem;
 }
 
-.filter-author-section legend {
-  padding: 0;
-}
-
 .filter-author-list {
   border-top: 1px solid var(--line);
 }
@@ -772,11 +796,29 @@ select:focus-visible {
 }
 
 .filter-toolbar {
+  flex-wrap: wrap;
   gap: 1rem;
 }
 
+.filter-toolbar .selection-status {
+  min-width: 0;
+  flex: 1 1 9rem;
+}
+
+.filter-toolbar .selection-status span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filter-toolbar .set-toolbar-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .filter-apply-button {
+  flex: 0 0 auto;
   min-width: 6.75rem;
+  white-space: nowrap;
 }
 
 .filter-hold-page {
@@ -827,27 +869,49 @@ select:focus-visible {
 
 .detail-title {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.55rem;
   padding: 1.75rem 1.25rem 1.2rem;
 }
 
-.detail-title > div {
+.detail-title-line,
+.detail-meta-line {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 0.55rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.detail-title-line {
+  align-items: baseline;
 }
 
 .detail-title h1 {
+  min-width: 0;
   font-size: clamp(1.8rem, 7vw, 2.5rem);
+  overflow-wrap: anywhere;
 }
 
-.detail-title > strong {
+.detail-grade {
   flex: 0 0 auto;
-  padding-bottom: 0.15rem;
   font-size: 1.2rem;
+}
+
+.rocko-approved-tag {
+  display: inline-flex;
+  min-height: 1.75rem;
+  align-items: center;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid #d99f00;
+  border-radius: 999px;
+  background: rgba(250, 187, 0, 0.12);
+  color: #d99f00;
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .wall-map {
@@ -969,7 +1033,12 @@ select:focus-visible {
 
 .climb-options-button:hover,
 .climb-options-button[aria-expanded="true"] {
-  background: var(--soft);
+  background: var(--surface);
+}
+
+.climb-options-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .climb-options-popover {
@@ -1005,7 +1074,7 @@ select:focus-visible {
 }
 
 .climb-option:hover {
-  background: var(--soft);
+  background: var(--surface);
 }
 
 .climb-option--delete {
@@ -1874,6 +1943,7 @@ select:focus-visible {
   .primary-button,
   .climb-row,
   .filter-link,
+  .filter-clear-link,
   .filter-hold-link,
   .star-rating-label,
   .set-climb-link,

@@ -49,6 +49,7 @@ type Climb = {
   setter: string;
   createdAt: number;
   holds: ClimbHold[];
+  rockoApproved: boolean;
 };
 
 type Profile = {
@@ -75,6 +76,11 @@ type ClimbRow = {
   setter: string;
   created_at: number;
   holds_json: string;
+  rocko_approved: number;
+};
+
+type TableInfoRow = {
+  name: string;
 };
 
 type SendAggregateRow = {
@@ -331,6 +337,7 @@ function parseClimbBody(value: unknown): Climb {
     setter,
     createdAt,
     holds,
+    rockoApproved: false,
   };
 }
 
@@ -383,6 +390,26 @@ function parseClimbDeleteBody(value: unknown) {
   }
 
   return { profileId: value.profileId };
+}
+
+function parseRockoApprovalBody(value: unknown) {
+  if (
+    !isPlainObject(value) ||
+    !hasOnlyKeys(value, ["profileId", "rockoApproved"]) ||
+    typeof value.profileId !== "string" ||
+    !recordIdPattern.test(value.profileId) ||
+    typeof value.rockoApproved !== "boolean"
+  ) {
+    throw new ApiError(
+      "Choose your user name before changing Rocko's approval.",
+      400,
+    );
+  }
+
+  return {
+    profileId: value.profileId,
+    rockoApproved: value.rockoApproved,
+  };
 }
 
 function parseClimbWriteBody(value: unknown) {
@@ -493,6 +520,29 @@ function requireSameOrigin(request: Request) {
   }
 }
 
+async function ensureClimbApprovalColumn(db: D1Database) {
+  const hasApprovalColumn = async () => {
+    const result = await db
+      .prepare("PRAGMA table_info(climbs)")
+      .all<TableInfoRow>();
+    return result.results.some((column) => column.name === "rocko_approved");
+  };
+
+  if (await hasApprovalColumn()) return;
+
+  try {
+    await db
+      .prepare(
+        "ALTER TABLE climbs ADD COLUMN rocko_approved INTEGER NOT NULL DEFAULT 0",
+      )
+      .run();
+  } catch (error) {
+    // Two requests can observe the old schema at once. Only ignore a failed
+    // ALTER when the other request successfully installed the column.
+    if (!(await hasApprovalColumn())) throw error;
+  }
+}
+
 async function ensureSchema(db: D1Database) {
   await db.batch([
     db.prepare(`
@@ -516,7 +566,8 @@ async function ensureSchema(db: D1Database) {
         grade TEXT NOT NULL,
         setter TEXT NOT NULL,
         created_at INTEGER NOT NULL,
-        holds_json TEXT NOT NULL
+        holds_json TEXT NOT NULL,
+        rocko_approved INTEGER NOT NULL DEFAULT 0
       )
     `),
     db.prepare(`
@@ -553,6 +604,7 @@ async function ensureSchema(db: D1Database) {
       VALUES (?, ?, ?)
     `).bind(WALL_CONFIGURATION_ID, "[]", 0),
   ]);
+  await ensureClimbApprovalColumn(db);
 }
 
 function rowToProfile(row: ProfileRow): Profile {
@@ -617,15 +669,21 @@ function parseStoredHolds(raw: string): WallHold[] {
 
 function rowToClimb(row: ClimbRow): Climb {
   try {
+    if (row.rocko_approved !== 0 && row.rocko_approved !== 1) {
+      throw new Error("Invalid Rocko approval value.");
+    }
     const holds: unknown = JSON.parse(row.holds_json);
-    return parseClimbBody({
-      id: row.id,
-      name: row.name,
-      grade: row.grade,
-      setter: row.setter,
-      createdAt: row.created_at,
-      holds,
-    });
+    return {
+      ...parseClimbBody({
+        id: row.id,
+        name: row.name,
+        grade: row.grade,
+        setter: row.setter,
+        createdAt: row.created_at,
+        holds,
+      }),
+      rockoApproved: row.rocko_approved === 1,
+    };
   } catch {
     throw new ApiError("A saved climb is invalid.", 500);
   }
@@ -1031,7 +1089,7 @@ async function handleClimbs(request: Request, db: D1Database) {
     const [result, wallConfiguration] = await Promise.all([
       db
         .prepare(
-          "SELECT id, name, grade, setter, created_at, holds_json FROM climbs ORDER BY created_at DESC, id ASC",
+          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs ORDER BY created_at DESC, id ASC",
         )
         .all<ClimbRow>(),
       loadWallConfiguration(db),
@@ -1057,7 +1115,7 @@ async function handleClimbs(request: Request, db: D1Database) {
     const setter = profile.name;
     const existing = await db
       .prepare(
-        "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",
+        "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs WHERE id = ?",
       )
       .bind(parsedClimb.id)
       .first<ClimbRow>();
@@ -1093,7 +1151,7 @@ async function handleClimbs(request: Request, db: D1Database) {
         .run();
       const claimed = await db
         .prepare(
-          "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",
+          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs WHERE id = ?",
         )
         .bind(parsedClimb.id)
         .first<ClimbRow>();
@@ -1183,6 +1241,64 @@ async function handleClimbs(request: Request, db: D1Database) {
   return methodNotAllowed(["GET", "POST"]);
 }
 
+async function handleRockoApproval(
+  request: Request,
+  db: D1Database,
+  encodedId: string,
+) {
+  if (request.method !== "PUT") return methodNotAllowed(["PUT"]);
+
+  let id: string;
+  try {
+    id = decodeURIComponent(encodedId);
+  } catch {
+    throw new ApiError("The climb id is invalid.", 400);
+  }
+  if (!recordIdPattern.test(id)) {
+    throw new ApiError("The climb id is invalid.", 400);
+  }
+
+  requireSameOrigin(request);
+  const { profileId, rockoApproved } = parseRockoApprovalBody(
+    await readLimitedJson(request, MAX_PROFILE_BODY_BYTES),
+  );
+  const profile = await loadCanonicalProfile(db, profileId);
+  if (!profile) {
+    throw new ApiError(
+      "Choose your user name again before changing Rocko's approval.",
+      400,
+    );
+  }
+  if (!isAdminUserName(profile.name)) {
+    throw new ApiError("Only Admin can change Rocko's approval.", 403);
+  }
+
+  const updated = await db
+    .prepare(
+      `UPDATE climbs
+       SET rocko_approved = ?
+       WHERE id = ?
+       RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved`,
+    )
+    .bind(rockoApproved ? 1 : 0, id)
+    .first<ClimbRow>();
+  if (!updated) {
+    const wasDeleted = await db
+      .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+      .bind(id)
+      .first<{ id: string }>();
+    if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
+    throw new ApiError("Climb not found.", 404);
+  }
+
+  const wallHolds = parseStoredHolds(
+    (await loadWallConfiguration(db)).holds_json,
+  );
+  return json({
+    climb: resolveClimbForRead(rowToClimb(updated), wallHolds),
+  });
+}
+
 async function handleClimbDetail(
   request: Request,
   db: D1Database,
@@ -1212,7 +1328,7 @@ async function handleClimbDetail(
 
   const row = await db
     .prepare(
-      "SELECT id, name, grade, setter, created_at, holds_json FROM climbs WHERE id = ?",
+      "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs WHERE id = ?",
     )
     .bind(id)
     .first<ClimbRow>();
@@ -1284,7 +1400,7 @@ async function handleClimbDetail(
            AND EXISTS (
              SELECT 1 FROM wall_configuration WHERE id = ? AND updated_at = ?
            )
-         RETURNING id, name, grade, setter, created_at, holds_json`,
+         RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved`,
       )
       .bind(
         changes.name,
@@ -1322,6 +1438,7 @@ export function isAppDataPath(pathname: string) {
     pathname === CLIMBS_PATH ||
     pathname === PROFILES_PATH ||
     pathname === SENDS_PATH ||
+    /^\/api\/climbs\/[^/]+\/rocko-approval$/.test(pathname) ||
     /^\/api\/climbs\/[^/]+$/.test(pathname) ||
     /^\/api\/profiles\/[^/]+$/.test(pathname)
   );
@@ -1344,6 +1461,12 @@ export async function handleAppDataRequest(
     const profileMatch = /^\/api\/profiles\/([^/]+)$/.exec(pathname);
     if (profileMatch) {
       return await handleProfileDetail(request, db, profileMatch[1]);
+    }
+
+    const approvalMatch =
+      /^\/api\/climbs\/([^/]+)\/rocko-approval$/.exec(pathname);
+    if (approvalMatch) {
+      return await handleRockoApproval(request, db, approvalMatch[1]);
     }
 
     const detailMatch = /^\/api\/climbs\/([^/]+)$/.exec(pathname);

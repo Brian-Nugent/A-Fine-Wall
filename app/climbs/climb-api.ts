@@ -56,8 +56,14 @@ export async function saveClimb(
   expectedWallUpdatedAt: number,
   profileId: string,
 ) {
-  const climbPayload = { ...climb };
-  delete climbPayload.profileId;
+  const climbPayload = {
+    id: climb.id,
+    name: climb.name,
+    grade: climb.grade,
+    setter: climb.setter,
+    createdAt: climb.createdAt,
+    holds: climb.holds,
+  };
   const response = await fetch(CLIMBS_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -136,4 +142,33 @@ export async function deleteClimb(id: string, profileId: string) {
         : "This climb could not be deleted.";
     throw new ClimbRequestError(message, response.status);
   }
+}
+
+export async function setRockoApproval(
+  id: string,
+  profileId: string,
+  rockoApproved: boolean,
+) {
+  const response = await fetch(
+    `${CLIMBS_ENDPOINT}/${encodeURIComponent(id)}/rocko-approval`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId, rockoApproved }),
+    },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload
+        ? String((payload as { error?: unknown }).error)
+        : "Rocko's approval could not be changed.";
+    throw new ClimbRequestError(message, response.status);
+  }
+
+  if (!isClimbPayload(payload)) {
+    throw new Error("Rocko's approval could not be changed.");
+  }
+  return payload.climb;
 }

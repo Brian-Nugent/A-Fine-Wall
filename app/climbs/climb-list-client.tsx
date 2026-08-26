@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import {
   climbActivityKey,
   formatAverageRating,
@@ -34,7 +38,10 @@ function ClimbRow({
 }: {
   activity: ClimbActivity | null;
   activityStatus: "loading" | "ready" | "error";
-  climb: Pick<SavedClimb, "name" | "grade" | "setter">;
+  climb: Pick<
+    SavedClimb,
+    "name" | "grade" | "setter" | "rockoApproved"
+  >;
   href: string;
   onOpen(): void;
 }) {
@@ -70,6 +77,14 @@ function ClimbRow({
         <span className="climb-row-copy">
           <strong>
             <span className="climb-name-text">{climb.name}</span>
+            {climb.rockoApproved ? (
+              <span
+                aria-label="Rocko Approved"
+                className="rocko-approved-icon"
+                role="img"
+                title="Rocko Approved"
+              />
+            ) : null}
             {activity?.userRating ? (
               <span
                 aria-label="Sent by you"
@@ -253,10 +268,29 @@ export default function ClimbListClient({
     );
   }
 
+  function reloadClimbList(event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    window.location.reload();
+  }
+
   return (
     <main className="app-page">
       <header className="list-header">
-        <a className="small-brand" href="/">
+        <a
+          className="small-brand"
+          href={buildFilteredHref("/climbs", initialFilters)}
+          onClick={reloadClimbList}
+        >
           A Fine Wall
         </a>
         <div className="list-header-actions">
@@ -295,17 +329,34 @@ export default function ClimbListClient({
                 ? `${visibleClimbs} of ${totalClimbs} climbs`
                 : `${totalClimbs} climbs`}
             </p>
-            <a
-              className={`filter-link${activeFilterCount > 0 ? " filter-link--active" : ""}`}
-              href={buildFilteredHref("/climbs/filter", initialFilters)}
+            <div
+              className={`filter-pill${activeFilterCount > 0 ? " filter-pill--active" : ""}`}
             >
-              Filter
               {activeFilterCount > 0 ? (
-                <span aria-label={`${activeFilterCount} active filter groups`}>
-                  {activeFilterCount}
-                </span>
+                <a
+                  aria-label="Clear all filters"
+                  className="filter-clear-link"
+                  href="/climbs"
+                  title="Clear all filters"
+                >
+                  <span aria-hidden="true">&times;</span>
+                </a>
               ) : null}
-            </a>
+              <a
+                className="filter-link"
+                href={buildFilteredHref("/climbs/filter", initialFilters)}
+              >
+                Filter
+                {activeFilterCount > 0 ? (
+                  <span
+                    aria-label={`${activeFilterCount} active filter groups`}
+                    className="filter-link-count"
+                  >
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </a>
+            </div>
           </div>
         </div>
 
@@ -354,7 +405,6 @@ export default function ClimbListClient({
         ) : listState === "filtered-empty" ? (
           <div className="climb-filter-empty">
             <h2>No climbs match these filters</h2>
-            <p>Try a wider grade range or remove a hold or author.</p>
             <a className="secondary-button" href="/climbs">
               Clear Filters
             </a>

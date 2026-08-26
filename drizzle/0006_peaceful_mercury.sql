@@ -1,0 +1,1 @@
+ALTER TABLE `climbs` ADD `rocko_approved` integer DEFAULT false NOT NULL;

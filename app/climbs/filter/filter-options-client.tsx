@@ -294,9 +294,16 @@ export default function FilterOptionsClient({
         </label>
       </section>
 
-      <fieldset className="filter-section filter-order-section">
-        <legend>Order</legend>
-        <div className="filter-order-choices">
+      <section
+        aria-labelledby="order-filter-heading"
+        className="filter-section filter-order-section"
+      >
+        <h2 id="order-filter-heading">Order</h2>
+        <div
+          aria-labelledby="order-filter-heading"
+          className="filter-order-choices"
+          role="radiogroup"
+        >
           <label className="filter-radio-choice">
             <input
               checked={order === "newest"}
@@ -316,7 +323,7 @@ export default function FilterOptionsClient({
             <span>Most ascents</span>
           </label>
         </div>
-      </fieldset>
+      </section>
 
       <section className="filter-section" aria-labelledby="hold-filter-heading">
         <div className="filter-section-heading">
@@ -348,10 +355,17 @@ export default function FilterOptionsClient({
         <p className="filter-help">Matching climbs must use every selected hold.</p>
       </section>
 
-      <fieldset className="filter-section filter-author-section">
-        <legend>Author</legend>
+      <section
+        aria-labelledby="author-filter-heading"
+        className="filter-section filter-author-section"
+      >
+        <h2 id="author-filter-heading">Author</h2>
         <p className="filter-help">No selection includes every author.</p>
-        <div className="filter-author-list">
+        <div
+          aria-labelledby="author-filter-heading"
+          className="filter-author-list"
+          role="group"
+        >
           {authorOptions.map((author) => (
             <label className="filter-author-choice" key={author}>
               <input
@@ -363,7 +377,7 @@ export default function FilterOptionsClient({
             </label>
           ))}
         </div>
-      </fieldset>
+      </section>
 
       <div className="set-toolbar filter-toolbar">
         <div className="selection-status">

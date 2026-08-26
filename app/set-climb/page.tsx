@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -124,9 +125,13 @@ export default function SetClimbPage() {
   const [selectedHolds, setSelectedHolds] = useState<DraftHold[]>([]);
   const [name, setName] = useState("");
   const [grade, setGrade] = useState("");
+  const [nameError, setNameError] = useState("");
+  const [gradeError, setGradeError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [hasSaveConflict, setHasSaveConflict] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const gradeSelectRef = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -262,11 +267,23 @@ export default function SetClimbPage() {
     setHasSaveConflict(false);
 
     const trimmedName = name.trim();
+    const nextNameError = trimmedName ? "" : "Please enter a name.";
+    const nextGradeError = grade ? "" : "Please select a grade.";
+    setNameError(nextNameError);
+    setGradeError(nextGradeError);
+
+    if (nextNameError || nextGradeError) {
+      if (nextNameError) {
+        nameInputRef.current?.focus();
+      } else {
+        gradeSelectRef.current?.focus();
+      }
+      return;
+    }
+
     if (
       !profile ||
       (editingClimb && !canManageClimb(profile, editingClimb.setter)) ||
-      !trimmedName ||
-      !grade ||
       !canFinish ||
       wallRevision === null
     ) {
@@ -529,23 +546,40 @@ export default function SetClimbPage() {
             <strong>{editingClimb?.setter ?? profile?.name ?? "your user"}</strong>
           </p>
 
-          <form className="climb-form" onSubmit={saveClimb}>
+          <form className="climb-form" noValidate onSubmit={saveClimb}>
             <label htmlFor="climb-name-input">Name</label>
             <input
+              aria-describedby={nameError ? "climb-name-error" : undefined}
+              aria-invalid={nameError ? "true" : undefined}
               autoComplete="off"
               id="climb-name-input"
               maxLength={50}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Corner Pocket"
+              onChange={(event) => {
+                setName(event.target.value);
+                if (nameError) setNameError("");
+              }}
+              placeholder="e.g. 85 Degrees"
+              ref={nameInputRef}
               required
               type="text"
               value={name}
             />
+            {nameError ? (
+              <p className="form-error" id="climb-name-error" role="alert">
+                {nameError}
+              </p>
+            ) : null}
 
             <label htmlFor="climb-grade-select">Grade</label>
             <select
+              aria-describedby={gradeError ? "climb-grade-error" : undefined}
+              aria-invalid={gradeError ? "true" : undefined}
               id="climb-grade-select"
-              onChange={(event) => setGrade(event.target.value)}
+              onChange={(event) => {
+                setGrade(event.target.value);
+                if (gradeError) setGradeError("");
+              }}
+              ref={gradeSelectRef}
               required
               value={grade}
             >
@@ -556,6 +590,11 @@ export default function SetClimbPage() {
                 </option>
               ))}
             </select>
+            {gradeError ? (
+              <p className="form-error" id="climb-grade-error" role="alert">
+                {gradeError}
+              </p>
+            ) : null}
 
             {saveError ? (
               <div className="form-error climb-save-error" role="alert">

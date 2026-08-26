@@ -35,6 +35,7 @@ export type SavedClimb = {
   profileId?: string;
   createdAt: number;
   holds: SavedHold[];
+  rockoApproved?: boolean;
 };
 
 export type AttributedSavedClimb = SavedClimb & {
@@ -119,6 +120,8 @@ function isSavedClimb(value: unknown): value is SavedClimb {
     isClimbGrade(climb.grade) &&
     isStoredSetterName(climb.setter) &&
     (climb.profileId === undefined || isStoredProfileId(climb.profileId)) &&
+    (climb.rockoApproved === undefined ||
+      typeof climb.rockoApproved === "boolean") &&
     isFiniteNumber(climb.createdAt) &&
     Array.isArray(climb.holds) &&
     climb.holds.length >= 2

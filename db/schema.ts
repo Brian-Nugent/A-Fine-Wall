@@ -37,6 +37,9 @@ export const climbs = sqliteTable(
     setter: text("setter").notNull(),
     createdAt: integer("created_at").notNull(),
     holdsJson: text("holds_json").notNull(),
+    rockoApproved: integer("rocko_approved", { mode: "boolean" })
+      .notNull()
+      .default(false),
   },
   (table) => [index("idx_climbs_created_at").on(table.createdAt)],
 );

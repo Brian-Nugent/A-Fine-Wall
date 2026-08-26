@@ -15,6 +15,7 @@ import {
   ClimbRequestError,
   deleteClimb,
   loadClimb,
+  setRockoApproval,
 } from "../climb-api";
 import {
   climbActivityKey,
@@ -24,6 +25,7 @@ import {
 import {
   readSavedClimbs,
   removeSavedClimb,
+  persistSavedClimbs,
   type SavedClimb,
 } from "../saved-climbs";
 import {
@@ -54,7 +56,7 @@ import {
   type SwipeIntent,
   updateSwipeIntent,
 } from "../swipe-gesture";
-import { canManageClimb } from "../../user-access";
+import { canManageClimb, isAdminUser } from "../../user-access";
 import { useActiveUser } from "../../user-profile-provider";
 
 type ClimbNavigationTarget = {
@@ -198,13 +200,21 @@ function DetailShell({
 }
 
 function ClimbOptions({
+  canChangeApproval,
   editHref,
+  isApproving,
   isDeleting,
+  onChangeApproval,
   onDelete,
+  rockoApproved,
 }: {
+  canChangeApproval: boolean;
   editHref: string;
+  isApproving: boolean;
   isDeleting: boolean;
+  onChangeApproval(rockoApproved: boolean): void;
   onDelete(): void;
+  rockoApproved: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -237,6 +247,14 @@ function ClimbOptions({
     };
   }, [isOpen]);
 
+  const approvalActionLabel = isApproving
+    ? rockoApproved
+      ? "Removing Rocko's Approval…"
+      : "Giving Rocko's Approval…"
+    : rockoApproved
+      ? "Remove Rocko's Approval"
+      : "Give Rocko's Approval";
+
   return (
     <div className="climb-options" ref={containerRef}>
       <button
@@ -244,6 +262,7 @@ function ClimbOptions({
         aria-expanded={isOpen}
         aria-label="Climb options"
         className="climb-options-button"
+        disabled={isApproving || isDeleting}
         onClick={() => setIsOpen((current) => !current)}
         ref={buttonRef}
         type="button"
@@ -252,12 +271,25 @@ function ClimbOptions({
       </button>
       {isOpen ? (
         <div className="climb-options-popover" id={popoverId}>
+          {canChangeApproval ? (
+            <button
+              className="climb-option"
+              disabled={isApproving || isDeleting}
+              onClick={() => {
+                setIsOpen(false);
+                onChangeApproval(!rockoApproved);
+              }}
+              type="button"
+            >
+              {approvalActionLabel}
+            </button>
+          ) : null}
           <a className="climb-option" href={editHref}>
             Edit climb
           </a>
           <button
             className="climb-option climb-option--delete"
-            disabled={isDeleting}
+            disabled={isApproving || isDeleting}
             onClick={() => {
               setIsOpen(false);
               onDelete();
@@ -295,7 +327,8 @@ export default function SavedClimbDetail({
     profileId: null,
   });
   const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
+  const [isApproving, setIsApproving] = useState(false);
+  const [actionError, setActionError] = useState("");
   const activeClimbIdRef = useRef(climbId);
   const climbCacheRef = useRef<Map<string, SavedClimb | null>>(
     new Map(initialClimb ? [[climbId, initialClimb]] : []),
@@ -543,7 +576,8 @@ export default function SavedClimbDetail({
     if (
       target.reference.climbId === activeClimbIdRef.current ||
       isSwipeNavigatingRef.current ||
-      isDeleting
+      isDeleting ||
+      isApproving
     ) {
       return;
     }
@@ -572,8 +606,9 @@ export default function SavedClimbDetail({
       activeClimbIdRef.current = nextClimb.id;
       setActiveClimbId(nextClimb.id);
       setClimb(nextClimb);
-      setDeleteError("");
+      setActionError("");
       setIsDeleting(false);
+      setIsApproving(false);
     } catch {
       if (transitionTokenRef.current !== transitionToken) return;
       window.location.assign(target.href);
@@ -584,12 +619,13 @@ export default function SavedClimbDetail({
     }
   }, [
     ensureClimbCached,
+    isApproving,
     isDeleting,
     removeUnavailableClimbFromNavigation,
   ]);
 
   function startSwipe(event: ReactTouchEvent<HTMLElement>) {
-    if (isSwipeNavigatingRef.current || isDeleting) return;
+    if (isSwipeNavigatingRef.current || isDeleting || isApproving) return;
     if (
       event.touches.length !== 1 ||
       (window.visualViewport?.scale ?? 1) > 1.01
@@ -666,6 +702,7 @@ export default function SavedClimbDetail({
       event.button !== 0 ||
       isSwipeNavigatingRef.current ||
       isDeleting ||
+      isApproving ||
       (window.visualViewport?.scale ?? 1) > 1.01
     ) return;
 
@@ -716,7 +753,7 @@ export default function SavedClimbDetail({
 
   async function handleDeleteClimb(climbToDelete: SavedClimb) {
     if (!profile || !canManageClimb(profile, climbToDelete.setter)) {
-      setDeleteError("You can only delete climbs you set.");
+      setActionError("You can only delete climbs you set.");
       return;
     }
 
@@ -729,7 +766,7 @@ export default function SavedClimbDetail({
     }
 
     setIsDeleting(true);
-    setDeleteError("");
+    setActionError("");
     try {
       await deleteClimb(climbToDelete.id, profile.id);
       try {
@@ -740,12 +777,62 @@ export default function SavedClimbDetail({
       clearSessionClimbNavigationSnapshot(window);
       window.location.replace(backHref);
     } catch (error) {
-      setDeleteError(
+      setActionError(
         error instanceof Error
           ? error.message
           : "This climb could not be deleted. Please try again.",
       );
       setIsDeleting(false);
+    }
+  }
+
+  async function handleSetRockoApproval(
+    climbToUpdate: SavedClimb,
+    rockoApproved: boolean,
+  ) {
+    if (!profile || !isAdminUser(profile)) {
+      setActionError("Only Admin can change Rocko's approval.");
+      return;
+    }
+
+    setIsApproving(true);
+    setActionError("");
+    try {
+      const updatedClimb = await setRockoApproval(
+        climbToUpdate.id,
+        profile.id,
+        rockoApproved,
+      );
+      climbCacheRef.current.set(updatedClimb.id, updatedClimb);
+      if (activeClimbIdRef.current === updatedClimb.id) {
+        setClimb(updatedClimb);
+      }
+      try {
+        const browserClimbs = readSavedClimbs(window.localStorage);
+        if (browserClimbs.some((item) => item.id === updatedClimb.id)) {
+          persistSavedClimbs(
+            window.localStorage,
+            browserClimbs.map((item) =>
+              item.id === updatedClimb.id
+                ? {
+                    ...item,
+                    rockoApproved: Boolean(updatedClimb.rockoApproved),
+                  }
+                : item,
+            ),
+          );
+        }
+      } catch {
+        // The shared database remains the durable source of approval.
+      }
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Rocko's approval could not be changed. Please try again.",
+      );
+    } finally {
+      setIsApproving(false);
     }
   }
 
@@ -784,6 +871,7 @@ export default function SavedClimbDetail({
     edit: climb.id,
   });
   const canManage = canManageClimb(profile, climb.setter);
+  const canChangeApproval = isAdminUser(profile);
 
   return (
     <DetailShell
@@ -791,26 +879,37 @@ export default function SavedClimbDetail({
       endAction={
         canManage ? (
           <ClimbOptions
+            canChangeApproval={canChangeApproval}
             editHref={editHref}
+            isApproving={isApproving}
             isDeleting={isDeleting}
             key={climb.id}
+            onChangeApproval={(rockoApproved) =>
+              handleSetRockoApproval(climb, rockoApproved)
+            }
             onDelete={() => handleDeleteClimb(climb)}
+            rockoApproved={Boolean(climb.rockoApproved)}
           />
         ) : undefined
       }
     >
       <section aria-labelledby="climb-name">
         <div className="detail-title">
-          <div>
+          <div className="detail-title-line">
             <h1 id="climb-name">{climb.name}</h1>
-            <p>Set by {climb.setter}</p>
+            <strong className="detail-grade">{climb.grade}</strong>
           </div>
-          <strong>{climb.grade}</strong>
+          <div className="detail-meta-line">
+            <p>Set by {climb.setter}</p>
+            {climb.rockoApproved ? (
+              <span className="rocko-approved-tag">Rocko Approved</span>
+            ) : null}
+          </div>
         </div>
 
-        {deleteError ? (
+        {actionError ? (
           <p className="form-error climb-action-error" role="alert">
-            {deleteError}
+            {actionError}
           </p>
         ) : null}
 
