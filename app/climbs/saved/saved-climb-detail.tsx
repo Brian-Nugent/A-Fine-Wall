@@ -86,7 +86,7 @@ function DetailShell({
             </>
           )}
         </a>
-        {endAction ?? <span>{status}</span>}
+        {endAction ?? (status ? <span>{status}</span> : null)}
       </header>
       {children}
     </main>
@@ -293,7 +293,6 @@ export default function SavedClimbDetail({
   return (
     <DetailShell
       backHref={backHref}
-      status={climb.grade}
       endAction={
         canManage ? (
           <ClimbOptions

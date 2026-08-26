@@ -43,7 +43,6 @@ export default async function ClimbPage({
           <span aria-hidden="true">&larr;</span>
           Climbs
         </a>
-        <span>{climb.grade}</span>
       </header>
 
       <section aria-labelledby="climb-name">
