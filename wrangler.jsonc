@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "a-fine-wall",
+  "account_id": "8faef5a0fcd659f66fe12fb5fd7e3d91",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-08-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "none"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "a-fine-wall-db",
+      "database_id": "461f66f8-4196-4501-ac76-8e9576d19248",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "WALL_PHOTOS",
+      "bucket_name": "a-fine-wall-wall-photos"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

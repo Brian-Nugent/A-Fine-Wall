@@ -16,7 +16,9 @@ npm run dev
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+Production Cloudflare resources and bindings are declared in `wrangler.jsonc`.
+The existing `.openai/hosting.json` remains in place while the OpenAI Sites
+deployment is retained as a migration fallback.
 
 ## Included Shape
 
@@ -93,6 +95,9 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run build`: verify the vinext build output
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
+- `npm run db:migrate:remote`: apply pending migrations to Cloudflare D1
+- `npm run deploy:cloudflare:built`: migrate D1 and deploy an existing build
+- `npm run deploy:cloudflare`: build the app, migrate D1, and deploy the Worker
 
 ## Learn More
 
