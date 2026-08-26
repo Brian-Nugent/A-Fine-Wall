@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import UserProfileProvider from "./user-profile-provider";
+import { parseUserProfileCookie } from "./user-profile";
 import "./globals.css";
 
 const title = "A Fine Wall";
@@ -47,15 +48,20 @@ export const viewport: Viewport = {
   themeColor: "#ffffff",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const requestHeaders = await headers();
+  const initialProfile = parseUserProfileCookie(requestHeaders.get("cookie"));
+
   return (
     <html lang="en">
       <body>
-        <UserProfileProvider>{children}</UserProfileProvider>
+        <UserProfileProvider initialProfile={initialProfile}>
+          {children}
+        </UserProfileProvider>
       </body>
     </html>
   );

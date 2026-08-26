@@ -12,11 +12,14 @@ import {
 import { createUserProfile, loadUserProfile } from "./user-api";
 import {
   MAX_USER_NAME_LENGTH,
+  USER_PROFILE_COOKIE_KEY,
   USER_PROFILE_KEY,
   normalizeUserName,
   persistUserProfile,
   readUserProfile,
   removeUserProfile,
+  resolveCachedUserProfile,
+  serializeUserProfileCookie,
   type UserProfile,
 } from "./user-profile";
 
@@ -26,6 +29,17 @@ type UserProfileContextValue = {
 };
 
 const UserProfileContext = createContext<UserProfileContextValue | null>(null);
+const USER_PROFILE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+function syncUserProfileCookie(profile: UserProfile | null) {
+  try {
+    document.cookie = profile
+      ? `${USER_PROFILE_COOKIE_KEY}=${serializeUserProfileCookie(profile)}; Path=/; Max-Age=${USER_PROFILE_COOKIE_MAX_AGE}; SameSite=Lax`
+      : `${USER_PROFILE_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
+  } catch {
+    // Profile state and local storage remain usable if cookies are blocked.
+  }
+}
 
 export function useActiveUser() {
   const value = useContext(UserProfileContext);
@@ -33,27 +47,40 @@ export function useActiveUser() {
   return value;
 }
 
-export default function UserProfileProvider({ children }: { children: ReactNode }) {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready">("loading");
+export default function UserProfileProvider({
+  children,
+  initialProfile,
+}: {
+  children: ReactNode;
+  initialProfile: UserProfile | null;
+}) {
+  const [profile, setProfile] = useState<UserProfile | null>(initialProfile);
+  const [status, setStatus] = useState<"loading" | "ready">(
+    initialProfile ? "ready" : "loading",
+  );
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const activeProfileId = useRef<string | null>(null);
+  const activeProfileId = useRef<string | null>(initialProfile?.id ?? null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     let isActive = true;
-    let savedProfile: UserProfile | null = null;
+    let savedProfile = initialProfile;
 
     try {
-      savedProfile = readUserProfile(window.localStorage);
+      savedProfile = resolveCachedUserProfile(
+        readUserProfile(window.localStorage),
+        initialProfile,
+      );
     } catch {
-      savedProfile = null;
+      // The server-provided cookie remains a usable cache if storage is blocked.
     }
+
+    syncUserProfileCookie(savedProfile);
 
     queueMicrotask(() => {
       if (!isActive) return;
@@ -72,6 +99,7 @@ export default function UserProfileProvider({ children }: { children: ReactNode 
             } catch {
               // The in-memory profile can still be replaced below.
             }
+            syncUserProfileCookie(null);
             activeProfileId.current = null;
             setProfile(null);
             return;
@@ -88,6 +116,7 @@ export default function UserProfileProvider({ children }: { children: ReactNode 
           } catch {
             // The current session can continue without browser persistence.
           }
+          syncUserProfileCookie(currentProfile);
         })
         .catch((loadError: unknown) => {
           if (loadError instanceof DOMException && loadError.name === "AbortError") {
@@ -105,6 +134,7 @@ export default function UserProfileProvider({ children }: { children: ReactNode 
       } catch {
         nextProfile = null;
       }
+      syncUserProfileCookie(nextProfile);
       activeProfileId.current = nextProfile?.id ?? null;
       setProfile(nextProfile);
       setIsEditing(false);
@@ -116,7 +146,7 @@ export default function UserProfileProvider({ children }: { children: ReactNode 
       controller.abort();
       window.removeEventListener("storage", handleStorage);
     };
-  }, []);
+  }, [initialProfile]);
 
   useEffect(() => {
     if (status !== "ready" || (profile && !isEditing)) return;
@@ -165,6 +195,7 @@ export default function UserProfileProvider({ children }: { children: ReactNode 
       } catch {
         // Keep the selected profile for this session if storage is unavailable.
       }
+      syncUserProfileCookie(nextProfile);
       setProfile(nextProfile);
       setIsEditing(false);
       restoreFocus();
@@ -180,12 +211,7 @@ export default function UserProfileProvider({ children }: { children: ReactNode 
   }
 
   const gate =
-    status === "loading" ? (
-      <main className="profile-gate profile-gate--loading">
-        <h1>A Fine Wall</h1>
-        <p>Opening the wall&hellip;</p>
-      </main>
-    ) : !profile || isEditing ? (
+    status === "ready" && (!profile || isEditing) ? (
       <main className="profile-gate">
         <section className="profile-card" aria-labelledby="profile-heading">
           <p className="profile-kicker">A Fine Wall</p>
@@ -229,7 +255,7 @@ export default function UserProfileProvider({ children }: { children: ReactNode 
         </section>
       </main>
     ) : null;
-  const isGateOpen = gate !== null;
+  const isGateOpen = status === "loading" || gate !== null;
 
   return (
     <UserProfileContext.Provider

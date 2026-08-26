@@ -1,18 +1,26 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
 import {
   ClimbRequestError,
   deleteClimb,
   loadClimb,
 } from "../climb-api";
+import {
+  climbActivityKey,
+  type ClimbActivity,
+  type ClimbReference,
+} from "../climb-activity";
 import {
   readSavedClimbs,
   removeSavedClimb,
@@ -27,10 +35,106 @@ import WallPhoto from "../wall-photo";
 import ClimbActivityPanel from "../climb-activity-panel";
 import {
   buildFilteredHref,
+  requiresClimbActivity,
+  selectVisibleClimbs,
+  serializeClimbFilters,
   type ClimbFilters,
 } from "../climb-filters";
+import {
+  adjacentClimbReferencesInOrder,
+  clearSessionClimbNavigationSnapshot,
+  readSessionClimbNavigationSnapshot,
+  type NavigationClimbReference,
+} from "../climb-navigation-snapshot";
+import { loadClimbActivities } from "../send-api";
+import { loadSyncedClimbs } from "../synced-climbs";
+import {
+  horizontalSwipeDirection,
+  type SwipePoint,
+  type SwipeIntent,
+  updateSwipeIntent,
+} from "../swipe-gesture";
 import { canManageClimb } from "../../user-access";
 import { useActiveUser } from "../../user-profile-provider";
+
+type ClimbNavigationTarget = {
+  href: string;
+  reference: NavigationClimbReference;
+};
+
+type NavigationState = {
+  entries: readonly NavigationClimbReference[];
+  filters: string;
+  profileId: string | null;
+};
+
+function navigationHref(
+  reference: ClimbReference | null,
+  filters: ClimbFilters,
+) {
+  if (!reference) return null;
+  return reference.climbKind === "saved"
+    ? buildFilteredHref("/climbs/saved", filters, {
+        id: reference.climbId,
+      })
+    : buildFilteredHref(`/climbs/${reference.climbId}`, filters);
+}
+
+function navigationTarget(
+  reference: NavigationClimbReference | null,
+  filters: ClimbFilters,
+): ClimbNavigationTarget | null {
+  const href = navigationHref(reference, filters);
+  return reference && href ? { href, reference } : null;
+}
+
+function readBrowserClimb(climbId: string) {
+  try {
+    return (
+      readSavedClimbs(window.localStorage).find(
+        (item) => item.id === climbId,
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function loadClimbWithBrowserFallback(climbId: string) {
+  const browserClimb = readBrowserClimb(climbId);
+
+  try {
+    return (await loadClimb(climbId)) ?? browserClimb;
+  } catch (error) {
+    if (error instanceof ClimbRequestError && error.status === 410) {
+      try {
+        removeSavedClimb(window.localStorage, climbId);
+      } catch {
+        // The durable tombstone still prevents this copy from returning.
+      }
+      return null;
+    }
+    if (browserClimb) return browserClimb;
+    throw error;
+  }
+}
+
+type TouchCollection = {
+  length: number;
+  item(index: number): {
+    clientX: number;
+    clientY: number;
+    identifier: number;
+  } | null;
+};
+
+function findTouch(touches: TouchCollection, identifier: number) {
+  for (let index = 0; index < touches.length; index += 1) {
+    const touch = touches.item(index);
+    if (touch?.identifier === identifier) return touch;
+  }
+  return null;
+}
 
 function DetailShell({
   backHref,
@@ -172,53 +276,443 @@ export default function SavedClimbDetail({
   backHref,
   climbId,
   filters,
+  initialClimb,
 }: {
   backHref: string;
   climbId: string;
   filters: ClimbFilters;
+  initialClimb?: SavedClimb;
 }) {
   const { profile } = useActiveUser();
-  const [climb, setClimb] = useState<SavedClimb | null | undefined>(undefined);
+  const [activeClimbId, setActiveClimbId] = useState(climbId);
+  const [climb, setClimb] = useState<SavedClimb | null | undefined>(
+    initialClimb,
+  );
   const [wallHolds, setWallHolds] = useState<WallHold[]>([]);
+  const [navigationState, setNavigationState] = useState<NavigationState>({
+    entries: [],
+    filters: "",
+    profileId: null,
+  });
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const activeClimbIdRef = useRef(climbId);
+  const climbCacheRef = useRef<Map<string, SavedClimb | null>>(
+    new Map(initialClimb ? [[climbId, initialClimb]] : []),
+  );
+  const pendingClimbLoadsRef = useRef<
+    Map<string, Promise<SavedClimb | null>>
+  >(new Map());
+  const transitionTokenRef = useRef(0);
+  const swipeStartRef = useRef<{
+    touchIdentifier: number;
+    point: SwipePoint;
+    viewportWidth: number;
+    intent: SwipeIntent;
+  } | null>(null);
+  const mouseSwipeStartRef = useRef<{
+    pointerId: number;
+    point: SwipePoint;
+    viewportWidth: number;
+  } | null>(null);
+  const isSwipeNavigatingRef = useRef(false);
+
+  const removeUnavailableClimbFromNavigation = useCallback(
+    (unavailableClimbId: string) => {
+      setNavigationState((current) => ({
+        ...current,
+        entries: current.entries.filter(
+          (entry) =>
+            entry.climbKind !== "saved" ||
+            entry.climbId !== unavailableClimbId,
+        ),
+      }));
+      clearSessionClimbNavigationSnapshot(window);
+    },
+    [],
+  );
+
+  const ensureClimbCached = useCallback((targetClimbId: string) => {
+    if (climbCacheRef.current.has(targetClimbId)) {
+      return Promise.resolve(
+        climbCacheRef.current.get(targetClimbId) ?? null,
+      );
+    }
+
+    const pending = pendingClimbLoadsRef.current.get(targetClimbId);
+    if (pending) return pending;
+
+    const request = loadClimbWithBrowserFallback(targetClimbId)
+      .then((loadedClimb) => {
+        climbCacheRef.current.set(targetClimbId, loadedClimb);
+        pendingClimbLoadsRef.current.delete(targetClimbId);
+        return loadedClimb;
+      })
+      .catch((error: unknown) => {
+        pendingClimbLoadsRef.current.delete(targetClimbId);
+        throw error;
+      });
+    pendingClimbLoadsRef.current.set(targetClimbId, request);
+    return request;
+  }, []);
+
+  useEffect(() => {
+    function cancelInterruptedSwipe() {
+      swipeStartRef.current = null;
+      mouseSwipeStartRef.current = null;
+    }
+
+    document.addEventListener("visibilitychange", cancelInterruptedSwipe);
+    return () => {
+      document.removeEventListener("visibilitychange", cancelInterruptedSwipe);
+      transitionTokenRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (initialClimb) return;
+
+    let isActive = true;
+    void ensureClimbCached(climbId)
+      .then((loadedClimb) => {
+        if (isActive && activeClimbIdRef.current === climbId) {
+          setClimb(loadedClimb);
+        }
+      })
+      .catch(() => {
+        // Keep the quiet preparing state if neither shared nor local data loads.
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [climbId, ensureClimbCached, initialClimb]);
 
   useEffect(() => {
     const controller = new AbortController();
-    let browserClimb: SavedClimb | null = null;
-
-    try {
-      browserClimb = readSavedClimbs(window.localStorage).find(
-        (item) => item.id === climbId,
-      ) ?? null;
-    } catch {
-      browserClimb = null;
-    }
-
-    loadClimb(climbId, controller.signal)
-      .then((savedClimb) => setClimb(savedClimb ?? browserClimb))
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        if (error instanceof ClimbRequestError && error.status === 410) {
-          try {
-            removeSavedClimb(window.localStorage, climbId);
-          } catch {
-            // The durable tombstone still prevents this copy from returning.
-          }
-          setClimb(null);
-          return;
-        }
-        setClimb(browserClimb);
-      });
-
     loadWallHolds(controller.signal)
       .then(setWallHolds)
       .catch(() => {
         // Coordinate snapshots keep the climb view usable if spots are offline.
       });
-
     return () => controller.abort();
-  }, [climbId]);
+  }, []);
+
+  const serializedFilters = serializeClimbFilters(filters);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    const snapshot = readSessionClimbNavigationSnapshot(
+      window,
+      profile.id,
+      serializedFilters,
+    );
+    const snapshotAdjacent = snapshot
+      ? adjacentClimbReferencesInOrder(snapshot.entries, {
+          climbKind: "saved",
+          climbId,
+        })
+      : null;
+    if (snapshot && snapshotAdjacent !== null) {
+      let isActive = true;
+      queueMicrotask(() => {
+        if (!isActive) return;
+        setNavigationState({
+          entries: snapshot.entries,
+          filters: serializedFilters,
+          profileId: profile.id,
+        });
+      });
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const controller = new AbortController();
+    let isActive = true;
+    const needsActivity = requiresClimbActivity(filters);
+    const syncedClimbsRequest = loadSyncedClimbs(
+      profile,
+      window.localStorage,
+      controller.signal,
+    );
+    const activitiesRequest: Promise<ClimbActivity[]> = needsActivity
+      ? loadClimbActivities(profile.id, controller.signal)
+      : Promise.resolve([]);
+
+    Promise.all([syncedClimbsRequest, activitiesRequest])
+      .then(([syncedClimbs, activities]) => {
+        if (!isActive) return;
+
+        const activitiesByClimb = new Map(
+          activities.map((activity) => [
+            climbActivityKey(activity),
+            activity,
+          ]),
+        );
+        const visibleClimbs = selectVisibleClimbs(
+          syncedClimbs.climbs.map((item) => ({
+            ...item,
+            activity:
+              activitiesByClimb.get(
+                climbActivityKey({
+                  climbKind: "saved",
+                  climbId: item.id,
+                }),
+              ) ?? null,
+          })),
+          filters,
+        );
+
+        setNavigationState({
+          entries: visibleClimbs.map((item) => ({
+            climbKind: "saved",
+            climbId: item.id,
+          })),
+          filters: serializedFilters,
+          profileId: profile.id,
+        });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (isActive) {
+          setNavigationState({
+            entries: [],
+            filters: serializedFilters,
+            profileId: profile.id,
+          });
+        }
+      });
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [climbId, filters, profile, serializedFilters]);
+
+  const navigationEntries =
+    navigationState.profileId === profile?.id &&
+    navigationState.filters === serializedFilters
+      ? navigationState.entries
+      : [];
+  const adjacentReferences = adjacentClimbReferencesInOrder(
+    navigationEntries,
+    { climbKind: "saved", climbId: activeClimbId },
+  );
+  const navigationTargets = {
+    previous: navigationTarget(adjacentReferences?.previous ?? null, filters),
+    next: navigationTarget(adjacentReferences?.next ?? null, filters),
+  };
+  const previousSavedId =
+    navigationTargets.previous?.reference.climbKind === "saved"
+      ? navigationTargets.previous.reference.climbId
+      : null;
+  const nextSavedId =
+    navigationTargets.next?.reference.climbKind === "saved"
+      ? navigationTargets.next.reference.climbId
+      : null;
+
+  useEffect(() => {
+    for (const targetClimbId of [previousSavedId, nextSavedId]) {
+      if (!targetClimbId) continue;
+      void ensureClimbCached(targetClimbId)
+        .then((loadedClimb) => {
+          if (!loadedClimb) {
+            removeUnavailableClimbFromNavigation(targetClimbId);
+          }
+        })
+        .catch(() => {
+          // The real link remains available if an eager load fails.
+        });
+    }
+  }, [
+    ensureClimbCached,
+    nextSavedId,
+    previousSavedId,
+    removeUnavailableClimbFromNavigation,
+  ]);
+
+  const transitionToTarget = useCallback(async (
+    target: ClimbNavigationTarget,
+  ) => {
+    if (target.reference.climbKind !== "saved") {
+      window.location.assign(target.href);
+      return;
+    }
+    if (
+      target.reference.climbId === activeClimbIdRef.current ||
+      isSwipeNavigatingRef.current ||
+      isDeleting
+    ) {
+      return;
+    }
+
+    const transitionToken = transitionTokenRef.current + 1;
+    transitionTokenRef.current = transitionToken;
+    isSwipeNavigatingRef.current = true;
+
+    try {
+      const nextClimb = await ensureClimbCached(target.reference.climbId);
+      if (transitionTokenRef.current !== transitionToken) return;
+      if (!nextClimb || nextClimb.id !== target.reference.climbId) {
+        removeUnavailableClimbFromNavigation(target.reference.climbId);
+        return;
+      }
+
+      try {
+        // Keep the visible climb URL canonical without adding shallow entries
+        // that would compete with Vinext's router during Back/Forward traversal.
+        window.history.replaceState(window.history.state, "", target.href);
+      } catch {
+        window.location.assign(target.href);
+        return;
+      }
+
+      activeClimbIdRef.current = nextClimb.id;
+      setActiveClimbId(nextClimb.id);
+      setClimb(nextClimb);
+      setDeleteError("");
+      setIsDeleting(false);
+    } catch {
+      if (transitionTokenRef.current !== transitionToken) return;
+      window.location.assign(target.href);
+    } finally {
+      if (transitionTokenRef.current === transitionToken) {
+        isSwipeNavigatingRef.current = false;
+      }
+    }
+  }, [
+    ensureClimbCached,
+    isDeleting,
+    removeUnavailableClimbFromNavigation,
+  ]);
+
+  function startSwipe(event: ReactTouchEvent<HTMLElement>) {
+    if (isSwipeNavigatingRef.current || isDeleting) return;
+    if (
+      event.touches.length !== 1 ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) {
+      swipeStartRef.current = null;
+      return;
+    }
+
+    const touch = event.touches.item(0);
+    if (!touch) return;
+    swipeStartRef.current = {
+      touchIdentifier: touch.identifier,
+      point: { x: touch.clientX, y: touch.clientY, time: event.timeStamp },
+      viewportWidth: window.innerWidth,
+      intent: "pending",
+    };
+  }
+
+  function moveSwipe(event: ReactTouchEvent<HTMLElement>) {
+    const swipeStart = swipeStartRef.current;
+    if (
+      !swipeStart ||
+      event.touches.length !== 1 ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) {
+      swipeStartRef.current = null;
+      return;
+    }
+
+    const touch = findTouch(event.touches, swipeStart.touchIdentifier);
+    if (!touch) {
+      swipeStartRef.current = null;
+      return;
+    }
+
+    const intent = updateSwipeIntent(
+      swipeStart.intent,
+      swipeStart.point,
+      { x: touch.clientX, y: touch.clientY, time: event.timeStamp },
+    );
+    swipeStartRef.current =
+      intent === "vertical" ? null : { ...swipeStart, intent };
+  }
+
+  function finishSwipe(event: ReactTouchEvent<HTMLElement>) {
+    const swipeStart = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (
+      !swipeStart ||
+      event.touches.length > 0 ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) return;
+
+    const touch = findTouch(event.changedTouches, swipeStart.touchIdentifier);
+    if (!touch) return;
+    const endPoint = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: event.timeStamp,
+    };
+    const intent = updateSwipeIntent(
+      swipeStart.intent,
+      swipeStart.point,
+      endPoint,
+    );
+    if (intent !== "horizontal") return;
+
+    navigateFromSwipe(swipeStart.point, endPoint, swipeStart.viewportWidth);
+  }
+
+  function startMouseSwipe(event: ReactPointerEvent<HTMLElement>) {
+    if (
+      event.pointerType !== "mouse" ||
+      event.button !== 0 ||
+      isSwipeNavigatingRef.current ||
+      isDeleting ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) return;
+
+    mouseSwipeStartRef.current = {
+      pointerId: event.pointerId,
+      point: { x: event.clientX, y: event.clientY, time: event.timeStamp },
+      viewportWidth: window.innerWidth,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function finishMouseSwipe(event: ReactPointerEvent<HTMLElement>) {
+    const swipeStart = mouseSwipeStartRef.current;
+    mouseSwipeStartRef.current = null;
+    if (
+      event.pointerType !== "mouse" ||
+      !swipeStart ||
+      swipeStart.pointerId !== event.pointerId ||
+      (window.visualViewport?.scale ?? 1) > 1.01
+    ) return;
+
+    navigateFromSwipe(
+      swipeStart.point,
+      { x: event.clientX, y: event.clientY, time: event.timeStamp },
+      swipeStart.viewportWidth,
+    );
+  }
+
+  function cancelMouseSwipe() {
+    mouseSwipeStartRef.current = null;
+  }
+
+  function navigateFromSwipe(
+    start: SwipePoint,
+    end: SwipePoint,
+    viewportWidth: number,
+  ) {
+    const direction = horizontalSwipeDirection(start, end, viewportWidth);
+    const target = direction ? navigationTargets[direction] : null;
+    if (!direction || !target) return;
+
+    void transitionToTarget(target);
+  }
+
+  function cancelSwipe() {
+    swipeStartRef.current = null;
+  }
 
   async function handleDeleteClimb(climbToDelete: SavedClimb) {
     if (!profile || !canManageClimb(profile, climbToDelete.setter)) {
@@ -243,6 +737,7 @@ export default function SavedClimbDetail({
       } catch {
         // The durable deletion prevents a stale browser copy from returning.
       }
+      clearSessionClimbNavigationSnapshot(window);
       window.location.replace(backHref);
     } catch (error) {
       setDeleteError(
@@ -256,10 +751,10 @@ export default function SavedClimbDetail({
 
   if (climb === undefined) {
     return (
-      <DetailShell backHref={backHref} status="Loading">
-        <div className="empty-state">
-          <p>Loading climb&hellip;</p>
-        </div>
+      <DetailShell backHref={backHref}>
+        <p aria-live="polite" className="sr-only">
+          Preparing the selected climb.
+        </p>
       </DetailShell>
     );
   }
@@ -298,6 +793,7 @@ export default function SavedClimbDetail({
           <ClimbOptions
             editHref={editHref}
             isDeleting={isDeleting}
+            key={climb.id}
             onDelete={() => handleDeleteClimb(climb)}
           />
         ) : undefined
@@ -318,10 +814,21 @@ export default function SavedClimbDetail({
           </p>
         ) : null}
 
-        <figure className="wall-map wall-map--route">
+        <figure
+          className="wall-map wall-map--route"
+          onLostPointerCapture={cancelMouseSwipe}
+          onPointerCancel={cancelMouseSwipe}
+          onPointerDown={startMouseSwipe}
+          onPointerUp={finishMouseSwipe}
+          onTouchCancel={cancelSwipe}
+          onTouchEnd={finishSwipe}
+          onTouchMove={moveSwipe}
+          onTouchStart={startSwipe}
+        >
           <WallPhoto
             className="wall-photo"
             alt="Climbing wall with the route holds marked"
+            draggable={false}
             width="1086"
             height="1448"
           />

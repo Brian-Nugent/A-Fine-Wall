@@ -15,6 +15,7 @@ import {
 } from "../app/climbs/saved-climbs.ts";
 import {
   activeClimbFilterCount,
+  adjacentClimbIds,
   buildFilteredHref,
   compareClimbsByOrder,
   filterClimbs,
@@ -22,9 +23,27 @@ import {
   matchesClimbActivityFilters,
   matchesClimbFilters,
   parseClimbFilters,
+  requiresClimbActivity,
+  selectVisibleClimbs,
   serializeClimbFilters,
   uniqueFilterAuthors,
 } from "../app/climbs/climb-filters.ts";
+import {
+  CLIMB_NAVIGATION_SNAPSHOT_KEY,
+  adjacentClimbReferences,
+  adjacentClimbReferencesInOrder,
+  clearClimbNavigationSnapshot,
+  clearSessionClimbNavigationSnapshot,
+  parseClimbNavigationSnapshot,
+  readClimbNavigationSnapshot,
+  readSessionClimbNavigationSnapshot,
+  writeClimbNavigationSnapshot,
+  writeSessionClimbNavigationSnapshot,
+} from "../app/climbs/climb-navigation-snapshot.ts";
+import {
+  horizontalSwipeDirection,
+  updateSwipeIntent,
+} from "../app/climbs/swipe-gesture.ts";
 import { getClimbListState } from "../app/climbs/climb-list-state.ts";
 import {
   climbActivityKey,
@@ -42,12 +61,16 @@ import {
 } from "../app/climbs/wall-holds.ts";
 import {
   MAX_USER_NAME_LENGTH,
+  USER_PROFILE_COOKIE_KEY,
   USER_PROFILE_KEY,
   normalizeUserName,
+  parseUserProfileCookie,
   parseUserProfile,
   persistUserProfile,
   readUserProfile,
   removeUserProfile,
+  resolveCachedUserProfile,
+  serializeUserProfileCookie,
 } from "../app/user-profile.ts";
 import {
   ACTIVE_USER_PROFILE_HEADER,
@@ -57,12 +80,12 @@ import {
   isSameUserName,
 } from "../app/user-access.ts";
 
-async function render(pathname = "/") {
+async function render(pathname = "/", requestHeaders = {}) {
   const worker = await loadWorker();
 
   return worker.fetch(
     new Request(`http://localhost${pathname}`, {
-      headers: { accept: "text/html" },
+      headers: { accept: "text/html", ...requestHeaders },
     }),
     createEnvironment(),
     createContext(),
@@ -548,7 +571,28 @@ test("starts at the climb list while preserving the first-time profile gate", as
   assert.match(homeSource, /redirect\("\/climbs"\)/);
   assert.doesNotMatch(homeSource, /View Climbs|home-page/);
   assert.match(profileSource, /What's your name\?/);
+  assert.doesNotMatch(profileSource, /Opening the wall|profile-gate--loading/);
   assert.doesNotMatch(css, /\.home-page/);
+  assert.doesNotMatch(css, /\.profile-gate--loading/);
+});
+
+test("restores returning users without a branded loading screen", async () => {
+  const profile = { id: "profile-cookie-test", name: "Cookie Tester" };
+  const cookie = `${USER_PROFILE_COOKIE_KEY}=${serializeUserProfileCookie(profile)}`;
+  const response = await render("/climbs", { cookie });
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /Current user: Cookie Tester/);
+  assert.match(html, /Loading climbs/);
+  assert.doesNotMatch(html, /Opening the wall|profile-gate--loading/);
+
+  const firstVisitResponse = await render("/climbs");
+  assert.equal(firstVisitResponse.status, 200);
+  assert.doesNotMatch(
+    await firstVisitResponse.text(),
+    /Opening the wall|profile-gate--loading/,
+  );
 });
 
 test("recognizes Admin and climb owners without case sensitivity", () => {
@@ -768,6 +812,11 @@ test("normalizes, serializes, and combines climb filters", () => {
   const sortOnly = parseClimbFilters(new URLSearchParams("order=ascents"));
   assert.equal(activeClimbFilterCount(sortOnly), 1);
   assert.equal(hasClimbFilterConstraints(sortOnly), false);
+  assert.equal(requiresClimbActivity(sortOnly), true);
+  assert.equal(
+    requiresClimbActivity(parseClimbFilters(new URLSearchParams())),
+    false,
+  );
   assert.deepEqual(parseClimbFilters(new URLSearchParams("stars=bad")), {
     minGrade: 0,
     maxGrade: 17,
@@ -777,6 +826,304 @@ test("normalizes, serializes, and combines climb filters", () => {
     minStars: 0,
     order: "newest",
   });
+});
+
+test("finds adjacent climbs in the active filtered order", () => {
+  const visibleActivity = {
+    averageRating: 4.5,
+    ratingCount: 3,
+    userRating: null,
+  };
+  const candidates = [
+    {
+      id: "newest",
+      createdAt: 30,
+      grade: "V5",
+      setter: "Alex",
+      holds: [],
+      activity: visibleActivity,
+    },
+    {
+      id: "middle",
+      createdAt: 20,
+      grade: "V6",
+      setter: "Sam",
+      holds: [],
+      activity: visibleActivity,
+    },
+    {
+      id: "oldest",
+      createdAt: 10,
+      grade: "V7",
+      setter: "Alex",
+      holds: [],
+      activity: visibleActivity,
+    },
+  ];
+  const allClimbs = parseClimbFilters(new URLSearchParams());
+  assert.deepEqual(adjacentClimbIds(candidates, "middle", allClimbs), {
+    previousId: "newest",
+    nextId: "oldest",
+  });
+
+  const alexOnly = parseClimbFilters(new URLSearchParams("author=Alex"));
+  assert.deepEqual(adjacentClimbIds(candidates, "middle", alexOnly), {
+    previousId: null,
+    nextId: null,
+  });
+  assert.deepEqual(adjacentClimbIds(candidates, "newest", alexOnly), {
+    previousId: null,
+    nextId: "oldest",
+  });
+  assert.deepEqual(adjacentClimbIds(candidates, "missing", allClimbs), {
+    previousId: null,
+    nextId: null,
+  });
+  assert.deepEqual(
+    selectVisibleClimbs(candidates, alexOnly).map((climb) => climb.id),
+    ["newest", "oldest"],
+  );
+});
+
+test("remembers the exact climb order for swipe navigation", () => {
+  const values = new Map();
+  const storage = {
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    setItem(key, value) {
+      values.set(key, value);
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+  };
+  const profileId = "profile-1";
+  const filters = serializeClimbFilters(
+    parseClimbFilters(
+      new URLSearchParams(
+        "min=2&max=9&author=Alex&hold=hold-7&sent=hide&stars=3&order=ascents",
+      ),
+    ),
+  );
+  const entries = [
+    { climbKind: "saved", climbId: "newest" },
+    { climbKind: "saved", climbId: "local-only" },
+    { climbKind: "saved", climbId: "oldest" },
+  ];
+
+  assert.equal(
+    writeClimbNavigationSnapshot(
+      storage,
+      profileId,
+      filters,
+      entries,
+      1_000,
+    ),
+    true,
+  );
+  const snapshot = readClimbNavigationSnapshot(
+    storage,
+    profileId,
+    filters,
+    1_500,
+  );
+  assert.ok(snapshot);
+  assert.deepEqual(
+    adjacentClimbReferences(snapshot, entries[1]),
+    { previous: entries[0], next: entries[2] },
+  );
+  assert.deepEqual(
+    adjacentClimbReferencesInOrder(entries, entries[1]),
+    { previous: entries[0], next: entries[2] },
+  );
+  assert.deepEqual(
+    adjacentClimbReferences(snapshot, entries[0]),
+    { previous: null, next: entries[1] },
+  );
+  assert.deepEqual(
+    adjacentClimbReferences(snapshot, entries[2]),
+    { previous: entries[1], next: null },
+  );
+  assert.equal(
+    adjacentClimbReferences(snapshot, {
+      climbKind: "saved",
+      climbId: "not-in-list",
+    }),
+    null,
+  );
+  assert.equal(
+    readClimbNavigationSnapshot(storage, profileId, "", 1_500),
+    null,
+  );
+  assert.equal(
+    readClimbNavigationSnapshot(storage, "another-profile", filters, 1_500),
+    null,
+  );
+
+  clearClimbNavigationSnapshot(storage);
+  assert.equal(storage.getItem(CLIMB_NAVIGATION_SNAPSHOT_KEY), null);
+});
+
+test("rejects stale, malformed, or unavailable climb navigation snapshots", () => {
+  const duplicateEntries = [
+    { climbKind: "saved", climbId: "same" },
+    { climbKind: "saved", climbId: "same" },
+  ];
+  const writable = {
+    getItem() {
+      return null;
+    },
+    setItem() {},
+    removeItem() {},
+  };
+  assert.equal(
+    writeClimbNavigationSnapshot(
+      writable,
+      "profile-1",
+      "",
+      duplicateEntries,
+      1_000,
+    ),
+    false,
+  );
+  assert.equal(
+    parseClimbNavigationSnapshot("not-json", "profile-1", "", 1_500),
+    null,
+  );
+  assert.equal(
+    parseClimbNavigationSnapshot(
+      JSON.stringify({
+        version: 1,
+        profileId: "profile-1",
+        filters: "",
+        entries: [{ climbKind: "saved", climbId: "one" }],
+        savedAt: 1_000,
+      }),
+      "profile-1",
+      "",
+      7 * 60 * 60 * 1_000,
+    ),
+    null,
+  );
+
+  const blocked = {
+    getItem() {
+      throw new Error("blocked");
+    },
+    setItem() {
+      throw new Error("blocked");
+    },
+    removeItem() {
+      throw new Error("blocked");
+    },
+  };
+  assert.equal(
+    readClimbNavigationSnapshot(blocked, "profile-1", "", 1_500),
+    null,
+  );
+  assert.equal(
+    writeClimbNavigationSnapshot(
+      blocked,
+      "profile-1",
+      "",
+      [{ climbKind: "saved", climbId: "one" }],
+      1_000,
+    ),
+    false,
+  );
+  assert.doesNotThrow(() => clearClimbNavigationSnapshot(blocked));
+
+  const blockedHost = {};
+  Object.defineProperty(blockedHost, "sessionStorage", {
+    get() {
+      throw new Error("blocked");
+    },
+  });
+  assert.equal(
+    readSessionClimbNavigationSnapshot(
+      blockedHost,
+      "profile-1",
+      "",
+      1_500,
+    ),
+    null,
+  );
+  assert.equal(
+    writeSessionClimbNavigationSnapshot(
+      blockedHost,
+      "profile-1",
+      "",
+      [{ climbKind: "saved", climbId: "one" }],
+      1_000,
+    ),
+    false,
+  );
+  assert.doesNotThrow(() => clearSessionClimbNavigationSnapshot(blockedHost));
+});
+
+test("recognizes deliberate horizontal touch swipes", () => {
+  const start = { x: 200, y: 200, time: 100 };
+  assert.equal(
+    updateSwipeIntent("pending", start, { x: 205, y: 207, time: 120 }),
+    "pending",
+  );
+  assert.equal(
+    updateSwipeIntent("pending", start, { x: 205, y: 230, time: 140 }),
+    "vertical",
+  );
+  assert.equal(
+    updateSwipeIntent("pending", start, { x: 230, y: 205, time: 140 }),
+    "horizontal",
+  );
+  assert.equal(
+    horizontalSwipeDirection(
+      { x: 300, y: 200, time: 100 },
+      { x: 200, y: 215, time: 450 },
+      390,
+    ),
+    "next",
+  );
+  assert.equal(
+    horizontalSwipeDirection(
+      { x: 100, y: 200, time: 100 },
+      { x: 190, y: 180, time: 500 },
+      390,
+    ),
+    "previous",
+  );
+  assert.equal(
+    horizontalSwipeDirection(
+      { x: 200, y: 200, time: 100 },
+      { x: 240, y: 200, time: 300 },
+      390,
+    ),
+    null,
+  );
+  assert.equal(
+    horizontalSwipeDirection(
+      { x: 200, y: 100, time: 100 },
+      { x: 280, y: 250, time: 400 },
+      390,
+    ),
+    null,
+  );
+  assert.equal(
+    horizontalSwipeDirection(
+      { x: 20, y: 200, time: 100 },
+      { x: 120, y: 200, time: 400 },
+      390,
+    ),
+    null,
+  );
+  assert.equal(
+    horizontalSwipeDirection(
+      { x: 200, y: 200, time: 100 },
+      { x: 100, y: 200, time: 1_200 },
+      390,
+    ),
+    null,
+  );
 });
 
 test("distinguishes an empty wall from an empty filtered result", () => {
@@ -1014,7 +1361,65 @@ test("renders the browser-saved climb detail shell", async () => {
 
   const html = await response.text();
   assert.match(html, /href="\/climbs"/i);
-  assert.match(html, /Loading climb/);
+  assert.match(html, /Preparing the selected climb/);
+  assert.doesNotMatch(html, /Loading climb/i);
+});
+
+test("preloads a selected saved climb before rendering its page", async () => {
+  const [pageSource, loaderSource, detailSource] = await Promise.all([
+    readFile(new URL("../app/climbs/saved/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/climbs/saved/server-climb.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(pageSource, /await loadSavedClimbForPage\(climbId\)/);
+  assert.match(pageSource, /initialClimb=\{initialClimb\}/);
+  assert.match(loaderSource, /handleAppDataRequest\(/);
+  assert.match(loaderSource, /getD1Database\(\)/);
+  assert.match(detailSource, /useState<[^>]+>\(\s*initialClimb/);
+  assert.doesNotMatch(detailSource, /Loading climb(?:&hellip;|\.\.\.)/i);
+});
+
+test("supports in-place swipe navigation without pager buttons", async () => {
+  const [detailSource, css] = await Promise.all([
+    readFile(
+      new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(detailSource, /onTouchStart=\{startSwipe\}/);
+  assert.match(detailSource, /onTouchMove=\{moveSwipe\}/);
+  assert.match(detailSource, /onPointerDown=\{startMouseSwipe\}/);
+  assert.match(detailSource, /window\.visualViewport\?\.scale/);
+  assert.doesNotMatch(detailSource, /climb-pager/);
+  assert.doesNotMatch(detailSource, /Previous climb/);
+  assert.doesNotMatch(detailSource, /Next climb/);
+  assert.match(detailSource, /ensureClimbCached/);
+  assert.match(detailSource, /loadSyncedClimbs/);
+  assert.match(detailSource, /removeUnavailableClimbFromNavigation/);
+  // In-place browsing deliberately replaces the detail URL. Raw push entries
+  // would make Vinext's router restore the route and remount the wall on Back.
+  assert.match(detailSource, /window\.history\.replaceState/);
+  assert.doesNotMatch(detailSource, /window\.history\.pushState/);
+  assert.doesNotMatch(detailSource, /addEventListener\("popstate"/);
+  assert.match(detailSource, /setClimb\(nextClimb\)/);
+  assert.match(detailSource, /key=\{climb\.id\}/);
+  assert.match(detailSource, /window\.location\.assign\(target\.href\)/);
+  assert.equal((detailSource.match(/<WallPhoto\b/g) ?? []).length, 1);
+  assert.doesNotMatch(detailSource, /setClimb\(undefined\)/);
+  assert.doesNotMatch(css, /\.climb-pager(?:-link)?\b/);
+  assert.doesNotMatch(
+    css,
+    /\.wall-map--route\s*\{[^}]*touch-action:\s*none/,
+  );
 });
 
 test("limits the climb options menu to the setter and Admin", async () => {
@@ -2569,6 +2974,27 @@ test("normalizes and remembers the active user profile", () => {
   assert.equal(normalizeUserName("x".repeat(MAX_USER_NAME_LENGTH + 1)), null);
   assert.equal(parseUserProfile(null), null);
   assert.equal(parseUserProfile("not json"), null);
+
+  const cookieProfile = { id: "profile-cookie", name: "ZoÃ« Oâ€™Connor" };
+  const cookieValue = serializeUserProfileCookie(cookieProfile);
+  assert.deepEqual(
+    parseUserProfileCookie(
+      `unrelated=value; ${USER_PROFILE_COOKIE_KEY}=${cookieValue}; theme=dark`,
+    ),
+    cookieProfile,
+  );
+  assert.equal(parseUserProfileCookie(null), null);
+  assert.equal(
+    parseUserProfileCookie(`${USER_PROFILE_COOKIE_KEY}=not-json`),
+    null,
+  );
+  assert.equal(resolveCachedUserProfile(null, cookieProfile), cookieProfile);
+  const newerBrowserProfile = { id: "profile-newer", name: "Newer User" };
+  assert.equal(
+    resolveCachedUserProfile(newerBrowserProfile, cookieProfile),
+    newerBrowserProfile,
+  );
+  assert.equal(resolveCachedUserProfile(null, null), null);
 
   const profile = { id: "profile-1", name: "Alex Rivera" };
   assert.deepEqual(parseUserProfile(JSON.stringify(profile)), profile);

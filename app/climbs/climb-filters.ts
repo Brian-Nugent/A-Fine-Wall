@@ -39,6 +39,11 @@ export type OrderableClimb = {
   id: string;
 };
 
+export type AdjacentClimbIds = {
+  previousId: string | null;
+  nextId: string | null;
+};
+
 export const DEFAULT_CLIMB_FILTERS: Readonly<ClimbFilters> = {
   minGrade: MIN_FILTER_GRADE,
   maxGrade: MAX_FILTER_GRADE,
@@ -250,6 +255,15 @@ export function hasClimbFilterConstraints(filters: ClimbFilters) {
   );
 }
 
+export function requiresClimbActivity(filters: ClimbFilters) {
+  const normalized = normalizeClimbFilters(filters);
+  return (
+    normalized.hideSent ||
+    normalized.minStars > MIN_FILTER_STARS ||
+    normalized.order === "ascents"
+  );
+}
+
 function gradeNumber(grade: string) {
   const match = /^V(\d|1[0-7])$/.exec(grade);
   return match ? Number(match[1]) : null;
@@ -324,6 +338,35 @@ export function compareClimbsByOrder(
 
   const dateDifference = right.createdAt - left.createdAt;
   return dateDifference || left.id.localeCompare(right.id);
+}
+
+export function selectVisibleClimbs<
+  T extends FilterableClimb & OrderableClimb,
+>(climbs: readonly T[], filters: ClimbFilters): T[] {
+  return climbs
+    .filter(
+      (climb) =>
+        matchesClimbFilters(climb, filters) &&
+        matchesClimbActivityFilters(climb.activity, filters),
+    )
+    .sort((left, right) => compareClimbsByOrder(left, right, filters));
+}
+
+export function adjacentClimbIds<
+  T extends FilterableClimb & OrderableClimb,
+>(
+  climbs: readonly T[],
+  currentId: string,
+  filters: ClimbFilters,
+): AdjacentClimbIds {
+  const visible = selectVisibleClimbs(climbs, filters);
+  const currentIndex = visible.findIndex((climb) => climb.id === currentId);
+  if (currentIndex < 0) return { previousId: null, nextId: null };
+
+  return {
+    previousId: visible[currentIndex - 1]?.id ?? null,
+    nextId: visible[currentIndex + 1]?.id ?? null,
+  };
 }
 
 export function filterClimbs<T extends FilterableClimb>(

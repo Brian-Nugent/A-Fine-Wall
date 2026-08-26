@@ -1,6 +1,7 @@
 export type HoldRole = "start" | "hand" | "foot" | "finish";
 
 export type HoldMarker = {
+  holdId?: never;
   x: number;
   y: number;
   size: number;
