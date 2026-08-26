@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Offline | A Fine Wall</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        min-height: 100svh;
+        margin: 0;
+        padding: max(2rem, env(safe-area-inset-top)) 1.25rem max(2rem, env(safe-area-inset-bottom));
+        display: grid;
+        place-items: center;
+        background: #ffffff;
+        color: #111111;
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        display: flex;
+        width: min(100%, 28rem);
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+      .brand { font-size: 0.72rem; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
+      h1 { margin: 0; font-size: 2.25rem; letter-spacing: -0.05em; }
+      p { margin: 0; color: #6b6b6b; line-height: 1.5; }
+      a {
+        display: inline-flex;
+        min-height: 2.75rem;
+        align-items: center;
+        justify-content: center;
+        padding: 0.65rem 1rem;
+        border-radius: 999px;
+        background: #111111;
+        color: #ffffff;
+        font-size: 0.85rem;
+        font-weight: 700;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="brand">A Fine Wall</span>
+      <h1>You’re offline</h1>
+      <p>A Fine Wall needs a connection to load current climbs and save changes.</p>
+      <a href="/climbs">Try again</a>
+    </main>
+  </body>
+</html>

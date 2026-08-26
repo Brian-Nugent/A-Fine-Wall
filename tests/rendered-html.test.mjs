@@ -3134,6 +3134,9 @@ test("includes the wall, app icon, and social preview image assets", async () =>
     "../public/a-fine-wall-icon-180.png",
     "../public/a-fine-wall-icon-192.png",
     "../public/a-fine-wall-icon-512.png",
+    "../public/a-fine-wall-icon-maskable-1024.png",
+    "../public/apple-touch-icon.png",
+    "../public/apple-touch-icon-v2.png",
     "../public/rocko-approved.png",
   ]) {
     const asset = await stat(new URL(relativePath, import.meta.url));
@@ -3145,6 +3148,29 @@ test("includes the wall, app icon, and social preview image assets", async () =>
     new URL("../public/rocko-approved.png", import.meta.url),
   );
   assert.equal(rockoIcon[25], 6, "Rocko icon must be an RGBA PNG");
+
+  for (const [relativePath, expectedSize] of [
+    ["../public/apple-touch-icon.png", 180],
+    ["../public/apple-touch-icon-v2.png", 180],
+    ["../public/a-fine-wall-icon-maskable-1024.png", 1024],
+  ]) {
+    const icon = await readFile(new URL(relativePath, import.meta.url));
+    assert.equal(icon.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+    assert.equal(icon.readUInt32BE(16), expectedSize);
+    assert.equal(icon.readUInt32BE(20), expectedSize);
+    assert.equal(icon[25], 2, `${relativePath} must be an opaque RGB PNG`);
+  }
+
+  for (const relativePath of [
+    "../dist/client/apple-touch-icon.png",
+    "../dist/client/apple-touch-icon-v2.png",
+    "../dist/client/a-fine-wall-icon-maskable-1024.png",
+    "../dist/client/sw.js",
+    "../dist/client/offline.html",
+  ]) {
+    const asset = await stat(new URL(relativePath, import.meta.url));
+    assert.ok(asset.isFile(), `${relativePath} must be copied into the build`);
+  }
 });
 
 test("configures a standalone home-screen app with the new icon", async () => {
@@ -3162,6 +3188,8 @@ test("configures a standalone home-screen app with the new icon", async () => {
   assert.equal(manifest.start_url, "/climbs");
   assert.equal(manifest.scope, "/");
   assert.equal(manifest.display, "standalone");
+  assert.deepEqual(manifest.display_override, ["standalone"]);
+  assert.equal(manifest.prefer_related_applications, false);
   assert.deepEqual(
     manifest.icons.map(({ src, sizes, purpose }) => ({
       src,
@@ -3179,27 +3207,99 @@ test("configures a standalone home-screen app with the new icon", async () => {
         sizes: "512x512",
         purpose: "any",
       },
+      {
+        src: "/a-fine-wall-icon-maskable-1024.png",
+        sizes: "1024x1024",
+        purpose: "maskable",
+      },
     ],
   );
 
+  assert.match(layoutSource, /export const metadata:\s*Metadata\s*=\s*\{/);
+  assert.doesNotMatch(layoutSource, /generateMetadata/);
   assert.match(layoutSource, /manifest:\s*"\/manifest\.webmanifest"/);
   assert.match(layoutSource, /appleWebApp:\s*\{/);
   assert.match(layoutSource, /"apple-mobile-web-app-capable":\s*"yes"/);
-  assert.match(layoutSource, /\/a-fine-wall-icon-180\.png/);
+  assert.match(layoutSource, /\/apple-touch-icon-v2\.png/);
   assert.match(layoutSource, /\/a-fine-wall-icon\.png/);
   assert.match(layoutSource, /card:\s*"summary"/);
+  assert.match(layoutSource, /viewport-fit=cover/);
 
-  const response = await render("/set-climb");
-  assert.equal(response.status, 200);
-  const html = await response.text();
-  assert.match(html, /href="\/manifest\.webmanifest"/);
-  assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
-  assert.match(html, /rel="apple-touch-icon"/);
-  assert.match(html, /href="\/a-fine-wall-icon-180\.png"/);
-  assert.match(
-    html,
-    /content="http:\/\/localhost(?::3000)?\/a-fine-wall-icon\.png"/,
-  );
+  const iPhoneSafariUserAgent =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) " +
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 " +
+    "Mobile/15E148 Safari/604.1";
+  for (const pathname of ["/climbs", "/set-climb"]) {
+    const response = await render(pathname, {
+      "user-agent": iPhoneSafariUserAgent,
+    });
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    const headEnd = html.indexOf("</head>");
+    assert.ok(headEnd > 0, `${pathname} must render a document head`);
+    const head = html.slice(0, headEnd);
+
+    assert.match(
+      head,
+      /<link(?=[^>]*rel="manifest")(?=[^>]*href="\/manifest\.webmanifest")[^>]*>/,
+    );
+    assert.match(
+      head,
+      /<link(?=[^>]*rel="apple-touch-icon")(?=[^>]*href="\/apple-touch-icon-v2\.png")[^>]*>/,
+    );
+    assert.match(
+      head,
+      /<meta(?=[^>]*name="apple-mobile-web-app-capable")(?=[^>]*content="yes")[^>]*>/,
+    );
+    assert.match(
+      head,
+      /<meta(?=[^>]*name="apple-mobile-web-app-title")(?=[^>]*content="A Fine Wall")[^>]*>/,
+    );
+    assert.match(
+      head,
+      /<meta(?=[^>]*name="viewport")(?=[^>]*content="[^"]*viewport-fit=cover)[^>]*>/,
+    );
+    assert.match(
+      head,
+      /content="https:\/\/a-fine-wall\.bnugent1021\.workers\.dev\/a-fine-wall-icon\.png"/,
+    );
+  }
+});
+
+test("registers a navigation-only service worker with a safe offline fallback", async () => {
+  const [layoutSource, registrationSource, serviceWorkerSource, offlineSource] =
+    await Promise.all([
+      readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+      readFile(
+        new URL("../app/pwa-registration.tsx", import.meta.url),
+        "utf8",
+      ),
+      readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
+      readFile(new URL("../public/offline.html", import.meta.url), "utf8"),
+    ]);
+
+  assert.match(layoutSource, /<PwaRegistration\s*\/>/);
+  assert.match(registrationSource, /process\.env\.NODE_ENV !== "production"/);
+  assert.match(registrationSource, /window\.isSecureContext/);
+  assert.match(registrationSource, /\.register\("\/sw\.js"/);
+  assert.match(registrationSource, /scope:\s*"\/"/);
+  assert.match(registrationSource, /updateViaCache:\s*"none"/);
+
+  for (const eventName of ["install", "activate", "fetch"]) {
+    assert.match(
+      serviceWorkerSource,
+      new RegExp(`addEventListener\\("${eventName}"`),
+    );
+  }
+  assert.match(serviceWorkerSource, /request\.mode !== "navigate"/);
+  assert.match(serviceWorkerSource, /url\.pathname === "\/api"/);
+  assert.match(serviceWorkerSource, /url\.pathname\.startsWith\("\/api\/"\)/);
+  assert.match(serviceWorkerSource, /await fetch\(request\)/);
+  assert.match(serviceWorkerSource, /cache\.match\(OFFLINE_URL\)/);
+  assert.match(serviceWorkerSource, /navigationPreload\.enable\(\)/);
+  assert.doesNotMatch(serviceWorkerSource, /cache\.put\(/);
+  assert.match(offlineSource, /<h1>You’re offline<\/h1>/);
+  assert.match(offlineSource, /href="\/climbs"/);
 });
 
 test("cleanup migration removes only retired prototype send activity", async () => {
