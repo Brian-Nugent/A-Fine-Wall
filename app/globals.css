@@ -794,12 +794,6 @@ select:focus-visible {
   margin-left: auto;
 }
 
-.filter-apply-button {
-  flex: 0 0 auto;
-  min-width: 6.75rem;
-  white-space: nowrap;
-}
-
 .filter-hold-page {
   padding-bottom: 0;
 }
@@ -1509,6 +1503,11 @@ select:focus-visible {
   backdrop-filter: blur(12px);
 }
 
+.set-toolbar.filter-toolbar {
+  background: #ffffff;
+  backdrop-filter: none;
+}
+
 .selection-status {
   display: flex;
   min-width: 4.5rem;
@@ -1559,6 +1558,23 @@ select:focus-visible {
   background: var(--ink);
   color: #ffffff;
   font-size: 0.8rem;
+}
+
+.compact-primary-button.filter-apply-button {
+  width: max-content;
+  min-width: 6.75rem;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.filter-apply-spinner {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: back-link-spin 700ms linear infinite;
 }
 
 .text-button:disabled,
@@ -2019,7 +2035,8 @@ select:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .back-link-spinner {
+  .back-link-spinner,
+  .filter-apply-spinner {
     animation: none;
   }
 

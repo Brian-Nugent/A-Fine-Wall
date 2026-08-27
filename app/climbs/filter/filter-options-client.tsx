@@ -52,6 +52,7 @@ export default function FilterOptionsClient({
   );
   const [activities, setActivities] = useState<ClimbActivity[]>([]);
   const [isLoadingMatches, setIsLoadingMatches] = useState(true);
+  const [loadedProfileId, setLoadedProfileId] = useState<string | null>(null);
   const [climbLoadFailed, setClimbLoadFailed] = useState(false);
   const [activityLoadFailed, setActivityLoadFailed] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -88,6 +89,7 @@ export default function FilterOptionsClient({
           climbResult.value.sharedUnavailable,
       );
       setActivityLoadFailed(activityResult.status === "rejected");
+      setLoadedProfileId(profile.id);
       setIsLoadingMatches(false);
     });
 
@@ -128,6 +130,11 @@ export default function FilterOptionsClient({
     hideSent || minStars > 0 || order === "ascents";
   const matchCountUnavailable =
     climbLoadFailed || (needsActivityData && activityLoadFailed);
+  const isMatchCountLoading =
+    isLoadingMatches || !profile || loadedProfileId !== profile.id;
+  const applyButtonLabel = matchCountUnavailable
+    ? "View Climbs"
+    : `Show ${matchingCount}`;
 
   function toggleAuthor(author: string) {
     setAuthors((current) =>
@@ -364,11 +371,11 @@ export default function FilterOptionsClient({
               : `${activeFilterCount} active`}
           </strong>
           <span>
-            {isLoadingMatches
+            {isMatchCountLoading
               ? "Checking matches..."
               : matchCountUnavailable
                 ? "Match count unavailable"
-              : `${matchingCount} ${matchingCount === 1 ? "match" : "matches"}`}
+                : `${matchingCount} ${matchingCount === 1 ? "match" : "matches"}`}
           </span>
         </div>
         <div className="set-toolbar-actions">
@@ -381,12 +388,20 @@ export default function FilterOptionsClient({
             Reset
           </button>
           <a
+            aria-busy={isMatchCountLoading ? "true" : undefined}
+            aria-label={
+              isMatchCountLoading
+                ? "View climbs; checking matches"
+                : undefined
+            }
             className="compact-primary-button filter-apply-button"
             href={buildFilteredHref("/climbs", currentFilters)}
           >
-            {isLoadingMatches || matchCountUnavailable
-              ? "View Climbs"
-              : `Show ${matchingCount}`}
+            {isMatchCountLoading ? (
+              <span aria-hidden="true" className="filter-apply-spinner" />
+            ) : (
+              <span key={applyButtonLabel}>{applyButtonLabel}</span>
+            )}
           </a>
         </div>
       </div>

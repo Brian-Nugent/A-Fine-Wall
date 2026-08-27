@@ -889,6 +889,26 @@ test("renders the climb filter controls and applies URL filters", async () => {
     filterOptionsSource,
     /Use your sends and the community rating\./,
   );
+  assert.match(
+    filterOptionsSource,
+    /const applyButtonLabel = matchCountUnavailable\s*\?\s*"View Climbs"\s*:\s*`Show \$\{matchingCount\}`/,
+  );
+  assert.match(
+    filterOptionsSource,
+    /isLoadingMatches \|\| !profile \|\| loadedProfileId !== profile\.id/,
+  );
+  assert.match(
+    filterOptionsSource,
+    /aria-busy=\{isMatchCountLoading \? "true" : undefined\}/,
+  );
+  assert.match(
+    filterOptionsSource,
+    /isMatchCountLoading \? \([\s\S]*className="filter-apply-spinner"[\s\S]*key=\{applyButtonLabel\}/,
+  );
+  assert.doesNotMatch(
+    filterOptionsSource,
+    /isLoadingMatches \|\| matchCountUnavailable\s*\?\s*"View Climbs"/,
+  );
 
   const filterStyles = await readFile(
     new URL("../app/globals.css", import.meta.url),
@@ -904,6 +924,23 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.doesNotMatch(
     filterStyles,
     /\.filter-radio-choice\s*\{[^}]*border(?:-bottom)?\s*:/s,
+  );
+  const filterToolbarRule =
+    filterStyles.match(/\.set-toolbar\.filter-toolbar\s*\{([^}]*)\}/)?.[1] ??
+    "";
+  assert.match(filterToolbarRule, /background:\s*#ffffff/);
+  assert.match(filterToolbarRule, /backdrop-filter:\s*none/);
+  const filterApplyButtonRule =
+    filterStyles.match(
+      /\.compact-primary-button\.filter-apply-button\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+  assert.match(filterApplyButtonRule, /width:\s*max-content/);
+  assert.match(filterApplyButtonRule, /min-width:\s*6\.75rem/);
+  assert.match(filterApplyButtonRule, /flex:\s*0 0 auto/);
+  assert.match(filterApplyButtonRule, /white-space:\s*nowrap/);
+  assert.match(
+    filterStyles,
+    /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*\.filter-apply-spinner\s*\{\s*animation:\s*none/,
   );
 
   response = await render("/climbs/filter/holds?hold=preset-one");
