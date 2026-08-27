@@ -5,7 +5,11 @@ import { useActiveUser } from "../../user-profile-provider";
 import type { ClimbReference } from "../climb-activity";
 import { loadClimb } from "../climb-api";
 import { clearSessionClimbNavigationSnapshot } from "../climb-navigation-snapshot";
-import { loadClimbActivityDetail, saveClimbSend } from "../send-api";
+import {
+  loadClimbActivityDetail,
+  removeClimbSend,
+  saveClimbSend,
+} from "../send-api";
 import { CLIMB_GRADES, isClimbGrade } from "../saved-climbs";
 
 type ClimbSummary = {
@@ -43,7 +47,8 @@ export default function SentClimbClient({
   const [grade, setGrade] = useState("");
   const [rating, setRating] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     if (!profile) return;
@@ -70,7 +75,7 @@ export default function SentClimbClient({
         const loadedClimb =
           climbResult.status === "fulfilled" ? climbResult.value : null;
         setClimb(loadedClimb);
-        setSaveError("");
+        setActionError("");
         if (activityResult.status === "fulfilled") {
           const existingRating =
             activityResult.value.activity?.userRating ?? null;
@@ -108,8 +113,9 @@ export default function SentClimbClient({
     ratingState.profileId === profile?.id ? grade : "";
   const displayedRating =
     ratingState.profileId === profile?.id ? rating : 0;
-  const visibleSaveError =
-    ratingState.profileId === profile?.id ? saveError : "";
+  const visibleActionError =
+    ratingState.profileId === profile?.id ? actionError : "";
+  const isBusy = isSaving || isRemoving;
 
   async function saveSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -118,13 +124,13 @@ export default function SentClimbClient({
       !isClimbGrade(displayedGrade) ||
       displayedRating < 1 ||
       displayedRating > 5 ||
-      isSaving
+      isBusy
     ) {
       return;
     }
 
     setIsSaving(true);
-    setSaveError("");
+    setActionError("");
     try {
       await saveClimbSend(
         reference,
@@ -135,12 +141,41 @@ export default function SentClimbClient({
       clearSessionClimbNavigationSnapshot(window);
       window.location.replace(backHref);
     } catch (error) {
-      setSaveError(
+      setActionError(
         error instanceof Error
           ? error.message
           : "Your send could not be saved. Please try again.",
       );
       setIsSaving(false);
+    }
+  }
+
+  async function removeSend() {
+    if (
+      !profile ||
+      !climb ||
+      existingRating === null ||
+      isBusy ||
+      !window.confirm(
+        `Remove your send for “${climb.name}”? This removes your grade and rating from the logbook.`,
+      )
+    ) {
+      return;
+    }
+
+    setIsRemoving(true);
+    setActionError("");
+    try {
+      await removeClimbSend(reference, profile.id);
+      clearSessionClimbNavigationSnapshot(window);
+      window.location.replace(backHref);
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Your send could not be removed. Please try again.",
+      );
+      setIsRemoving(false);
     }
   }
 
@@ -177,12 +212,12 @@ export default function SentClimbClient({
               <span>What grade would you give this climb?</span>
               <span className="sent-grade-select">
                 <select
-                  disabled={isSaving || ratingStatus === "loading"}
+                  disabled={isBusy || ratingStatus === "loading"}
                   id="send-grade-select"
                   name="grade"
                   onChange={(event) => {
                     setGrade(event.target.value);
-                    setSaveError("");
+                    setActionError("");
                   }}
                   required
                   value={displayedGrade}
@@ -199,7 +234,7 @@ export default function SentClimbClient({
               </span>
             </label>
 
-            <fieldset disabled={isSaving || ratingStatus === "loading"}>
+            <fieldset disabled={isBusy || ratingStatus === "loading"}>
               <legend>How many stars would you give this climb?</legend>
               <div className="star-rating-options">
                 {ratings.map((value) => (
@@ -212,7 +247,7 @@ export default function SentClimbClient({
                       name="rating"
                       onChange={() => {
                         setRating(value);
-                        setSaveError("");
+                        setActionError("");
                       }}
                       type="radio"
                       value={value}
@@ -245,9 +280,9 @@ export default function SentClimbClient({
               </p>
             ) : null}
 
-            {visibleSaveError ? (
+            {visibleActionError ? (
               <p className="form-error" role="alert">
-                {visibleSaveError}
+                {visibleActionError}
               </p>
             ) : null}
 
@@ -256,17 +291,28 @@ export default function SentClimbClient({
               disabled={
                 displayedRating === 0 ||
                 !isClimbGrade(displayedGrade) ||
-                isSaving ||
+                isBusy ||
                 ratingStatus === "loading"
               }
               type="submit"
             >
               {isSaving
                 ? "Saving..."
-                : existingRating
+                : existingRating !== null
                   ? "Update Send"
                   : "Save Send"}
             </button>
+
+            {existingRating !== null ? (
+              <button
+                className="secondary-button sent-remove-button"
+                disabled={isBusy}
+                onClick={removeSend}
+                type="button"
+              >
+                {isRemoving ? "Removing..." : "Remove Send"}
+              </button>
+            ) : null}
           </form>
         </section>
       )}

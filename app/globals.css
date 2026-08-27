@@ -1312,6 +1312,18 @@ select:focus-visible {
   margin-top: 0.25rem;
 }
 
+.secondary-button.sent-remove-button {
+  width: 100%;
+  border-color: #b42331;
+  background: #ffffff;
+  color: #b42331;
+}
+
+.secondary-button.sent-remove-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
 .set-page {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }

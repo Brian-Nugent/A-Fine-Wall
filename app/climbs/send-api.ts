@@ -86,3 +86,19 @@ export async function saveClimbSend(
   }
   return activities[0];
 }
+
+export async function removeClimbSend(
+  reference: ClimbReference,
+  profileId: string,
+) {
+  const response = await fetch(SENDS_ENDPOINT, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...reference, profileId }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      await requestError(response, "Your send could not be removed."),
+    );
+  }
+}

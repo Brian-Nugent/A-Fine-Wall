@@ -626,6 +626,13 @@ function createMemoryAppDatabase() {
           return { success: true };
         }
         if (
+          normalized ===
+          "delete from climb_sends where climb_kind = ? and climb_id = ? and profile_id = ?"
+        ) {
+          savedSends.delete(memorySendKey(values[0], values[1], values[2]));
+          return { success: true };
+        }
+        if (
           normalized.startsWith(
             "delete from climb_sends where climb_kind = ? and climb_id = ?",
           )
@@ -2037,9 +2044,40 @@ test("logs a send with a grade selector before the star rating", async () => {
   );
   assert.match(sentSource, /"Update Send"/);
   assert.match(sentSource, /"Save Send"/);
-  assert.match(sentSource, /clearSessionClimbNavigationSnapshot\(window\)/);
+  assert.match(
+    sentSource,
+    /\{existingRating !== null \? \(\s*<button\s+className="secondary-button sent-remove-button"/,
+  );
+  assert.match(
+    sentSource,
+    /className="secondary-button sent-remove-button"[\s\S]*?type="button"[\s\S]*?"Remove Send"/,
+  );
+  assert.match(sentSource, /removeClimbSend\(reference, profile\.id\)/);
+  assert.match(
+    sentSource,
+    /Remove your send for “\$\{climb\.name\}”\? This removes your grade and rating from the logbook\./,
+  );
+  assert.ok(
+    sentSource.indexOf('"Update Send"') <
+      sentSource.indexOf('"Remove Send"'),
+  );
+  assert.equal(
+    (sentSource.match(/clearSessionClimbNavigationSnapshot\(window\)/g) ?? [])
+      .length,
+    2,
+  );
+  assert.equal(
+    (sentSource.match(/window\.location\.replace\(backHref\)/g) ?? []).length,
+    2,
+  );
   assert.match(sendApiSource, /profileId, grade, rating/);
   assert.match(sendApiSource, /profileId,\s*grade,\s*rating/);
+  assert.match(sendApiSource, /export async function removeClimbSend/);
+  assert.match(
+    sendApiSource,
+    /method:\s*"DELETE"[\s\S]*?JSON\.stringify\(\{ \.\.\.reference, profileId \}\)/,
+  );
+  assert.match(sendApiSource, /Your send could not be removed\./);
   assert.match(setterSource, /savedClimb\.setterGrade \?\? savedClimb\.grade/);
   assert.match(setterSource, /clearSessionClimbNavigationSnapshot\(window\)/);
   assert.equal(
@@ -2056,6 +2094,9 @@ test("logs a send with a grade selector before the star rating", async () => {
     css.match(/\.sent-grade-select::after\s*\{([^}]*)\}/)?.[1] ?? "";
   const climbNameRule =
     css.match(/\.sent-climb-heading h1\s*\{([^}]*)\}/)?.[1] ?? "";
+  const removeButtonRule =
+    css.match(/\.secondary-button\.sent-remove-button\s*\{([^}]*)\}/)?.[1] ??
+    "";
   assert.match(gradeControlRule, /display:\s*flex/);
   assert.match(gradeSelectRule, /width:\s*100%/);
   assert.match(gradeSelectRule, /min-height:\s*3\.5rem/);
@@ -2065,6 +2106,10 @@ test("logs a send with a grade selector before the star rating", async () => {
   assert.match(gradeArrowRule, /pointer-events:\s*none/);
   assert.match(climbNameRule, /font-size:\s*clamp\(2rem,\s*8vw,\s*2\.75rem\)/);
   assert.match(climbNameRule, /overflow-wrap:\s*anywhere/);
+  assert.match(removeButtonRule, /width:\s*100%/);
+  assert.match(removeButtonRule, /border-color:\s*#b42331/i);
+  assert.match(removeButtonRule, /background:\s*#ffffff/i);
+  assert.match(removeButtonRule, /color:\s*#b42331/i);
 });
 
 test("returns not found for an unknown climb", async () => {
@@ -2870,10 +2915,190 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   );
   assert.equal(response.status, 404);
   response = await fetchAppData(
-    new Request("http://localhost/api/sends", { method: "DELETE" }),
+    new Request("http://localhost/api/sends", { method: "PUT" }),
   );
   assert.equal(response.status, 405);
-  assert.equal(response.headers.get("allow"), "GET, POST");
+  assert.equal(response.headers.get("allow"), "GET, POST, DELETE");
+});
+
+test("removes only the active user's send and refreshes climb activity", async () => {
+  const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  const environment = createEnvironment({ DB: database });
+  const fetchAppData = (request) =>
+    worker.fetch(request, environment, createContext());
+
+  for (const profile of [
+    { id: "profile-alex", name: "Alex", createdAt: 1 },
+    { id: "profile-blair", name: "Blair", createdAt: 2 },
+  ]) {
+    database.seedProfile(profile);
+  }
+  for (const climb of [
+    {
+      id: "remove-send-route",
+      name: "Remove Send Route",
+      grade: "V4",
+      setter: "Alex",
+      createdAt: 10,
+    },
+    {
+      id: "remove-send-other-route",
+      name: "Other Route",
+      grade: "V1",
+      setter: "Blair",
+      createdAt: 11,
+    },
+  ]) {
+    database.seedClimb({
+      ...climb,
+      holds: [
+        { x: 20, y: 80, size: 7, role: "start" },
+        { x: 70, y: 10, size: 7, role: "finish" },
+      ],
+    });
+  }
+  for (const send of [
+    {
+      climbKind: "saved",
+      climbId: "remove-send-route",
+      profileId: "profile-alex",
+      grade: "V2",
+      rating: 2,
+      sentAt: 20,
+      updatedAt: 20,
+    },
+    {
+      climbKind: "saved",
+      climbId: "remove-send-route",
+      profileId: "profile-blair",
+      grade: "V6",
+      rating: 5,
+      sentAt: 21,
+      updatedAt: 21,
+    },
+    {
+      climbKind: "saved",
+      climbId: "remove-send-other-route",
+      profileId: "profile-alex",
+      grade: "V1",
+      rating: 4,
+      sentAt: 22,
+      updatedAt: 22,
+    },
+  ]) {
+    database.seedSend(send);
+  }
+
+  const removeSend = (
+    body,
+    origin = "http://localhost",
+    contentType = "application/json",
+  ) =>
+    fetchAppData(
+      new Request("http://localhost/api/sends", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": contentType,
+          ...(origin ? { Origin: origin } : {}),
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+  const alexSend = {
+    climbKind: "saved",
+    climbId: "remove-send-route",
+    profileId: "profile-alex",
+  };
+
+  let response = await removeSend(alexSend);
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(await response.text(), "");
+  assert.equal(
+    database.sendFor("saved", "remove-send-route", "profile-alex"),
+    null,
+  );
+  assert.equal(
+    database.sendFor("saved", "remove-send-route", "profile-blair")?.rating,
+    5,
+  );
+  assert.equal(
+    database.sendFor(
+      "saved",
+      "remove-send-other-route",
+      "profile-alex",
+    )?.rating,
+    4,
+  );
+  assert.equal(database.sendCount(), 2);
+
+  response = await fetchAppData(
+    new Request(
+      "http://localhost/api/sends?profileId=profile-alex&climbKind=saved&climbId=remove-send-route",
+    ),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    activities: [
+      {
+        climbKind: "saved",
+        climbId: "remove-send-route",
+        averageRating: 5,
+        ratingCount: 1,
+        userRating: null,
+      },
+    ],
+    logbookEntries: [{ profileName: "Blair", grade: "V6", rating: 5 }],
+    userGrade: null,
+  });
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/remove-send-route"),
+  );
+  let climb = (await response.json()).climb;
+  assert.equal(climb.grade, "V6");
+  assert.equal(climb.setterGrade, "V4");
+
+  response = await removeSend(alexSend);
+  assert.equal(response.status, 204);
+  assert.equal(database.sendCount(), 2);
+
+  for (const [body, origin, contentType, expectedStatus] of [
+    [{ ...alexSend, rating: 3 }, "http://localhost", "application/json", 400],
+    [
+      { ...alexSend, profileId: "unknown-profile" },
+      "http://localhost",
+      "application/json",
+      400,
+    ],
+    [
+      { ...alexSend, climbId: "bad id" },
+      "http://localhost",
+      "application/json",
+      400,
+    ],
+    [alexSend, "", "application/json", 403],
+    [alexSend, "https://example.com", "application/json", 403],
+    [alexSend, "http://localhost", "text/plain", 415],
+  ]) {
+    response = await removeSend(body, origin, contentType);
+    assert.equal(response.status, expectedStatus);
+  }
+  assert.equal(database.sendCount(), 2);
+
+  response = await removeSend({
+    ...alexSend,
+    profileId: "profile-blair",
+  });
+  assert.equal(response.status, 204);
+  assert.equal(database.sendCount(), 1);
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/remove-send-route"),
+  );
+  climb = (await response.json()).climb;
+  assert.equal(climb.grade, "V4");
+  assert.equal(climb.setterGrade, "V4");
 });
 
 test("uses explicit send grades for the consensus while preserving the setter grade", async () => {

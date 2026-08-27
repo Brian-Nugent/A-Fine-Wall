@@ -492,6 +492,27 @@ function parseSendWriteBody(value: unknown) {
   };
 }
 
+function parseSendDeleteBody(value: unknown) {
+  if (
+    !isPlainObject(value) ||
+    !hasOnlyKeys(value, ["climbKind", "climbId", "profileId"]) ||
+    !isClimbKind(value.climbKind) ||
+    (value.climbKind === "demo"
+      ? !isDemoClimbId(value.climbId)
+      : !isSavedClimbId(value.climbId)) ||
+    typeof value.profileId !== "string" ||
+    !recordIdPattern.test(value.profileId)
+  ) {
+    throw new ApiError("Send a valid climb and user.", 400);
+  }
+
+  return {
+    climbKind: value.climbKind,
+    climbId: value.climbId,
+    profileId: value.profileId,
+  };
+}
+
 async function readLimitedJson(request: Request, maximumBytes: number) {
   const contentType = (request.headers.get("Content-Type") || "")
     .split(";", 1)[0]
@@ -1268,7 +1289,33 @@ async function handleSends(request: Request, db: D1Database) {
     });
   }
 
-  return methodNotAllowed(["GET", "POST"]);
+  if (request.method === "DELETE") {
+    requireSameOrigin(request);
+    const send = parseSendDeleteBody(
+      await readLimitedJson(request, MAX_SEND_BODY_BYTES),
+    );
+    const profile = await loadCanonicalProfile(db, send.profileId);
+    if (!profile) {
+      throw new ApiError(
+        "Choose your user name again before removing the send.",
+        400,
+      );
+    }
+
+    await db
+      .prepare(
+        `DELETE FROM climb_sends
+         WHERE climb_kind = ? AND climb_id = ? AND profile_id = ?`,
+      )
+      .bind(send.climbKind, send.climbId, profile.id)
+      .run();
+    return new Response(null, {
+      status: 204,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
+  return methodNotAllowed(["GET", "POST", "DELETE"]);
 }
 
 async function handleProfileDetail(
