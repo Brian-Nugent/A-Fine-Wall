@@ -94,7 +94,7 @@ export default function ClimbActivityPanel({
     <>
       <section className="climb-activity-panel" aria-label="Send and rating">
         <div className="climb-activity-summary" aria-live="polite">
-          <p>Community rating</p>
+          <p className="climb-section-label">Community rating</p>
           {status === "loading" ? (
             <strong>Loading&hellip;</strong>
           ) : status === "error" ? (
@@ -122,7 +122,9 @@ export default function ClimbActivityPanel({
       </section>
 
       <section className="climb-logbook" aria-labelledby="climb-logbook-heading">
-        <h2 id="climb-logbook-heading">Logbook</h2>
+        <h2 className="climb-section-label" id="climb-logbook-heading">
+          Logbook
+        </h2>
         {status === "loading" ? (
           <p className="climb-logbook-status" role="status">
             Loading logbook&hellip;

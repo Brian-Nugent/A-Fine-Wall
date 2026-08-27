@@ -1826,7 +1826,14 @@ test("shows a responsive climb logbook below the send action", async () => {
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(panelSource, /<h2 id="climb-logbook-heading">Logbook<\/h2>/);
+  assert.match(
+    panelSource,
+    /<p className="climb-section-label">Community rating<\/p>/,
+  );
+  assert.match(
+    panelSource,
+    /<h2 className="climb-section-label" id="climb-logbook-heading">/,
+  );
   assert.match(panelSource, /Loading logbook&hellip;/);
   assert.match(panelSource, /Logbook unavailable\./);
   assert.match(panelSource, /No sends yet\./);
@@ -1868,12 +1875,18 @@ test("shows a responsive climb logbook below the send action", async () => {
     css.match(/\.climb-logbook-details\s*\{([^}]*)\}/)?.[1] ?? "";
   const gradeRule =
     css.match(/\.climb-logbook-grade\s*\{([^}]*)\}/)?.[1] ?? "";
+  const sectionLabelRule =
+    css.match(/\.climb-section-label\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(sectionLabelRule, /font-size:\s*0\.75rem/);
+  assert.match(sectionLabelRule, /font-weight:\s*650/);
   assert.match(entryRule, /display:\s*grid/);
   assert.match(entryRule, /min-width:\s*0/);
   assert.match(
     entryRule,
     /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,
   );
+  assert.doesNotMatch(entryRule, /padding(?:-block)?:/);
+  assert.doesNotMatch(entryRule, /border-top:/);
   assert.match(nameRule, /min-width:\s*0/);
   assert.match(nameRule, /overflow-wrap:\s*anywhere/);
   assert.match(detailsRule, /display:\s*inline-flex/);
