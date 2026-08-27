@@ -847,18 +847,57 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /type="range"/);
   assert.match(html, /Minimum/);
   assert.match(html, /Maximum/);
-  assert.match(html, /Hide sent climbs/);
+  assert.match(html, /Hide climbs I have sent/);
+  assert.doesNotMatch(html, /Hide sent climbs/);
+  assert.doesNotMatch(html, /Only show climbs you have not logged\./);
   assert.match(html, /Minimum community rating/);
   assert.match(html, /Most ascents/);
   assert.match(html, /Choose Holds/);
   assert.match(html, /<h2 id="order-filter-heading">Order<\/h2>/);
   assert.match(html, /role="radiogroup"/);
-  assert.match(html, /<h2 id="author-filter-heading">Author<\/h2>/);
+  assert.match(html, /<h2 id="author-filter-heading">Setter<\/h2>/);
+  assert.match(html, /No selection includes every setter\./);
+  assert.doesNotMatch(html, /No selection includes every author\./);
   assert.match(html, /role="group"/);
-  assert.doesNotMatch(html, /<legend>(?:Order|Author)<\/legend>/);
+  assert.doesNotMatch(html, /<legend>(?:Order|Setter)<\/legend>/);
+  assert.doesNotMatch(html, /Use your sends and the community rating\./);
   for (const fakeAuthor of ["Ben", "Maya", "Sam", "Lena", "Jordan"]) {
     assert.doesNotMatch(html, new RegExp(`>${fakeAuthor}<`));
   }
+
+  const filterOptionsSource = await readFile(
+    new URL(
+      "../app/climbs/filter/filter-options-client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    filterOptionsSource,
+    /availableClimbs\.map\(\(\{ climb \}\) => climb\.setter\)/,
+  );
+  assert.doesNotMatch(filterOptionsSource, /loadUserProfiles/);
+  assert.doesNotMatch(filterOptionsSource, /loadedAuthors/);
+  assert.doesNotMatch(
+    filterOptionsSource,
+    /Use your sends and the community rating\./,
+  );
+
+  const filterStyles = await readFile(
+    new URL("../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  const filterSectionRule =
+    filterStyles.match(/\.filter-section\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(filterSectionRule, /gap:\s*0\.875rem/);
+  assert.doesNotMatch(
+    filterStyles,
+    /\.filter-order-choices\s*\{[^}]*border(?:-top)?\s*:/s,
+  );
+  assert.doesNotMatch(
+    filterStyles,
+    /\.filter-radio-choice\s*\{[^}]*border(?:-bottom)?\s*:/s,
+  );
 
   response = await render("/climbs/filter/holds?hold=preset-one");
   assert.equal(response.status, 200);

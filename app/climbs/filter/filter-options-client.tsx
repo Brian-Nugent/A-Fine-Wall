@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { loadUserProfiles } from "../../user-api";
 import { useActiveUser } from "../../user-profile-provider";
 import {
   activeClimbFilterCount,
@@ -52,10 +51,8 @@ export default function FilterOptionsClient({
     climbs.map((climb) => ({ climb, key: `demo:${climb.slug}` })),
   );
   const [activities, setActivities] = useState<ClimbActivity[]>([]);
-  const [loadedAuthors, setLoadedAuthors] = useState<string[]>([]);
   const [isLoadingMatches, setIsLoadingMatches] = useState(true);
   const [climbLoadFailed, setClimbLoadFailed] = useState(false);
-  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
   const [activityLoadFailed, setActivityLoadFailed] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -67,15 +64,12 @@ export default function FilterOptionsClient({
 
     Promise.allSettled([
       loadSyncedClimbs(profile, window.localStorage, controller.signal),
-      loadUserProfiles(controller.signal),
       loadClimbActivities(profile.id, controller.signal),
-    ]).then(([climbResult, profileResult, activityResult]) => {
+    ]).then(([climbResult, activityResult]) => {
       if (!isActive) return;
 
       const syncedClimbs =
         climbResult.status === "fulfilled" ? climbResult.value.climbs : [];
-      const profiles =
-        profileResult.status === "fulfilled" ? profileResult.value : [];
       setAvailableClimbs([
         ...climbs.map((climb) => ({
           climb,
@@ -89,15 +83,10 @@ export default function FilterOptionsClient({
       setActivities(
         activityResult.status === "fulfilled" ? activityResult.value : [],
       );
-      setLoadedAuthors([
-        ...profiles.map((item) => item.name),
-        ...syncedClimbs.map((climb) => climb.setter),
-      ]);
       setClimbLoadFailed(
         climbResult.status === "rejected" ||
           climbResult.value.sharedUnavailable,
       );
-      setProfileLoadFailed(profileResult.status === "rejected");
       setActivityLoadFailed(activityResult.status === "rejected");
       setIsLoadingMatches(false);
     });
@@ -120,12 +109,9 @@ export default function FilterOptionsClient({
     }),
     [authors, hideSent, holdIds, maxGrade, minGrade, minStars, order],
   );
-  const authorOptions = uniqueFilterAuthors([
-    ...climbs.map((climb) => climb.setter),
-    ...loadedAuthors,
-    ...authors,
-    ...(profile ? [profile.name] : []),
-  ]);
+  const authorOptions = uniqueFilterAuthors(
+    availableClimbs.map(({ climb }) => climb.setter),
+  );
   const activitiesByClimb = new Map(
     activities.map((activity) => [climbActivityKey(activity), activity]),
   );
@@ -164,7 +150,6 @@ export default function FilterOptionsClient({
   function retrySharedData() {
     setIsLoadingMatches(true);
     setClimbLoadFailed(false);
-    setProfileLoadFailed(false);
     setActivityLoadFailed(false);
     setRefreshKey((current) => current + 1);
   }
@@ -187,20 +172,16 @@ export default function FilterOptionsClient({
         <p>Narrow the list by grade, sends, stars, holds, and author.</p>
       </section>
 
-      {climbLoadFailed || profileLoadFailed || activityLoadFailed ? (
+      {climbLoadFailed || activityLoadFailed ? (
         <div className="filter-data-notice" role="status">
           <p>
-            {climbLoadFailed && profileLoadFailed && activityLoadFailed
-              ? "Shared climbs, authors, sends, and ratings could not be refreshed."
+            {climbLoadFailed && activityLoadFailed
+              ? "Shared climbs, sends, and ratings could not be refreshed."
               : activityLoadFailed && needsActivityData
                 ? "Sends and ratings could not be loaded, so those options cannot be checked yet."
-                : climbLoadFailed && profileLoadFailed
-                  ? "Shared climbs and the full author list could not be refreshed."
-                  : climbLoadFailed
-                    ? "Shared climb matches could not be checked."
-                    : profileLoadFailed
-                      ? "The full author list could not be loaded."
-                      : "Sends and ratings could not be refreshed."}
+                : climbLoadFailed
+                  ? "Shared climb matches could not be checked."
+                  : "Sends and ratings could not be refreshed."}
           </p>
           <button
             className="climb-reload-button"
@@ -258,7 +239,6 @@ export default function FilterOptionsClient({
         <div className="filter-section-heading">
           <div>
             <h2 id="activity-filter-heading">Sends &amp; stars</h2>
-            <p>Use your sends and the community rating.</p>
           </div>
         </div>
 
@@ -269,10 +249,7 @@ export default function FilterOptionsClient({
             onChange={(event) => setHideSent(event.target.checked)}
             type="checkbox"
           />
-          <span>
-            <label htmlFor="hide-sent-climbs">Hide sent climbs</label>
-            <small>Only show climbs you have not logged.</small>
-          </span>
+          <label htmlFor="hide-sent-climbs">Hide climbs I have sent</label>
         </div>
 
         <label className="filter-select-control" htmlFor="minimum-stars">
@@ -359,8 +336,8 @@ export default function FilterOptionsClient({
         aria-labelledby="author-filter-heading"
         className="filter-section filter-author-section"
       >
-        <h2 id="author-filter-heading">Author</h2>
-        <p className="filter-help">No selection includes every author.</p>
+        <h2 id="author-filter-heading">Setter</h2>
+        <p className="filter-help">No selection includes every setter.</p>
         <div
           aria-labelledby="author-filter-heading"
           className="filter-author-list"
