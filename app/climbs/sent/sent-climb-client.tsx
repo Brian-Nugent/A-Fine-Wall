@@ -2,12 +2,11 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useActiveUser } from "../../user-profile-provider";
-import {
-  findClimbActivity,
-  type ClimbReference,
-} from "../climb-activity";
+import type { ClimbReference } from "../climb-activity";
 import { loadClimb } from "../climb-api";
-import { loadClimbActivities, saveClimbSend } from "../send-api";
+import { clearSessionClimbNavigationSnapshot } from "../climb-navigation-snapshot";
+import { loadClimbActivityDetail, saveClimbSend } from "../send-api";
+import { CLIMB_GRADES, isClimbGrade } from "../saved-climbs";
 
 type ClimbSummary = {
   name: string;
@@ -41,71 +40,72 @@ export default function SentClimbClient({
     status: "loading",
     existingRating: null,
   });
+  const [grade, setGrade] = useState("");
   const [rating, setRating] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
-
-  useEffect(() => {
-    if (climbKind !== "saved") return;
-    const controller = new AbortController();
-
-    void loadClimb(climbId, controller.signal)
-      .then((savedClimb) =>
-        setClimb(
-          savedClimb
-            ? { name: savedClimb.name, grade: savedClimb.grade }
-            : null,
-        ),
-      )
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setClimb(null);
-      });
-
-    return () => controller.abort();
-  }, [climbId, climbKind]);
 
   useEffect(() => {
     if (!profile) return;
     const controller = new AbortController();
     let isActive = true;
 
-    void loadClimbActivities(profile.id, controller.signal)
-      .then((activities) => {
-        if (!isActive) return;
-        const existingRating =
-          findClimbActivity(activities, { climbId, climbKind })?.userRating ??
-          null;
+    const climbRequest: Promise<ClimbSummary | null> =
+      climbKind === "saved"
+        ? loadClimb(climbId, controller.signal).then((savedClimb) =>
+            savedClimb
+              ? { name: savedClimb.name, grade: savedClimb.grade }
+              : null,
+          )
+        : Promise.resolve(initialClimb);
+    const activityRequest = loadClimbActivityDetail(
+      { climbId, climbKind },
+      profile.id,
+      controller.signal,
+    );
+
+    void Promise.allSettled([climbRequest, activityRequest]).then(
+      ([climbResult, activityResult]) => {
+        if (!isActive || controller.signal.aborted) return;
+        const loadedClimb =
+          climbResult.status === "fulfilled" ? climbResult.value : null;
+        setClimb(loadedClimb);
         setSaveError("");
-        setRating(existingRating ?? 0);
-        setRatingState({
-          profileId: profile.id,
-          status: "ready",
-          existingRating,
-        });
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        if (!isActive) return;
-        setSaveError("");
-        setRating(0);
-        setRatingState({
-          profileId: profile.id,
-          status: "error",
-          existingRating: null,
-        });
-      });
+        if (activityResult.status === "fulfilled") {
+          const existingRating =
+            activityResult.value.activity?.userRating ?? null;
+          const existingGrade = activityResult.value.userGrade;
+          setGrade(existingGrade ?? loadedClimb?.grade ?? "");
+          setRating(existingRating ?? 0);
+          setRatingState({
+            profileId: profile.id,
+            status: "ready",
+            existingRating,
+          });
+        } else {
+          setGrade(loadedClimb?.grade ?? "");
+          setRating(0);
+          setRatingState({
+            profileId: profile.id,
+            status: "error",
+            existingRating: null,
+          });
+        }
+      },
+    );
 
     return () => {
       isActive = false;
       controller.abort();
     };
-  }, [climbId, climbKind, profile]);
+  }, [climbId, climbKind, initialClimb, profile]);
 
   const ratingStatus =
     ratingState.profileId === profile?.id ? ratingState.status : "loading";
   const existingRating =
     ratingStatus === "ready" ? ratingState.existingRating : null;
+  const displayedGrade =
+    ratingState.profileId === profile?.id ? grade : "";
   const displayedRating =
     ratingState.profileId === profile?.id ? rating : 0;
   const visibleSaveError =
@@ -115,6 +115,7 @@ export default function SentClimbClient({
     event.preventDefault();
     if (
       !profile ||
+      !isClimbGrade(displayedGrade) ||
       displayedRating < 1 ||
       displayedRating > 5 ||
       isSaving
@@ -125,7 +126,13 @@ export default function SentClimbClient({
     setIsSaving(true);
     setSaveError("");
     try {
-      await saveClimbSend(reference, profile.id, displayedRating);
+      await saveClimbSend(
+        reference,
+        profile.id,
+        displayedGrade,
+        displayedRating,
+      );
+      clearSessionClimbNavigationSnapshot(window);
       window.location.replace(backHref);
     } catch (error) {
       setSaveError(
@@ -144,7 +151,7 @@ export default function SentClimbClient({
           <span aria-hidden="true">&larr;</span>
           Climb
         </a>
-        <span>Sent</span>
+        <span>Log Send</span>
       </header>
 
       {climb === undefined ? (
@@ -162,26 +169,36 @@ export default function SentClimbClient({
       ) : (
         <section className="sent-content" aria-labelledby="sent-heading">
           <div className="sent-climb-heading">
-            <div>
-              <p className="step-label">Log your climb</p>
-              <h1 id="sent-heading">Rate your send</h1>
-              <p>{climb.name}</p>
-            </div>
-            <strong>{climb.grade}</strong>
+            <h1 id="sent-heading">{climb.name}</h1>
           </div>
 
-          {ratingStatus === "loading" ? (
-            <p className="sent-load-status" role="status">
-              Loading your rating&hellip;
-            </p>
-          ) : ratingStatus === "error" ? (
-            <p className="sent-load-status" role="status">
-              Your previous rating could not be loaded. You can still save a
-              rating now.
-            </p>
-          ) : null}
-
           <form className="sent-form" onSubmit={saveSend}>
+            <label className="sent-grade-control" htmlFor="send-grade-select">
+              <span>What grade would you give this climb?</span>
+              <span className="sent-grade-select">
+                <select
+                  disabled={isSaving || ratingStatus === "loading"}
+                  id="send-grade-select"
+                  name="grade"
+                  onChange={(event) => {
+                    setGrade(event.target.value);
+                    setSaveError("");
+                  }}
+                  required
+                  value={displayedGrade}
+                >
+                  <option disabled value="">
+                    Loading grade&hellip;
+                  </option>
+                  {CLIMB_GRADES.map((gradeOption) => (
+                    <option key={gradeOption} value={gradeOption}>
+                      {gradeOption}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            </label>
+
             <fieldset disabled={isSaving || ratingStatus === "loading"}>
               <legend>How many stars would you give this climb?</legend>
               <div className="star-rating-options">
@@ -212,10 +229,21 @@ export default function SentClimbClient({
             </fieldset>
 
             <p className="selected-rating" aria-live="polite">
-              {displayedRating === 0
-                ? "Choose a rating from 1 to 5."
-                : `${displayedRating} out of 5 stars`}
+              {displayedRating > 0
+                ? `${displayedRating} out of 5 stars`
+                : null}
             </p>
+
+            {ratingStatus === "loading" ? (
+              <p className="sent-load-status" role="status">
+                Loading your send details&hellip;
+              </p>
+            ) : ratingStatus === "error" ? (
+              <p className="sent-load-status" role="status">
+                Your previous send details could not be loaded. The consensus
+                grade is selected; choose a rating to save.
+              </p>
+            ) : null}
 
             {visibleSaveError ? (
               <p className="form-error" role="alert">
@@ -227,6 +255,7 @@ export default function SentClimbClient({
               className="primary-button sent-save-button"
               disabled={
                 displayedRating === 0 ||
+                !isClimbGrade(displayedGrade) ||
                 isSaving ||
                 ratingStatus === "loading"
               }
@@ -235,7 +264,7 @@ export default function SentClimbClient({
               {isSaving
                 ? "Saving..."
                 : existingRating
-                  ? "Update Rating"
+                  ? "Update Send"
                   : "Save Send"}
             </button>
           </form>

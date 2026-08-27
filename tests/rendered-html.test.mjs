@@ -151,6 +151,8 @@ function createMemoryAppDatabase() {
   let wallConfiguration = null;
   let climbsTableExists = false;
   let climbsHaveRockoApproval = false;
+  let climbSendsTableExists = false;
+  let climbSendsHaveGrade = false;
   const savedClimbs = new Map();
   const deletedClimbs = new Map();
   const savedProfiles = new Map();
@@ -186,6 +188,24 @@ function createMemoryAppDatabase() {
     };
   }
 
+  function consensusGrade(climbId) {
+    const grades = [...savedSends.values()].flatMap((send) =>
+      send.climb_kind === "saved" &&
+      send.climb_id === climbId &&
+      typeof send.grade === "string"
+        ? [Number(send.grade.slice(1))]
+        : [],
+    );
+    return grades.length === 0
+      ? null
+      : {
+          climb_id: climbId,
+          consensus_grade: Math.round(
+            grades.reduce((total, grade) => total + grade, 0) / grades.length,
+          ),
+        };
+  }
+
   function createStatement(sql, values = []) {
     const normalized = sql.replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -199,6 +219,30 @@ function createMemoryAppDatabase() {
             results: climbsHaveRockoApproval
               ? [{ name: "rocko_approved" }]
               : [],
+          };
+        }
+        if (normalized === "pragma table_info(climb_sends)") {
+          return {
+            results: climbSendsHaveGrade ? [{ name: "grade" }] : [],
+          };
+        }
+        if (
+          normalized.includes("as consensus_grade") &&
+          normalized.includes("from climb_sends") &&
+          normalized.includes("group by climb_id")
+        ) {
+          const climbIds = new Set(
+            [...savedSends.values()]
+              .filter(
+                (send) => send.climb_kind === "saved" && send.grade !== null,
+              )
+              .map((send) => send.climb_id),
+          );
+          return {
+            results: [...climbIds].flatMap((climbId) => {
+              const consensus = consensusGrade(climbId);
+              return consensus ? [consensus] : [];
+            }),
           };
         }
         if (normalized.includes("from climbs order by created_at desc")) {
@@ -272,6 +316,7 @@ function createMemoryAppDatabase() {
             results: matching.map((send) => ({
               profile_id: send.profile_id,
               profile_name: savedProfiles.get(send.profile_id).name,
+              grade: send.grade,
               rating: send.rating,
             })),
           };
@@ -327,6 +372,7 @@ function createMemoryAppDatabase() {
             climbKind,
             climbId,
             profileId,
+            grade,
             rating,
             sentAt,
             updatedAt,
@@ -344,12 +390,20 @@ function createMemoryAppDatabase() {
             climb_kind: climbKind,
             climb_id: climbId,
             profile_id: profileId,
+            grade,
             rating,
             sent_at: existing?.sent_at ?? sentAt,
             updated_at: updatedAt,
           };
           savedSends.set(key, send);
           return send;
+        }
+        if (
+          normalized.includes("as consensus_grade") &&
+          normalized.includes("from climb_sends") &&
+          normalized.includes("group by climb_id")
+        ) {
+          return consensusGrade(values[0]);
         }
         if (
           normalized.includes("from climb_sends") &&
@@ -489,7 +543,19 @@ function createMemoryAppDatabase() {
           }
           return { success: true };
         }
+        if (normalized.startsWith("create table if not exists climb_sends")) {
+          if (!climbSendsTableExists) {
+            climbSendsTableExists = true;
+            climbSendsHaveGrade = normalized.includes("grade text");
+          }
+          return { success: true };
+        }
         if (normalized.startsWith("create table") || normalized.startsWith("create index")) {
+          return { success: true };
+        }
+        if (normalized.startsWith("alter table climb_sends add column grade")) {
+          climbSendsHaveGrade = true;
+          for (const send of savedSends.values()) send.grade ??= null;
           return { success: true };
         }
         if (normalized.startsWith("alter table climbs add column rocko_approved")) {
@@ -606,12 +672,14 @@ function createMemoryAppDatabase() {
       });
     },
     seedSend(send) {
+      climbSendsTableExists = true;
       savedSends.set(
         memorySendKey(send.climbKind, send.climbId, send.profileId),
         {
           climb_kind: send.climbKind,
           climb_id: send.climbId,
           profile_id: send.profileId,
+          grade: send.grade ?? null,
           rating: send.rating,
           sent_at: send.sentAt,
           updated_at: send.updatedAt,
@@ -620,6 +688,12 @@ function createMemoryAppDatabase() {
     },
     sendCount() {
       return savedSends.size;
+    },
+    sendFor(climbKind, climbId, profileId) {
+      const send = savedSends.get(
+        memorySendKey(climbKind, climbId, profileId),
+      );
+      return send ? { ...send } : null;
     },
   };
 }
@@ -1320,29 +1394,79 @@ test("validates and formats collision-safe climb activity", () => {
   const detailPayload = {
     ...payload,
     logbookEntries: [
-      { profileName: "Zoë", rating: 5 },
-      { profileName: "Alex", rating: 4 },
+      { profileName: "Zoë", grade: "V5", rating: 5 },
+      { profileName: "Alex", grade: "V4", rating: 4 },
     ],
+    userGrade: "V4",
   };
   assert.deepEqual(
     parseClimbActivityDetailPayload(detailPayload, reference),
     {
       activity: payload.activities[0],
       logbookEntries: detailPayload.logbookEntries,
+      userGrade: "V4",
     },
   );
   assert.deepEqual(
     parseClimbActivityDetailPayload(
+      { activities: [], logbookEntries: [], userGrade: null },
+      reference,
+    ),
+    { activity: null, logbookEntries: [], userGrade: null },
+  );
+  const detailWithLegacyGrade = {
+    ...detailPayload,
+    logbookEntries: [
+      { ...detailPayload.logbookEntries[0], grade: null },
+      detailPayload.logbookEntries[1],
+    ],
+  };
+  assert.deepEqual(
+    parseClimbActivityDetailPayload(detailWithLegacyGrade, reference),
+    {
+      activity: payload.activities[0],
+      logbookEntries: detailWithLegacyGrade.logbookEntries,
+      userGrade: "V4",
+    },
+  );
+  assert.equal(
+    parseClimbActivityDetailPayload(
       { activities: [], logbookEntries: [] },
       reference,
     ),
-    { activity: null, logbookEntries: [] },
+    null,
   );
+  for (const userGrade of ["V18", " V4", 4, undefined]) {
+    assert.equal(
+      parseClimbActivityDetailPayload(
+        { ...detailPayload, userGrade },
+        reference,
+      ),
+      null,
+    );
+  }
+  for (const grade of ["V18", " V4", "v4", 4, undefined]) {
+    assert.equal(
+      parseClimbActivityDetailPayload(
+        {
+          ...detailPayload,
+          logbookEntries: [
+            { ...detailPayload.logbookEntries[0], grade },
+            detailPayload.logbookEntries[1],
+          ],
+        },
+        reference,
+      ),
+      null,
+    );
+  }
   assert.equal(
     parseClimbActivityDetailPayload(
       {
         ...detailPayload,
-        logbookEntries: [{ profileName: "Alex", rating: 0 }],
+        activities: [
+          { ...payload.activities[0], userRating: null },
+        ],
       },
       reference,
     ),
@@ -1352,7 +1476,19 @@ test("validates and formats collision-safe climb activity", () => {
     parseClimbActivityDetailPayload(
       {
         ...detailPayload,
-        logbookEntries: [{ profileName: " Bad name ", rating: 5 }],
+        logbookEntries: [{ profileName: "Alex", grade: "V4", rating: 0 }],
+      },
+      reference,
+    ),
+    null,
+  );
+  assert.equal(
+    parseClimbActivityDetailPayload(
+      {
+        ...detailPayload,
+        logbookEntries: [
+          { profileName: " Bad name ", grade: "V4", rating: 5 },
+        ],
       },
       reference,
     ),
@@ -1659,6 +1795,15 @@ test("shows a responsive climb logbook below the send action", async () => {
   assert.match(panelSource, /aria-label=\{`\$\{entry\.rating\} out of 5 stars`\}/);
   assert.match(panelSource, /Array\.from\(\{ length: entry\.rating \}/);
   assert.doesNotMatch(panelSource, /\{entry\.rating\}\/5/);
+  assert.match(panelSource, /className="climb-logbook-details"/);
+  assert.match(panelSource, /className="climb-logbook-grade"/);
+  assert.match(panelSource, /className="climb-logbook-rating"\s+role="img"/);
+  assert.match(panelSource, /Grade not recorded/);
+  assert.match(panelSource, /entry\.grade \?\? "—"/);
+  assert.ok(
+    panelSource.indexOf('className="climb-logbook-rating"') <
+      panelSource.indexOf('className="climb-logbook-grade"'),
+  );
   assert.ok(
     panelSource.indexOf('className="primary-button sent-button"') <
       panelSource.indexOf('className="climb-logbook"'),
@@ -1680,14 +1825,28 @@ test("shows a responsive climb logbook below the send action", async () => {
     css.match(/\.climb-logbook-name\s*\{([^}]*)\}/)?.[1] ?? "";
   const ratingRule =
     css.match(/\.climb-logbook-rating\s*\{([^}]*)\}/)?.[1] ?? "";
-  assert.match(entryRule, /display:\s*flex/);
+  const detailsRule =
+    css.match(/\.climb-logbook-details\s*\{([^}]*)\}/)?.[1] ?? "";
+  const gradeRule =
+    css.match(/\.climb-logbook-grade\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(entryRule, /display:\s*grid/);
   assert.match(entryRule, /min-width:\s*0/);
+  assert.match(
+    entryRule,
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,
+  );
   assert.match(nameRule, /min-width:\s*0/);
   assert.match(nameRule, /overflow-wrap:\s*anywhere/);
+  assert.match(detailsRule, /display:\s*inline-flex/);
+  assert.match(detailsRule, /justify-content:\s*flex-end/);
+  assert.match(detailsRule, /white-space:\s*nowrap/);
   assert.match(ratingRule, /display:\s*inline-flex/);
   assert.match(ratingRule, /flex:\s*0\s+0\s+auto/);
   assert.match(ratingRule, /gap:\s*0\.12rem/);
   assert.match(ratingRule, /white-space:\s*nowrap/);
+  assert.match(gradeRule, /flex:\s*0\s+0\s+auto/);
+  assert.match(gradeRule, /text-align:\s*right/);
+  assert.match(gradeRule, /white-space:\s*nowrap/);
 });
 
 test("allows long climb names to wrap without entering the grade column", async () => {
@@ -1756,6 +1915,104 @@ test("renders the saved-climb send shell and preserves filters", async () => {
     "/climbs/sent?kind=demo&id=first-light",
   );
   assert.equal(notFoundResponse.status, 404);
+});
+
+test("logs a send with a grade selector before the star rating", async () => {
+  const [
+    panelSource,
+    sentSource,
+    sendApiSource,
+    setterSource,
+    climbApiSource,
+    css,
+  ] = await Promise.all([
+      readFile(
+        new URL("../app/climbs/climb-activity-panel.tsx", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL(
+          "../app/climbs/sent/sent-climb-client.tsx",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+      readFile(new URL("../app/climbs/send-api.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/set-climb/page.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../app/climbs/climb-api.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    ]);
+
+  assert.match(panelSource, /"Edit Send"\s*:\s*"Log Send"/);
+  assert.doesNotMatch(panelSource, /"Edit Rating"\s*:\s*"Sent"/);
+  assert.match(sentSource, /loadClimbActivityDetail\(/);
+  assert.match(sentSource, /existingGrade \?\? loadedClimb\?\.grade \?\? ""/);
+  assert.match(sentSource, /What grade would you give this climb\?/);
+  assert.match(
+    sentSource,
+    /<h1 id="sent-heading">\{climb\.name\}<\/h1>/,
+  );
+  assert.doesNotMatch(
+    sentSource,
+    /Log your climb|Log your send|Choose a rating from 1 to 5\./,
+  );
+  assert.doesNotMatch(sentSource, />\s*\{climb\.grade\}\s*</);
+  assert.doesNotMatch(sentSource, /aria-label=\{`Consensus grade/);
+  assert.match(sentSource, /name="grade"/);
+  assert.match(sentSource, /className="sent-grade-select"/);
+  assert.match(sentSource, /<option disabled value="">/);
+  assert.match(sentSource, /CLIMB_GRADES\.map/);
+  assert.ok(
+    sentSource.indexOf('<h1 id="sent-heading">') <
+      sentSource.indexOf('id="send-grade-select"'),
+  );
+  assert.ok(
+    sentSource.indexOf('id="send-grade-select"') <
+      sentSource.indexOf("<fieldset"),
+  );
+  assert.match(
+    sentSource,
+    /<legend>How many stars would you give this climb\?<\/legend>/,
+  );
+  assert.match(sentSource, /className="star-radio-input"/);
+  assert.match(sentSource, /star-rating-label--filled/);
+  assert.match(sentSource, /const ratings = \[1, 2, 3, 4, 5\] as const/);
+  assert.match(sentSource, /name="rating"/);
+  assert.match(sentSource, /type="radio"/);
+  assert.match(
+    sentSource,
+    /saveClimbSend\(\s*reference,\s*profile\.id,\s*displayedGrade,\s*displayedRating/,
+  );
+  assert.match(sentSource, /"Update Send"/);
+  assert.match(sentSource, /"Save Send"/);
+  assert.match(sentSource, /clearSessionClimbNavigationSnapshot\(window\)/);
+  assert.match(sendApiSource, /profileId, grade, rating/);
+  assert.match(sendApiSource, /profileId,\s*grade,\s*rating/);
+  assert.match(setterSource, /savedClimb\.setterGrade \?\? savedClimb\.grade/);
+  assert.match(setterSource, /clearSessionClimbNavigationSnapshot\(window\)/);
+  assert.equal(
+    (climbApiSource.match(/climb\.setterGrade \?\? climb\.grade/g) ?? [])
+      .length,
+    2,
+  );
+
+  const gradeControlRule =
+    css.match(/\.sent-grade-control\s*\{([^}]*)\}/)?.[1] ?? "";
+  const gradeSelectRule =
+    css.match(/\.sent-grade-control select\s*\{([^}]*)\}/)?.[1] ?? "";
+  const gradeArrowRule =
+    css.match(/\.sent-grade-select::after\s*\{([^}]*)\}/)?.[1] ?? "";
+  const climbNameRule =
+    css.match(/\.sent-climb-heading h1\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(gradeControlRule, /display:\s*flex/);
+  assert.match(gradeSelectRule, /width:\s*100%/);
+  assert.match(gradeSelectRule, /min-height:\s*3\.5rem/);
+  assert.match(gradeSelectRule, /(?:^|\n)\s*appearance:\s*none/);
+  assert.match(gradeSelectRule, /padding:\s*0\.8rem\s+3rem/);
+  assert.match(gradeArrowRule, /right:\s*1\.2rem/);
+  assert.match(gradeArrowRule, /pointer-events:\s*none/);
+  assert.match(climbNameRule, /font-size:\s*clamp\(2rem,\s*8vw,\s*2\.75rem\)/);
+  assert.match(climbNameRule, /overflow-wrap:\s*anywhere/);
 });
 
 test("returns not found for an unknown climb", async () => {
@@ -2301,8 +2558,12 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
         body: JSON.stringify(body),
       }),
     );
-  const savedSend = (profileId, rating, climbId = "saved-route-one") =>
-    send({ climbKind: "saved", climbId, profileId, rating });
+  const savedSend = (
+    profileId,
+    rating,
+    climbId = "saved-route-one",
+    grade = "V4",
+  ) => send({ climbKind: "saved", climbId, profileId, grade, rating });
 
   let response = await fetchAppData(
     new Request("http://localhost/api/sends?profileId=profile-alex"),
@@ -2356,11 +2617,12 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
       left.profileName.localeCompare(right.profileName),
     ),
     [
-      { profileName: "Alex", rating: 4 },
-      { profileName: "Blair", rating: 5 },
+      { profileName: "Alex", grade: "V4", rating: 4 },
+      { profileName: "Blair", grade: "V4", rating: 5 },
     ],
   );
   assert.equal(updatedLogbook.activities[0].userRating, 4);
+  assert.equal(updatedLogbook.userGrade, "V4");
   assert.equal(database.sendCount(), 2);
 
   response = await savedSend("profile-alex", 4, "saved-route-two");
@@ -2421,10 +2683,21 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
     response = await savedSend("profile-alex", rating);
     assert.equal(response.status, 400);
   }
+  for (const grade of [undefined, null, "V18", "V-1", "v4", 4]) {
+    response = await send({
+      climbKind: "saved",
+      climbId: "saved-route-one",
+      profileId: "profile-alex",
+      grade,
+      rating: 3,
+    });
+    assert.equal(response.status, 400);
+  }
   response = await send({
     climbKind: "demo",
     climbId: "first-light",
     profileId: "profile-alex",
+    grade: "V4",
     rating: 3,
   });
   assert.equal(response.status, 400);
@@ -2432,6 +2705,7 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
     climbKind: "saved",
     climbId: "unknown-saved-climb",
     profileId: "profile-alex",
+    grade: "V4",
     rating: 3,
   });
   assert.equal(response.status, 404);
@@ -2441,6 +2715,7 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
     climbKind: "saved",
     climbId: "saved-route-one",
     profileId: "profile-alex",
+    grade: "V4",
     rating: 3,
     averageRating: 5,
   });
@@ -2450,6 +2725,7 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
       climbKind: "saved",
       climbId: "saved-route-one",
       profileId: "profile-alex",
+      grade: "V4",
       rating: 3,
     },
     "",
@@ -2461,6 +2737,7 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
       climbKind: "saved",
       climbId: "saved-route-one",
       profileId: "profile-alex",
+      grade: "V4",
       rating: 3,
     },
     "https://example.com",
@@ -2491,6 +2768,7 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
     climbKind: "saved",
     climbId: "saved-route-one",
     profileId: "profile-alex",
+    grade: "V4",
     rating: 4,
   });
   assert.equal(response.status, 410);
@@ -2546,7 +2824,187 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   assert.equal(response.headers.get("allow"), "GET, POST");
 });
 
-test("lists every sender and current star rating in a climb logbook", async () => {
+test("uses explicit send grades for the consensus while preserving the setter grade", async () => {
+  const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  const environment = createEnvironment({ DB: database });
+  const fetchAppData = (request) =>
+    worker.fetch(request, environment, createContext());
+
+  for (const profile of [
+    { id: "profile-alex", name: "Alex", createdAt: 1 },
+    { id: "profile-blair", name: "Blair", createdAt: 2 },
+    { id: "profile-legacy", name: "Legacy", createdAt: 3 },
+    { id: "profile-admin", name: "Admin", createdAt: 4 },
+  ]) {
+    database.seedProfile(profile);
+  }
+  database.seedClimb({
+    id: "consensus-route",
+    name: "Consensus Route",
+    grade: "V4",
+    setter: "Alex",
+    createdAt: 10,
+    holds: [
+      { x: 20, y: 80, size: 7, role: "start" },
+      { x: 70, y: 10, size: 7, role: "finish" },
+    ],
+  });
+  database.seedSend({
+    climbKind: "saved",
+    climbId: "consensus-route",
+    profileId: "profile-legacy",
+    rating: 3,
+    sentAt: 20,
+    updatedAt: 20,
+  });
+
+  const loadClimb = async () => {
+    const response = await fetchAppData(
+      new Request("http://localhost/api/climbs/consensus-route"),
+    );
+    assert.equal(response.status, 200);
+    return (await response.json()).climb;
+  };
+  const saveSend = (profileId, grade, rating) =>
+    fetchAppData(
+      new Request("http://localhost/api/sends", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({
+          climbKind: "saved",
+          climbId: "consensus-route",
+          profileId,
+          grade,
+          rating,
+        }),
+      }),
+    );
+
+  let climb = await loadClimb();
+  assert.equal(climb.grade, "V4");
+  assert.equal(climb.setterGrade, "V4");
+
+  let response = await fetchAppData(
+    new Request("http://localhost/api/climbs"),
+  );
+  assert.equal(response.status, 200);
+  let listedClimb = (await response.json()).climbs.find(
+    (candidate) => candidate.id === "consensus-route",
+  );
+  assert.equal(listedClimb.grade, "V4");
+  assert.equal(listedClimb.setterGrade, "V4");
+
+  response = await fetchAppData(
+    new Request(
+      "http://localhost/api/sends?profileId=profile-legacy&climbKind=saved&climbId=consensus-route",
+    ),
+  );
+  assert.equal(response.status, 200);
+  const legacyDetail = await response.json();
+  assert.equal(legacyDetail.activities[0].userRating, 3);
+  assert.equal(legacyDetail.userGrade, null);
+
+  response = await saveSend("profile-alex", "V2", 4);
+  assert.equal(response.status, 200);
+  assert.equal((await loadClimb()).grade, "V2");
+  const alexOriginalSend = database.sendFor(
+    "saved",
+    "consensus-route",
+    "profile-alex",
+  );
+  assert.ok(alexOriginalSend);
+
+  response = await saveSend("profile-blair", "V3", 5);
+  assert.equal(response.status, 200);
+  assert.equal((await loadClimb()).grade, "V3");
+
+  response = await saveSend("profile-alex", "V6", 2);
+  assert.equal(response.status, 200);
+  assert.equal(database.sendCount(), 3);
+  const alexUpdatedSend = database.sendFor(
+    "saved",
+    "consensus-route",
+    "profile-alex",
+  );
+  assert.equal(alexUpdatedSend.sent_at, alexOriginalSend.sent_at);
+  assert.equal(alexUpdatedSend.grade, "V6");
+
+  climb = await loadClimb();
+  assert.equal(climb.grade, "V5");
+  assert.equal(climb.setterGrade, "V4");
+  assert.equal(
+    matchesClimbFilters(
+      climb,
+      parseClimbFilters(new URLSearchParams("min=5&max=5")),
+    ),
+    true,
+  );
+  assert.equal(
+    matchesClimbFilters(
+      climb,
+      parseClimbFilters(new URLSearchParams("min=4&max=4")),
+    ),
+    false,
+  );
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs"),
+  );
+  listedClimb = (await response.json()).climbs.find(
+    (candidate) => candidate.id === "consensus-route",
+  );
+  assert.equal(listedClimb.grade, "V5");
+  assert.equal(listedClimb.setterGrade, "V4");
+
+  response = await fetchAppData(
+    new Request(
+      "http://localhost/api/sends?profileId=profile-alex&climbKind=saved&climbId=consensus-route",
+    ),
+  );
+  const alexDetail = await response.json();
+  assert.equal(alexDetail.activities[0].userRating, 2);
+  assert.equal(alexDetail.userGrade, "V6");
+  assert.equal(
+    alexDetail.logbookEntries.find(
+      (entry) => entry.profileName === "Alex",
+    )?.grade,
+    "V6",
+  );
+  assert.equal(
+    alexDetail.logbookEntries.find(
+      (entry) => entry.profileName === "Legacy",
+    )?.grade,
+    null,
+  );
+
+  response = await fetchAppData(
+    new Request(
+      "http://localhost/api/climbs/consensus-route/rocko-approval",
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({
+          profileId: "profile-admin",
+          rockoApproved: true,
+        }),
+      },
+    ),
+  );
+  assert.equal(response.status, 200);
+  const approvedClimb = (await response.json()).climb;
+  assert.equal(approvedClimb.grade, "V5");
+  assert.equal(approvedClimb.setterGrade, "V4");
+  assert.equal(approvedClimb.rockoApproved, true);
+});
+
+test("lists every sender with their current grade and star rating", async () => {
   const worker = await loadWorker();
   const database = createMemoryAppDatabase();
   const environment = createEnvironment({ DB: database });
@@ -2593,6 +3051,7 @@ test("lists every sender and current star rating in a climb logbook", async () =
       climbKind: "saved",
       climbId: "logbook-route",
       profileId: "profile-zoe",
+      grade: "V3",
       rating: 3,
       sentAt: 300,
       updatedAt: 300,
@@ -2601,6 +3060,7 @@ test("lists every sender and current star rating in a climb logbook", async () =
       climbKind: "saved",
       climbId: "logbook-route",
       profileId: "profile-blair",
+      grade: "V6",
       rating: 5,
       sentAt: 300,
       updatedAt: 300,
@@ -2609,6 +3069,7 @@ test("lists every sender and current star rating in a climb logbook", async () =
       climbKind: "saved",
       climbId: "other-route",
       profileId: "profile-alex",
+      grade: "V1",
       rating: 1,
       sentAt: 400,
       updatedAt: 400,
@@ -2633,10 +3094,11 @@ test("lists every sender and current star rating in a climb logbook", async () =
     },
   ]);
   assert.deepEqual(payload.logbookEntries, [
-    { profileName: "Blair", rating: 5 },
-    { profileName: "Zoë", rating: 3 },
-    { profileName: "Alex", rating: 2 },
+    { profileName: "Blair", grade: "V6", rating: 5 },
+    { profileName: "Zoë", grade: "V3", rating: 3 },
+    { profileName: "Alex", grade: null, rating: 2 },
   ]);
+  assert.equal(payload.userGrade, null);
   assert.equal("profileId" in payload.logbookEntries[0], false);
   assert.equal("sentAt" in payload.logbookEntries[0], false);
   assert.equal(payload.logbookEntries.length, payload.activities[0].ratingCount);
@@ -2648,6 +3110,7 @@ test("lists every sender and current star rating in a climb logbook", async () =
   assert.deepEqual(await response.json(), {
     activities: [],
     logbookEntries: [],
+    userGrade: null,
   });
 
   response = await fetchAppData(
@@ -2750,6 +3213,8 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   );
   assert.equal(response.status, 201);
   const savedClimb = (await response.json()).climb;
+  assert.equal(savedClimb.grade, "V17");
+  assert.equal(savedClimb.setterGrade, "V17");
   assert.equal(savedClimb.setter, "Alex Rivera");
   assert.equal(savedClimb.rockoApproved, false);
   assert.equal(savedClimb.holds[0].holdId, "start-hold");
@@ -3106,6 +3571,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
         climbKind: "saved",
         climbId: climb.id,
         profileId,
+        grade: "V2",
         rating: 5,
       }),
     }),
@@ -3180,7 +3646,8 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(response.status, 200);
   const updatedClimb = (await response.json()).climb;
   assert.equal(updatedClimb.name, climbUpdate.name);
-  assert.equal(updatedClimb.grade, climbUpdate.grade);
+  assert.equal(updatedClimb.grade, "V2");
+  assert.equal(updatedClimb.setterGrade, climbUpdate.grade);
   assert.equal(updatedClimb.setter, savedClimb.setter);
   assert.equal(updatedClimb.createdAt, savedClimb.createdAt);
   assert.equal(updatedClimb.rockoApproved, true);
@@ -3204,6 +3671,8 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(response.status, 200);
   const adminUpdatedClimb = (await response.json()).climb;
   assert.equal(adminUpdatedClimb.name, "Admin Revised Route");
+  assert.equal(adminUpdatedClimb.grade, "V2");
+  assert.equal(adminUpdatedClimb.setterGrade, climbUpdate.grade);
   assert.equal(adminUpdatedClimb.setter, "Alex Rivera");
   assert.equal(adminUpdatedClimb.rockoApproved, true);
 
@@ -3626,6 +4095,52 @@ test("adds Rocko approval without replacing or deleting existing climbs", async 
     /ALTER TABLE `climbs` ADD `rocko_approved` integer DEFAULT false NOT NULL/,
   );
   assert.doesNotMatch(migration, /DROP TABLE|DELETE FROM|CREATE TABLE/);
+});
+
+test("adds nullable send grades without rewriting legacy sends", async () => {
+  const [migration, snapshotSource, journalSource, schemaSource, workerSource] =
+    await Promise.all([
+      readFile(
+        new URL("../drizzle/0007_previous_peter_quill.sql", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL("../drizzle/meta/0007_snapshot.json", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL("../drizzle/meta/_journal.json", import.meta.url),
+        "utf8",
+      ),
+      readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+      readFile(new URL("../worker/app-data.ts", import.meta.url), "utf8"),
+    ]);
+  const snapshot = JSON.parse(snapshotSource);
+  const journal = JSON.parse(journalSource);
+
+  assert.equal(
+    migration.trim(),
+    "ALTER TABLE `climb_sends` ADD `grade` text;",
+  );
+  assert.doesNotMatch(migration, /UPDATE|DELETE|DROP TABLE|CREATE TABLE/i);
+  assert.deepEqual(snapshot.tables.climb_sends.columns.grade, {
+    name: "grade",
+    type: "text",
+    primaryKey: false,
+    notNull: false,
+    autoincrement: false,
+  });
+  assert.equal(journal.entries.at(-1)?.tag, "0007_previous_peter_quill");
+  assert.match(schemaSource, /grade:\s*text\("grade"\)/);
+  assert.match(workerSource, /PRAGMA table_info\(climb_sends\)/);
+  assert.match(workerSource, /ALTER TABLE climb_sends ADD COLUMN grade TEXT/);
+  assert.doesNotMatch(
+    workerSource.match(
+      /async function ensureClimbSendGradeColumn[\s\S]*?\n\}/,
+    )?.[0] ??
+      "",
+    /UPDATE climb_sends/i,
+  );
 });
 
 test("shows only clean colored circles for selected route holds", async () => {

@@ -52,6 +52,10 @@ type Climb = {
   rockoApproved: boolean;
 };
 
+type ClimbForRead = Climb & {
+  setterGrade: string;
+};
+
 type Profile = {
   id: string;
   name: string;
@@ -95,6 +99,7 @@ type ClimbSendRow = {
   climb_kind: string;
   climb_id: string;
   profile_id: string;
+  grade: string | null;
   rating: number;
   sent_at: number;
   updated_at: number;
@@ -103,7 +108,13 @@ type ClimbSendRow = {
 type ClimbLogbookRow = {
   profile_id: string;
   profile_name: string;
+  grade: string | null;
   rating: number;
+};
+
+type ConsensusGradeRow = {
+  climb_id: string;
+  consensus_grade: number;
 };
 
 class ApiError extends Error {
@@ -446,25 +457,37 @@ function parseClimbWriteBody(value: unknown) {
 function parseSendWriteBody(value: unknown) {
   if (
     !isPlainObject(value) ||
-    !hasOnlyKeys(value, ["climbKind", "climbId", "profileId", "rating"]) ||
+    !hasOnlyKeys(value, [
+      "climbKind",
+      "climbId",
+      "profileId",
+      "grade",
+      "rating",
+    ]) ||
     !isClimbKind(value.climbKind) ||
     (value.climbKind === "demo"
       ? !isDemoClimbId(value.climbId)
       : !isSavedClimbId(value.climbId)) ||
     typeof value.profileId !== "string" ||
     !recordIdPattern.test(value.profileId) ||
+    typeof value.grade !== "string" ||
+    !gradePattern.test(value.grade) ||
     typeof value.rating !== "number" ||
     !Number.isInteger(value.rating) ||
     value.rating < 1 ||
     value.rating > 5
   ) {
-    throw new ApiError("Send a valid climb, user, and rating from 1 to 5.", 400);
+    throw new ApiError(
+      "Send a valid climb, user, grade, and rating from 1 to 5.",
+      400,
+    );
   }
 
   return {
     climbKind: value.climbKind,
     climbId: value.climbId,
     profileId: value.profileId,
+    grade: value.grade,
     rating: value.rating,
   };
 }
@@ -549,6 +572,25 @@ async function ensureClimbApprovalColumn(db: D1Database) {
   }
 }
 
+async function ensureClimbSendGradeColumn(db: D1Database) {
+  const hasGradeColumn = async () => {
+    const result = await db
+      .prepare("PRAGMA table_info(climb_sends)")
+      .all<TableInfoRow>();
+    return result.results.some((column) => column.name === "grade");
+  };
+
+  if (await hasGradeColumn()) return;
+
+  try {
+    await db
+      .prepare("ALTER TABLE climb_sends ADD COLUMN grade TEXT")
+      .run();
+  } catch (error) {
+    if (!(await hasGradeColumn())) throw error;
+  }
+}
+
 async function ensureSchema(db: D1Database) {
   await db.batch([
     db.prepare(`
@@ -587,6 +629,7 @@ async function ensureSchema(db: D1Database) {
         climb_kind TEXT NOT NULL CHECK (climb_kind IN ('demo', 'saved')),
         climb_id TEXT NOT NULL,
         profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        grade TEXT,
         rating INTEGER NOT NULL CHECK (rating IN (1, 2, 3, 4, 5)),
         sent_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
@@ -611,6 +654,7 @@ async function ensureSchema(db: D1Database) {
     `).bind(WALL_CONFIGURATION_ID, "[]", 0),
   ]);
   await ensureClimbApprovalColumn(db);
+  await ensureClimbSendGradeColumn(db);
 }
 
 function rowToProfile(row: ProfileRow): Profile {
@@ -693,6 +737,60 @@ function rowToClimb(row: ClimbRow): Climb {
   } catch {
     throw new ApiError("A saved climb is invalid.", 500);
   }
+}
+
+function consensusGradeNumber(row: ConsensusGradeRow) {
+  if (
+    !isSavedClimbId(row.climb_id) ||
+    !Number.isInteger(row.consensus_grade) ||
+    row.consensus_grade < 0 ||
+    row.consensus_grade > 17
+  ) {
+    throw new ApiError("A saved consensus grade is invalid.", 500);
+  }
+  return row.consensus_grade;
+}
+
+async function loadConsensusGradeMap(db: D1Database) {
+  const result = await db
+    .prepare(
+      `SELECT climb_id,
+              CAST(ROUND(AVG(CAST(SUBSTR(grade, 2) AS INTEGER))) AS INTEGER)
+                AS consensus_grade
+       FROM climb_sends
+       WHERE climb_kind = 'saved' AND grade IS NOT NULL
+       GROUP BY climb_id`,
+    )
+    .all<ConsensusGradeRow>();
+  return new Map(
+    result.results.map((row) => [row.climb_id, consensusGradeNumber(row)]),
+  );
+}
+
+async function loadConsensusGrade(db: D1Database, climbId: string) {
+  const row = await db
+    .prepare(
+      `SELECT climb_id,
+              CAST(ROUND(AVG(CAST(SUBSTR(grade, 2) AS INTEGER))) AS INTEGER)
+                AS consensus_grade
+       FROM climb_sends
+       WHERE climb_kind = 'saved' AND climb_id = ? AND grade IS NOT NULL
+       GROUP BY climb_id`,
+    )
+    .bind(climbId)
+    .first<ConsensusGradeRow>();
+  return row ? consensusGradeNumber(row) : null;
+}
+
+function withConsensusGrade(
+  climb: Climb,
+  consensusGrade: number | null,
+): ClimbForRead {
+  return {
+    ...climb,
+    grade: consensusGrade === null ? climb.grade : `V${consensusGrade}`,
+    setterGrade: climb.grade,
+  };
 }
 
 function isMatchingLegacyClimb(existing: Climb, submitted: Climb) {
@@ -957,6 +1055,7 @@ function logbookEntryFromRow(row: ClimbLogbookRow) {
   if (
     !recordIdPattern.test(row.profile_id) ||
     !profileName ||
+    (row.grade !== null && !gradePattern.test(row.grade)) ||
     !Number.isInteger(row.rating) ||
     row.rating < 1 ||
     row.rating > 5
@@ -964,7 +1063,7 @@ function logbookEntryFromRow(row: ClimbLogbookRow) {
     throw new ApiError("A saved climb logbook entry is invalid.", 500);
   }
 
-  return { profileName, rating: row.rating };
+  return { profileName, grade: row.grade, rating: row.rating };
 }
 
 async function handleSends(request: Request, db: D1Database) {
@@ -1010,7 +1109,8 @@ async function handleSends(request: Request, db: D1Database) {
 
       const logbookResult = await db
         .prepare(
-          `SELECT send.profile_id, profile.name AS profile_name, send.rating
+          `SELECT send.profile_id, profile.name AS profile_name,
+                  send.grade, send.rating
            FROM climb_sends AS send
            JOIN profiles AS profile ON profile.id = send.profile_id
            WHERE send.climb_kind = ? AND send.climb_id = ?
@@ -1024,6 +1124,10 @@ async function handleSends(request: Request, db: D1Database) {
       const currentProfileIndex = logbookResult.results.findIndex(
         (row) => row.profile_id === profile.id,
       );
+      const userGrade =
+        currentProfileIndex < 0
+          ? null
+          : logbookResult.results[currentProfileIndex].grade;
       const userRating =
         currentProfileIndex < 0
           ? null
@@ -1056,6 +1160,7 @@ async function handleSends(request: Request, db: D1Database) {
                 ),
               ],
         logbookEntries,
+        userGrade,
       });
     }
 
@@ -1097,27 +1202,30 @@ async function handleSends(request: Request, db: D1Database) {
       send.climbKind === "demo"
         ? db.prepare(
             `INSERT INTO climb_sends
-               (climb_kind, climb_id, profile_id, rating, sent_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?)
+               (climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (climb_kind, climb_id, profile_id)
-             DO UPDATE SET rating = excluded.rating,
+             DO UPDATE SET grade = excluded.grade,
+                           rating = excluded.rating,
                            updated_at = excluded.updated_at
-             RETURNING climb_kind, climb_id, profile_id, rating, sent_at, updated_at`,
+             RETURNING climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at`,
           )
         : db.prepare(
             `INSERT INTO climb_sends
-               (climb_kind, climb_id, profile_id, rating, sent_at, updated_at)
-             SELECT ?, ?, ?, ?, ?, ?
+               (climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?
              WHERE EXISTS (SELECT 1 FROM climbs WHERE id = ?)
              ON CONFLICT (climb_kind, climb_id, profile_id)
-             DO UPDATE SET rating = excluded.rating,
+             DO UPDATE SET grade = excluded.grade,
+                           rating = excluded.rating,
                            updated_at = excluded.updated_at
-             RETURNING climb_kind, climb_id, profile_id, rating, sent_at, updated_at`,
+             RETURNING climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at`,
           );
     const values = [
       send.climbKind,
       send.climbId,
       profile.id,
+      send.grade,
       send.rating,
       now,
       now,
@@ -1188,18 +1296,22 @@ async function handleProfileDetail(
 
 async function handleClimbs(request: Request, db: D1Database) {
   if (request.method === "GET") {
-    const [result, wallConfiguration] = await Promise.all([
+    const [result, wallConfiguration, consensusGrades] = await Promise.all([
       db
         .prepare(
           "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs ORDER BY created_at DESC, id ASC",
         )
         .all<ClimbRow>(),
       loadWallConfiguration(db),
+      loadConsensusGradeMap(db),
     ]);
     const wallHolds = parseStoredHolds(wallConfiguration.holds_json);
     return json({
       climbs: result.results.map((row) =>
-        resolveClimbForRead(rowToClimb(row), wallHolds),
+        withConsensusGrade(
+          resolveClimbForRead(rowToClimb(row), wallHolds),
+          consensusGrades.get(row.id) ?? null,
+        ),
       ),
     });
   }
@@ -1261,7 +1373,12 @@ async function handleClimbs(request: Request, db: D1Database) {
         throw new ApiError("A climb with this id already exists.", 409);
       }
 
-      return json({ climb: rowToClimb(claimed) });
+      return json({
+        climb: withConsensusGrade(
+          rowToClimb(claimed),
+          await loadConsensusGrade(db, claimed.id),
+        ),
+      });
     }
 
     const wasDeleted = await db
@@ -1337,7 +1454,7 @@ async function handleClimbs(request: Request, db: D1Database) {
       throw error;
     }
 
-    return json({ climb }, 201);
+    return json({ climb: withConsensusGrade(climb, null) }, 201);
   }
 
   return methodNotAllowed(["GET", "POST"]);
@@ -1393,11 +1510,16 @@ async function handleRockoApproval(
     throw new ApiError("Climb not found.", 404);
   }
 
-  const wallHolds = parseStoredHolds(
-    (await loadWallConfiguration(db)).holds_json,
-  );
+  const [wallConfiguration, consensusGrade] = await Promise.all([
+    loadWallConfiguration(db),
+    loadConsensusGrade(db, updated.id),
+  ]);
+  const wallHolds = parseStoredHolds(wallConfiguration.holds_json);
   return json({
-    climb: resolveClimbForRead(rowToClimb(updated), wallHolds),
+    climb: withConsensusGrade(
+      resolveClimbForRead(rowToClimb(updated), wallHolds),
+      consensusGrade,
+    ),
   });
 }
 
@@ -1525,13 +1647,25 @@ async function handleClimbDetail(
       );
     }
 
-    return json({ climb: rowToClimb(updated) });
+    return json({
+      climb: withConsensusGrade(
+        rowToClimb(updated),
+        await loadConsensusGrade(db, updated.id),
+      ),
+    });
   }
 
-  const wallHolds = parseStoredHolds(
-    (await loadWallConfiguration(db)).holds_json,
-  );
-  return json({ climb: resolveClimbForRead(rowToClimb(row), wallHolds) });
+  const [wallConfiguration, consensusGrade] = await Promise.all([
+    loadWallConfiguration(db),
+    loadConsensusGrade(db, row.id),
+  ]);
+  const wallHolds = parseStoredHolds(wallConfiguration.holds_json);
+  return json({
+    climb: withConsensusGrade(
+      resolveClimbForRead(rowToClimb(row), wallHolds),
+      consensusGrade,
+    ),
+  });
 }
 
 export function isAppDataPath(pathname: string) {

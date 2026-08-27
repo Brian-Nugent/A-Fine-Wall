@@ -31,6 +31,7 @@ export type SavedClimb = {
   id: string;
   name: string;
   grade: string;
+  setterGrade?: string;
   setter: string;
   profileId?: string;
   createdAt: number;
@@ -118,6 +119,7 @@ function isSavedClimb(value: unknown): value is SavedClimb {
     climb.name.trim().length > 0 &&
     climb.name.length <= 50 &&
     isClimbGrade(climb.grade) &&
+    (climb.setterGrade === undefined || isClimbGrade(climb.setterGrade)) &&
     isStoredSetterName(climb.setter) &&
     (climb.profileId === undefined || isStoredProfileId(climb.profileId)) &&
     (climb.rockoApproved === undefined ||

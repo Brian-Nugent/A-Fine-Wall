@@ -57,6 +57,7 @@ export const climbSends = sqliteTable(
     profileId: text("profile_id")
       .notNull()
       .references(() => profiles.id, { onDelete: "cascade" }),
+    grade: text("grade"),
     rating: integer("rating").notNull(),
     sentAt: integer("sent_at").notNull(),
     updatedAt: integer("updated_at").notNull(),

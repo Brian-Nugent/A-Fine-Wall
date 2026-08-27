@@ -18,6 +18,7 @@ import {
   buildFilteredHref,
   parseClimbFilters,
 } from "../climbs/climb-filters";
+import { clearSessionClimbNavigationSnapshot } from "../climbs/climb-navigation-snapshot";
 import {
   CLIMB_GRADES,
   nextSavedHoldRole,
@@ -193,7 +194,7 @@ export default function SetClimbPage() {
         setEditingClimb(savedClimb);
         setSelectedHolds(restoredHolds);
         setName(savedClimb.name);
-        setGrade(savedClimb.grade);
+        setGrade(savedClimb.setterGrade ?? savedClimb.grade);
         setEditLoadStatus("ready");
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -324,6 +325,7 @@ export default function SetClimbPage() {
       } catch {
         // The durable app copy was saved; the browser copy is only a fallback.
       }
+      clearSessionClimbNavigationSnapshot(window);
       window.location.assign(
         buildFilteredHref(
           "/climbs/saved",

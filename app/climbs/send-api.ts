@@ -66,12 +66,13 @@ export async function loadClimbActivityDetail(
 export async function saveClimbSend(
   reference: ClimbReference,
   profileId: string,
+  grade: string,
   rating: number,
 ): Promise<ClimbActivity> {
   const response = await fetch(SENDS_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...reference, profileId, rating }),
+    body: JSON.stringify({ ...reference, profileId, grade, rating }),
   });
   if (!response.ok) {
     throw new Error(

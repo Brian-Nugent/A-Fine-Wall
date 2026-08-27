@@ -816,7 +816,7 @@ export default function SavedClimbDetail({
               item.id === updatedClimb.id
                 ? {
                     ...item,
-                    rockoApproved: Boolean(updatedClimb.rockoApproved),
+                    ...updatedClimb,
                   }
                 : item,
             ),

@@ -117,7 +117,7 @@ export default function ClimbActivityPanel({
           ) : null}
         </div>
         <a className="primary-button sent-button" href={sentHref}>
-          {activity?.userRating ? "Edit Rating" : "Sent"}
+          {activity?.userRating ? "Edit Send" : "Log Send"}
         </a>
       </section>
 
@@ -141,15 +141,26 @@ export default function ClimbActivityPanel({
                 key={`${entry.profileName}-${index}`}
               >
                 <span className="climb-logbook-name">{entry.profileName}</span>
-                <span
-                  aria-label={`${entry.rating} out of 5 stars`}
-                  className="climb-logbook-rating"
-                >
-                  {Array.from({ length: entry.rating }, (_, starIndex) => (
-                    <span aria-hidden="true" key={starIndex}>
-                      &#9733;
+                <span className="climb-logbook-details">
+                  <span
+                    aria-label={`${entry.rating} out of 5 stars`}
+                    className="climb-logbook-rating"
+                    role="img"
+                  >
+                    {Array.from({ length: entry.rating }, (_, starIndex) => (
+                      <span aria-hidden="true" key={starIndex}>
+                        &#9733;
+                      </span>
+                    ))}
+                  </span>
+                  <span className="climb-logbook-grade">
+                    <span className="sr-only">
+                      {entry.grade
+                        ? `Grade ${entry.grade}`
+                        : "Grade not recorded"}
                     </span>
-                  ))}
+                    <span aria-hidden="true">{entry.grade ?? "—"}</span>
+                  </span>
                 </span>
               </li>
             ))}

@@ -15,12 +15,14 @@ export type ClimbActivity = ClimbReference & {
 
 export type ClimbLogbookEntry = {
   profileName: string;
+  grade: string | null;
   rating: number;
 };
 
 export type ClimbActivityDetail = {
   activity: ClimbActivity | null;
   logbookEntries: ClimbLogbookEntry[];
+  userGrade: string | null;
 };
 
 const savedClimbIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
@@ -62,6 +64,10 @@ function isRating(value: unknown): value is number {
   );
 }
 
+function isGrade(value: unknown): value is string {
+  return typeof value === "string" && /^V(?:[0-9]|1[0-7])$/.test(value);
+}
+
 function parseLogbookEntry(value: unknown): ClimbLogbookEntry | null {
   if (!value || typeof value !== "object") return null;
   const entry = value as Record<string, unknown>;
@@ -74,6 +80,7 @@ function parseLogbookEntry(value: unknown): ClimbLogbookEntry | null {
       const code = character.codePointAt(0) ?? 0;
       return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
     }) ||
+    (entry.grade !== null && !isGrade(entry.grade)) ||
     !isRating(entry.rating)
   ) {
     return null;
@@ -81,6 +88,7 @@ function parseLogbookEntry(value: unknown): ClimbLogbookEntry | null {
 
   return {
     profileName: entry.profileName,
+    grade: entry.grade,
     rating: entry.rating,
   };
 }
@@ -138,13 +146,21 @@ export function parseClimbActivityDetailPayload(
     activities.length > 1 ||
     !value ||
     typeof value !== "object" ||
-    !("logbookEntries" in value)
+    !("logbookEntries" in value) ||
+    !("userGrade" in value)
   ) {
     return null;
   }
 
   const entries = (value as { logbookEntries?: unknown }).logbookEntries;
+  const userGrade = (value as { userGrade?: unknown }).userGrade;
   if (!Array.isArray(entries)) return null;
+  if (
+    userGrade !== null &&
+    !isGrade(userGrade)
+  ) {
+    return null;
+  }
   const parsedEntries = entries.map(parseLogbookEntry);
   if (
     !parsedEntries.every(
@@ -159,12 +175,13 @@ export function parseClimbActivityDetailPayload(
     (activity !== null &&
       climbActivityKey(activity) !== climbActivityKey(reference)) ||
     (activity === null && parsedEntries.length > 0) ||
+    (userGrade !== null && activity?.userRating == null) ||
     (activity !== null && activity.ratingCount !== parsedEntries.length)
   ) {
     return null;
   }
 
-  return { activity, logbookEntries: parsedEntries };
+  return { activity, logbookEntries: parsedEntries, userGrade };
 }
 
 export function findClimbActivity(
