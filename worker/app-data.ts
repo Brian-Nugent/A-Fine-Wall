@@ -100,6 +100,12 @@ type ClimbSendRow = {
   updated_at: number;
 };
 
+type ClimbLogbookRow = {
+  profile_id: string;
+  profile_name: string;
+  rating: number;
+};
+
 class ApiError extends Error {
   constructor(
     message: string,
@@ -946,15 +952,111 @@ function activityFromAggregate(
   };
 }
 
+function logbookEntryFromRow(row: ClimbLogbookRow) {
+  const profileName = normalizeProfileName(row.profile_name);
+  if (
+    !recordIdPattern.test(row.profile_id) ||
+    !profileName ||
+    !Number.isInteger(row.rating) ||
+    row.rating < 1 ||
+    row.rating > 5
+  ) {
+    throw new ApiError("A saved climb logbook entry is invalid.", 500);
+  }
+
+  return { profileName, rating: row.rating };
+}
+
 async function handleSends(request: Request, db: D1Database) {
   if (request.method === "GET") {
-    const profileId = new URL(request.url).searchParams.get("profileId");
+    const searchParams = new URL(request.url).searchParams;
+    const profileId = searchParams.get("profileId");
     if (!profileId || !recordIdPattern.test(profileId)) {
       throw new ApiError("Choose your user name before loading sends.", 400);
     }
     const profile = await loadCanonicalProfile(db, profileId);
     if (!profile) {
       throw new ApiError("Choose your user name again before loading sends.", 404);
+    }
+
+    const requestedClimbKind = searchParams.get("climbKind");
+    const requestedClimbId = searchParams.get("climbId");
+    const isDetailRequest =
+      requestedClimbKind !== null || requestedClimbId !== null;
+    if (isDetailRequest) {
+      if (
+        !isClimbKind(requestedClimbKind) ||
+        (requestedClimbKind === "demo"
+          ? !isDemoClimbId(requestedClimbId)
+          : !isSavedClimbId(requestedClimbId))
+      ) {
+        throw new ApiError("Choose a valid climb before loading its logbook.", 400);
+      }
+
+      if (requestedClimbKind === "saved") {
+        const savedClimb = await db
+          .prepare("SELECT id FROM climbs WHERE id = ?")
+          .bind(requestedClimbId)
+          .first<{ id: string }>();
+        if (!savedClimb) {
+          const wasDeleted = await db
+            .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
+            .bind(requestedClimbId)
+            .first<{ id: string }>();
+          if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
+          throw new ApiError("Climb not found.", 404);
+        }
+      }
+
+      const logbookResult = await db
+        .prepare(
+          `SELECT send.profile_id, profile.name AS profile_name, send.rating
+           FROM climb_sends AS send
+           JOIN profiles AS profile ON profile.id = send.profile_id
+           WHERE send.climb_kind = ? AND send.climb_id = ?
+           ORDER BY send.sent_at DESC,
+                    profile.name COLLATE NOCASE ASC,
+                    profile.id ASC`,
+        )
+        .bind(requestedClimbKind, requestedClimbId)
+        .all<ClimbLogbookRow>();
+      const logbookEntries = logbookResult.results.map(logbookEntryFromRow);
+      const currentProfileIndex = logbookResult.results.findIndex(
+        (row) => row.profile_id === profile.id,
+      );
+      const userRating =
+        currentProfileIndex < 0
+          ? null
+          : logbookEntries[currentProfileIndex].rating;
+      const ratingCount = logbookEntries.length;
+      const averageRating = ratingCount
+        ? Math.round(
+            (logbookEntries.reduce(
+              (total, entry) => total + entry.rating,
+              0,
+            ) /
+              ratingCount) *
+              10,
+          ) / 10
+        : null;
+
+      return json({
+        activities:
+          averageRating === null
+            ? []
+            : [
+                activityFromAggregate(
+                  {
+                    climb_kind: requestedClimbKind,
+                    climb_id: requestedClimbId,
+                    average_rating: averageRating,
+                    rating_count: ratingCount,
+                  },
+                  userRating,
+                ),
+              ],
+        logbookEntries,
+      });
     }
 
     const aggregateResult = await db

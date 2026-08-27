@@ -1011,6 +1011,57 @@ select:focus-visible {
   width: 100%;
 }
 
+.climb-logbook {
+  padding: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.climb-logbook h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+
+.climb-logbook-status {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.climb-logbook-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.climb-logbook-entry {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.climb-logbook-name {
+  min-width: 0;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.climb-logbook-rating {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 0.12rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.climb-logbook-rating > span {
+  color: #d99f00;
+}
+
 .climb-options {
   position: relative;
 }

@@ -51,6 +51,7 @@ import {
   findClimbActivity,
   formatAverageRating,
   isClimbReference,
+  parseClimbActivityDetailPayload,
   parseClimbActivitiesPayload,
 } from "../app/climbs/climb-activity.ts";
 import { climbs as demoClimbs } from "../app/climbs/data.ts";
@@ -243,6 +244,36 @@ function createMemoryAppDatabase() {
                   a.id.localeCompare(b.id),
               )
               .slice(0, 200),
+          };
+        }
+        if (
+          normalized.includes("from climb_sends as send") &&
+          normalized.includes("join profiles as profile")
+        ) {
+          const matching = [...savedSends.values()]
+            .filter(
+              (send) =>
+                send.climb_kind === values[0] &&
+                send.climb_id === values[1] &&
+                savedProfiles.has(send.profile_id),
+            )
+            .sort((left, right) => {
+              const leftProfile = savedProfiles.get(left.profile_id);
+              const rightProfile = savedProfiles.get(right.profile_id);
+              return (
+                right.sent_at - left.sent_at ||
+                leftProfile.name.localeCompare(rightProfile.name, undefined, {
+                  sensitivity: "base",
+                }) ||
+                leftProfile.id.localeCompare(rightProfile.id)
+              );
+            });
+          return {
+            results: matching.map((send) => ({
+              profile_id: send.profile_id,
+              profile_name: savedProfiles.get(send.profile_id).name,
+              rating: send.rating,
+            })),
           };
         }
         if (
@@ -1284,6 +1315,56 @@ test("validates and formats collision-safe climb activity", () => {
     }),
     null,
   );
+
+  const reference = { climbKind: "saved", climbId: "first-light" };
+  const detailPayload = {
+    ...payload,
+    logbookEntries: [
+      { profileName: "Zoë", rating: 5 },
+      { profileName: "Alex", rating: 4 },
+    ],
+  };
+  assert.deepEqual(
+    parseClimbActivityDetailPayload(detailPayload, reference),
+    {
+      activity: payload.activities[0],
+      logbookEntries: detailPayload.logbookEntries,
+    },
+  );
+  assert.deepEqual(
+    parseClimbActivityDetailPayload(
+      { activities: [], logbookEntries: [] },
+      reference,
+    ),
+    { activity: null, logbookEntries: [] },
+  );
+  assert.equal(
+    parseClimbActivityDetailPayload(
+      {
+        ...detailPayload,
+        logbookEntries: [{ profileName: "Alex", rating: 0 }],
+      },
+      reference,
+    ),
+    null,
+  );
+  assert.equal(
+    parseClimbActivityDetailPayload(
+      {
+        ...detailPayload,
+        logbookEntries: [{ profileName: " Bad name ", rating: 5 }],
+      },
+      reference,
+    ),
+    null,
+  );
+  assert.equal(
+    parseClimbActivityDetailPayload(detailPayload, {
+      climbKind: "saved",
+      climbId: "another-climb",
+    }),
+    null,
+  );
 });
 
 test("renders the climb setter with the wall and selectable holds", async () => {
@@ -1558,6 +1639,55 @@ test("shows Rocko approval on climb lists and in the requested detail rows", asy
   assert.match(tagRule, /background:\s*rgba\(250,\s*187,\s*0,\s*0\.12\)/i);
   assert.match(tagRule, /color:\s*#d99f00/i);
   assert.match(tagRule, /white-space:\s*nowrap/);
+});
+
+test("shows a responsive climb logbook below the send action", async () => {
+  const [panelSource, sendApiSource, css] = await Promise.all([
+    readFile(
+      new URL("../app/climbs/climb-activity-panel.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../app/climbs/send-api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(panelSource, /<h2 id="climb-logbook-heading">Logbook<\/h2>/);
+  assert.match(panelSource, /Loading logbook&hellip;/);
+  assert.match(panelSource, /Logbook unavailable\./);
+  assert.match(panelSource, /No sends yet\./);
+  assert.match(panelSource, /className="climb-logbook-list"/);
+  assert.match(panelSource, /aria-label=\{`\$\{entry\.rating\} out of 5 stars`\}/);
+  assert.match(panelSource, /Array\.from\(\{ length: entry\.rating \}/);
+  assert.doesNotMatch(panelSource, /\{entry\.rating\}\/5/);
+  assert.ok(
+    panelSource.indexOf('className="primary-button sent-button"') <
+      panelSource.indexOf('className="climb-logbook"'),
+  );
+  assert.match(panelSource, /loadClimbActivityDetail\(/);
+  assert.match(panelSource, /referenceKey/);
+  assert.match(
+    panelSource,
+    /\[climbId, climbKind, profile, referenceKey\]/,
+  );
+  assert.match(panelSource, /controller\.abort\(\)/);
+  assert.doesNotMatch(panelSource, /dangerouslySetInnerHTML/);
+  assert.match(sendApiSource, /climbKind:\s*reference\.climbKind/);
+  assert.match(sendApiSource, /climbId:\s*reference\.climbId/);
+
+  const entryRule =
+    css.match(/\.climb-logbook-entry\s*\{([^}]*)\}/)?.[1] ?? "";
+  const nameRule =
+    css.match(/\.climb-logbook-name\s*\{([^}]*)\}/)?.[1] ?? "";
+  const ratingRule =
+    css.match(/\.climb-logbook-rating\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(entryRule, /display:\s*flex/);
+  assert.match(entryRule, /min-width:\s*0/);
+  assert.match(nameRule, /min-width:\s*0/);
+  assert.match(nameRule, /overflow-wrap:\s*anywhere/);
+  assert.match(ratingRule, /display:\s*inline-flex/);
+  assert.match(ratingRule, /flex:\s*0\s+0\s+auto/);
+  assert.match(ratingRule, /gap:\s*0\.12rem/);
+  assert.match(ratingRule, /white-space:\s*nowrap/);
 });
 
 test("allows long climb names to wrap without entering the grade column", async () => {
@@ -2214,6 +2344,25 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   });
   assert.equal(database.sendCount(), 2);
 
+  response = await fetchAppData(
+    new Request(
+      "http://localhost/api/sends?profileId=profile-alex&climbKind=saved&climbId=saved-route-one",
+    ),
+  );
+  assert.equal(response.status, 200);
+  const updatedLogbook = await response.json();
+  assert.deepEqual(
+    [...updatedLogbook.logbookEntries].sort((left, right) =>
+      left.profileName.localeCompare(right.profileName),
+    ),
+    [
+      { profileName: "Alex", rating: 4 },
+      { profileName: "Blair", rating: 5 },
+    ],
+  );
+  assert.equal(updatedLogbook.activities[0].userRating, 4);
+  assert.equal(database.sendCount(), 2);
+
   response = await savedSend("profile-alex", 4, "saved-route-two");
   assert.equal(response.status, 200);
   response = await savedSend("profile-alex-two", 2, "saved-route-two");
@@ -2331,6 +2480,13 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   assert.equal(response.status, 204);
   assert.equal(database.sendCount(), 1);
 
+  response = await fetchAppData(
+    new Request(
+      "http://localhost/api/sends?profileId=profile-alex&climbKind=saved&climbId=saved-route-one",
+    ),
+  );
+  assert.equal(response.status, 410);
+
   response = await send({
     climbKind: "saved",
     climbId: "saved-route-one",
@@ -2388,6 +2544,128 @@ test("logs sends, updates ratings, and calculates per-user averages", async () =
   );
   assert.equal(response.status, 405);
   assert.equal(response.headers.get("allow"), "GET, POST");
+});
+
+test("lists every sender and current star rating in a climb logbook", async () => {
+  const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  const environment = createEnvironment({ DB: database });
+  const fetchAppData = (path) =>
+    worker.fetch(
+      new Request(`http://localhost${path}`),
+      environment,
+      createContext(),
+    );
+
+  for (const profile of [
+    { id: "profile-alex", name: "Alex", createdAt: 1 },
+    { id: "profile-blair", name: "Blair", createdAt: 2 },
+    { id: "profile-zoe", name: "Zoë", createdAt: 3 },
+  ]) {
+    database.seedProfile(profile);
+  }
+  for (const climb of [
+    { id: "logbook-route", name: "Logbook Route", createdAt: 10 },
+    { id: "other-route", name: "Other Route", createdAt: 11 },
+    { id: "empty-route", name: "Empty Route", createdAt: 12 },
+  ]) {
+    database.seedClimb({
+      ...climb,
+      grade: "V4",
+      setter: "Alex",
+      holds: [
+        { x: 20, y: 80, size: 7, role: "start" },
+        { x: 70, y: 10, size: 7, role: "finish" },
+      ],
+    });
+  }
+
+  for (const send of [
+    {
+      climbKind: "saved",
+      climbId: "logbook-route",
+      profileId: "profile-alex",
+      rating: 2,
+      sentAt: 100,
+      updatedAt: 500,
+    },
+    {
+      climbKind: "saved",
+      climbId: "logbook-route",
+      profileId: "profile-zoe",
+      rating: 3,
+      sentAt: 300,
+      updatedAt: 300,
+    },
+    {
+      climbKind: "saved",
+      climbId: "logbook-route",
+      profileId: "profile-blair",
+      rating: 5,
+      sentAt: 300,
+      updatedAt: 300,
+    },
+    {
+      climbKind: "saved",
+      climbId: "other-route",
+      profileId: "profile-alex",
+      rating: 1,
+      sentAt: 400,
+      updatedAt: 400,
+    },
+  ]) {
+    database.seedSend(send);
+  }
+
+  let response = await fetchAppData(
+    "/api/sends?profileId=profile-alex&climbKind=saved&climbId=logbook-route",
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const payload = await response.json();
+  assert.deepEqual(payload.activities, [
+    {
+      climbKind: "saved",
+      climbId: "logbook-route",
+      averageRating: 3.3,
+      ratingCount: 3,
+      userRating: 2,
+    },
+  ]);
+  assert.deepEqual(payload.logbookEntries, [
+    { profileName: "Blair", rating: 5 },
+    { profileName: "Zoë", rating: 3 },
+    { profileName: "Alex", rating: 2 },
+  ]);
+  assert.equal("profileId" in payload.logbookEntries[0], false);
+  assert.equal("sentAt" in payload.logbookEntries[0], false);
+  assert.equal(payload.logbookEntries.length, payload.activities[0].ratingCount);
+
+  response = await fetchAppData(
+    "/api/sends?profileId=profile-alex&climbKind=saved&climbId=empty-route",
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    activities: [],
+    logbookEntries: [],
+  });
+
+  response = await fetchAppData(
+    "/api/sends?profileId=profile-alex&climbKind=saved",
+  );
+  assert.equal(response.status, 400);
+  response = await fetchAppData(
+    "/api/sends?profileId=profile-alex&climbKind=invalid&climbId=logbook-route",
+  );
+  assert.equal(response.status, 400);
+  response = await fetchAppData(
+    "/api/sends?profileId=profile-alex&climbKind=saved&climbId=missing-route",
+  );
+  assert.equal(response.status, 404);
+
+  response = await fetchAppData("/api/sends?profileId=profile-alex");
+  assert.equal(response.status, 200);
+  assert.equal("logbookEntries" in (await response.json()), false);
 });
 
 test("stores climbs by preset hold id and resolves them from shared data", async () => {

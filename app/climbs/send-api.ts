@@ -1,6 +1,8 @@
 import {
+  parseClimbActivityDetailPayload,
   parseClimbActivitiesPayload,
   type ClimbActivity,
+  type ClimbActivityDetail,
   type ClimbReference,
 } from "./climb-activity";
 
@@ -31,6 +33,34 @@ export async function loadClimbActivities(
   const activities = parseClimbActivitiesPayload(await response.json());
   if (!activities) throw new Error("Climb ratings could not be loaded.");
   return activities;
+}
+
+export async function loadClimbActivityDetail(
+  reference: ClimbReference,
+  profileId: string,
+  signal?: AbortSignal,
+): Promise<ClimbActivityDetail> {
+  const searchParams = new URLSearchParams({
+    profileId,
+    climbKind: reference.climbKind,
+    climbId: reference.climbId,
+  });
+  const response = await fetch(`${SENDS_ENDPOINT}?${searchParams}`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      await requestError(response, "The climb logbook could not be loaded."),
+    );
+  }
+
+  const detail = parseClimbActivityDetailPayload(
+    await response.json(),
+    reference,
+  );
+  if (!detail) throw new Error("The climb logbook could not be loaded.");
+  return detail;
 }
 
 export async function saveClimbSend(
