@@ -733,6 +733,20 @@ select:focus-visible {
   cursor: pointer;
 }
 
+.filter-rocko-approved-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  line-height: 1.25;
+}
+
+.rocko-approved-filter-icon {
+  align-self: center;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
 .filter-select-control {
   display: flex;
   align-items: center;

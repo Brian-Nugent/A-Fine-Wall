@@ -13,6 +13,7 @@ export type ClimbFilters = {
   holdIds: string[];
   hideSent: boolean;
   minStars: number;
+  rockoApprovedOnly: boolean;
   order: "newest" | "ascents";
 };
 
@@ -23,6 +24,7 @@ export type FilterSearchParams = Record<
 
 export type FilterableClimb = {
   grade: string;
+  rockoApproved?: boolean;
   setter: string;
   holds: readonly { holdId?: string | null }[];
 };
@@ -51,6 +53,7 @@ export const DEFAULT_CLIMB_FILTERS: Readonly<ClimbFilters> = {
   holdIds: [],
   hideSent: false,
   minStars: MIN_FILTER_STARS,
+  rockoApprovedOnly: false,
   order: "newest",
 };
 
@@ -160,6 +163,7 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
     holdIds,
     hideSent: filters.hideSent === true,
     minStars: normalizeStars(filters.minStars),
+    rockoApprovedOnly: filters.rockoApprovedOnly === true,
     order: filters.order === "ascents" ? "ascents" : "newest",
   };
 }
@@ -180,6 +184,7 @@ export function parseClimbFilters(
     holdIds: valuesFor(source, "hold"),
     hideSent: valuesFor(source, "sent")[0] === "hide",
     minStars: readStars(valuesFor(source, "stars")),
+    rockoApprovedOnly: valuesFor(source, "rocko")[0] === "approved",
     order: valuesFor(source, "order")[0] === "ascents" ? "ascents" : "newest",
   });
 }
@@ -199,6 +204,9 @@ export function createClimbFilterSearchParams(filters: ClimbFilters) {
   if (normalized.hideSent) searchParams.set("sent", "hide");
   if (normalized.minStars !== DEFAULT_CLIMB_FILTERS.minStars) {
     searchParams.set("stars", String(normalized.minStars));
+  }
+  if (normalized.rockoApprovedOnly) {
+    searchParams.set("rocko", "approved");
   }
   if (normalized.order !== DEFAULT_CLIMB_FILTERS.order) {
     searchParams.set("order", normalized.order);
@@ -235,6 +243,7 @@ export function activeClimbFilterCount(filters: ClimbFilters) {
     Number(normalized.holdIds.length > 0) +
     Number(normalized.hideSent) +
     Number(normalized.minStars > MIN_FILTER_STARS) +
+    Number(normalized.rockoApprovedOnly) +
     Number(normalized.order !== DEFAULT_CLIMB_FILTERS.order)
   );
 }
@@ -251,7 +260,8 @@ export function hasClimbFilterConstraints(filters: ClimbFilters) {
     normalized.authors.length > 0 ||
     normalized.holdIds.length > 0 ||
     normalized.hideSent ||
-    normalized.minStars > MIN_FILTER_STARS
+    normalized.minStars > MIN_FILTER_STARS ||
+    normalized.rockoApprovedOnly
   );
 }
 
@@ -301,6 +311,10 @@ export function matchesClimbFilters(
     if (!normalized.holdIds.every((holdId) => climbHoldIds.has(holdId))) {
       return false;
     }
+  }
+
+  if (normalized.rockoApprovedOnly && climb.rockoApproved !== true) {
+    return false;
   }
 
   return true;

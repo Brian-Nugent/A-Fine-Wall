@@ -836,6 +836,10 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(climbListSource, /window\.location\.reload\(\)/);
   assert.match(climbListSource, /No climbs match these filters/);
   assert.match(climbListSource, />\s*Clear Filters\s*</);
+  assert.match(
+    climbListSource,
+    /rockoApproved:\s*climb\.rockoApproved === true/,
+  );
   assert.doesNotMatch(
     climbListSource,
     /Try a wider grade range or remove a hold or author\./,
@@ -847,7 +851,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /Loading climbs/);
   assert.doesNotMatch(html, /No climbs match these filters/);
 
-  response = await render("/climbs/filter?min=2&max=9");
+  response = await render("/climbs/filter?min=2&max=9&rocko=approved");
   assert.equal(response.status, 200);
   html = await response.text();
   assert.match(html, /<h1 id="filter-heading">Filter climbs<\/h1>/);
@@ -858,6 +862,14 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.doesNotMatch(html, /Hide sent climbs/);
   assert.doesNotMatch(html, /Only show climbs you have not logged\./);
   assert.match(html, /Minimum community rating/);
+  assert.match(html, /Show only Rocko Approved climbs/);
+  assert.match(
+    html,
+    /<label[^>]*class="filter-rocko-approved-label"[^>]*for="rocko-approved-climbs"[^>]*>[\s\S]*Show only Rocko Approved climbs[\s\S]*class="rocko-approved-icon rocko-approved-filter-icon"/,
+  );
+  const rockoApprovedInput =
+    html.match(/<input[^>]*id="rocko-approved-climbs"[^>]*>/)?.[0] ?? "";
+  assert.match(rockoApprovedInput, /checked=""/);
   assert.match(html, /Most ascents/);
   assert.match(html, /Choose Holds/);
   assert.match(html, /<h2 id="order-filter-heading">Order<\/h2>/);
@@ -916,6 +928,10 @@ test("renders the climb filter controls and applies URL filters", async () => {
     filterOptionsSource,
     /isLoadingMatches \|\| matchCountUnavailable\s*\?\s*"View Climbs"/,
   );
+  assert.match(
+    filterOptionsSource,
+    /setRockoApprovedOnly\(DEFAULT_CLIMB_FILTERS\.rockoApprovedOnly\)/,
+  );
 
   const filterStyles = await readFile(
     new URL("../app/globals.css", import.meta.url),
@@ -924,6 +940,15 @@ test("renders the climb filter controls and applies URL filters", async () => {
   const filterSectionRule =
     filterStyles.match(/\.filter-section\s*\{([^}]*)\}/)?.[1] ?? "";
   assert.match(filterSectionRule, /gap:\s*0\.875rem/);
+  const rockoApprovedLabelRule =
+    filterStyles.match(/\.filter-rocko-approved-label\s*\{([^}]*)\}/)?.[1] ??
+    "";
+  assert.match(rockoApprovedLabelRule, /align-items:\s*center/);
+  assert.match(rockoApprovedLabelRule, /gap:\s*0\.5rem/);
+  const rockoApprovedFilterIconRule =
+    filterStyles.match(/\.rocko-approved-filter-icon\s*\{([^}]*)\}/)?.[1] ??
+    "";
+  assert.match(rockoApprovedFilterIconRule, /align-self:\s*center/);
   assert.doesNotMatch(
     filterStyles,
     /\.filter-order-choices\s*\{[^}]*border(?:-top)?\s*:/s,
@@ -990,7 +1015,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
 test("normalizes, serializes, and combines climb filters", () => {
   const filters = parseClimbFilters(
     new URLSearchParams(
-      "min=11&max=3&author=Sam&author=Alex&author=alex&hold=hold-b&hold=hold-a&hold=bad%20hold&sent=hide&stars=4&order=ascents",
+      "min=11&max=3&author=Sam&author=Alex&author=alex&hold=hold-b&hold=hold-a&hold=bad%20hold&sent=hide&stars=4&rocko=approved&order=ascents",
     ),
   );
   assert.deepEqual(filters, {
@@ -1000,53 +1025,67 @@ test("normalizes, serializes, and combines climb filters", () => {
     holdIds: ["hold-a", "hold-b"],
     hideSent: true,
     minStars: 4,
+    rockoApprovedOnly: true,
     order: "ascents",
   });
-  assert.equal(activeClimbFilterCount(filters), 6);
+  assert.equal(activeClimbFilterCount(filters), 7);
   assert.equal(hasClimbFilterConstraints(filters), true);
   assert.equal(
     serializeClimbFilters(filters),
-    "min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&stars=4&order=ascents",
+    "min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&stars=4&rocko=approved&order=ascents",
   );
   assert.equal(
     buildFilteredHref("/climbs/saved", filters, { id: "route 1" }),
-    "/climbs/saved?min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&stars=4&order=ascents&id=route+1",
+    "/climbs/saved?min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&stars=4&rocko=approved&order=ascents&id=route+1",
   );
 
   const candidates = [
     {
       name: "Lower bound",
       grade: "V3",
+      rockoApproved: true,
       setter: "Alex",
       holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
     },
     {
       name: "Author alternative",
       grade: "V5",
+      rockoApproved: true,
       setter: "sAm",
       holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
     },
     {
       name: "Upper bound",
       grade: "V11",
+      rockoApproved: true,
       setter: "Alex",
       holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
     },
     {
       name: "Missing hold",
       grade: "V5",
+      rockoApproved: true,
       setter: "Alex",
       holds: [{ holdId: "hold-a" }],
     },
     {
       name: "Coordinate only",
       grade: "V5",
+      rockoApproved: true,
       setter: "Alex",
       holds: [{ x: 25, y: 40 }],
     },
     {
       name: "Out of range",
       grade: "V12",
+      rockoApproved: true,
+      setter: "Alex",
+      holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
+    },
+    {
+      name: "Not approved",
+      grade: "V5",
+      rockoApproved: false,
       setter: "Alex",
       holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
     },
@@ -1063,6 +1102,7 @@ test("normalizes, serializes, and combines climb filters", () => {
     ["Lower bound", "Author alternative", "Upper bound"],
   );
   assert.equal(matchesClimbFilters(candidates[4], filters), false);
+  assert.equal(matchesClimbFilters(candidates[6], filters), false);
   assert.deepEqual(
     uniqueFilterAuthors([
       " Sam ",
@@ -1102,19 +1142,30 @@ test("normalizes, serializes, and combines climb filters", () => {
   assert.equal(activeClimbFilterCount(sortOnly), 1);
   assert.equal(hasClimbFilterConstraints(sortOnly), false);
   assert.equal(requiresClimbActivity(sortOnly), true);
+  const rockoOnly = parseClimbFilters(
+    new URLSearchParams("rocko=approved"),
+  );
+  assert.equal(activeClimbFilterCount(rockoOnly), 1);
+  assert.equal(hasClimbFilterConstraints(rockoOnly), true);
+  assert.equal(requiresClimbActivity(rockoOnly), false);
+  assert.equal(serializeClimbFilters(rockoOnly), "rocko=approved");
   assert.equal(
     requiresClimbActivity(parseClimbFilters(new URLSearchParams())),
     false,
   );
-  assert.deepEqual(parseClimbFilters(new URLSearchParams("stars=bad")), {
-    minGrade: 0,
-    maxGrade: 17,
-    authors: [],
-    holdIds: [],
-    hideSent: false,
-    minStars: 0,
-    order: "newest",
-  });
+  assert.deepEqual(
+    parseClimbFilters(new URLSearchParams("stars=bad&rocko=true")),
+    {
+      minGrade: 0,
+      maxGrade: 17,
+      authors: [],
+      holdIds: [],
+      hideSent: false,
+      minStars: 0,
+      rockoApprovedOnly: false,
+      order: "newest",
+    },
+  );
 });
 
 test("finds adjacent climbs in the active filtered order", () => {
@@ -1128,6 +1179,7 @@ test("finds adjacent climbs in the active filtered order", () => {
       id: "newest",
       createdAt: 30,
       grade: "V5",
+      rockoApproved: true,
       setter: "Alex",
       holds: [],
       activity: visibleActivity,
@@ -1136,6 +1188,7 @@ test("finds adjacent climbs in the active filtered order", () => {
       id: "middle",
       createdAt: 20,
       grade: "V6",
+      rockoApproved: false,
       setter: "Sam",
       holds: [],
       activity: visibleActivity,
@@ -1144,6 +1197,7 @@ test("finds adjacent climbs in the active filtered order", () => {
       id: "oldest",
       createdAt: 10,
       grade: "V7",
+      rockoApproved: true,
       setter: "Alex",
       holds: [],
       activity: visibleActivity,
@@ -1172,6 +1226,18 @@ test("finds adjacent climbs in the active filtered order", () => {
     selectVisibleClimbs(candidates, alexOnly).map((climb) => climb.id),
     ["newest", "oldest"],
   );
+
+  const rockoOnly = parseClimbFilters(
+    new URLSearchParams("rocko=approved"),
+  );
+  assert.deepEqual(
+    selectVisibleClimbs(candidates, rockoOnly).map((climb) => climb.id),
+    ["newest", "oldest"],
+  );
+  assert.deepEqual(adjacentClimbIds(candidates, "middle", rockoOnly), {
+    previousId: null,
+    nextId: null,
+  });
 });
 
 test("remembers the exact climb order for swipe navigation", () => {
@@ -1191,7 +1257,7 @@ test("remembers the exact climb order for swipe navigation", () => {
   const filters = serializeClimbFilters(
     parseClimbFilters(
       new URLSearchParams(
-        "min=2&max=9&author=Alex&hold=hold-7&sent=hide&stars=3&order=ascents",
+        "min=2&max=9&author=Alex&hold=hold-7&sent=hide&stars=3&rocko=approved&order=ascents",
       ),
     ),
   );

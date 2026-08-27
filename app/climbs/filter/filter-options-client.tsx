@@ -46,6 +46,9 @@ export default function FilterOptionsClient({
   const [holdIds, setHoldIds] = useState(initialFilters.holdIds);
   const [hideSent, setHideSent] = useState(initialFilters.hideSent);
   const [minStars, setMinStars] = useState(initialFilters.minStars);
+  const [rockoApprovedOnly, setRockoApprovedOnly] = useState(
+    initialFilters.rockoApprovedOnly,
+  );
   const [order, setOrder] = useState(initialFilters.order);
   const [availableClimbs, setAvailableClimbs] = useState<AvailableClimb[]>(
     climbs.map((climb) => ({ climb, key: `demo:${climb.slug}` })),
@@ -107,9 +110,19 @@ export default function FilterOptionsClient({
       holdIds,
       hideSent,
       minStars,
+      rockoApprovedOnly,
       order,
     }),
-    [authors, hideSent, holdIds, maxGrade, minGrade, minStars, order],
+    [
+      authors,
+      hideSent,
+      holdIds,
+      maxGrade,
+      minGrade,
+      minStars,
+      order,
+      rockoApprovedOnly,
+    ],
   );
   const authorOptions = uniqueFilterAuthors(
     availableClimbs.map(({ climb }) => climb.setter),
@@ -161,6 +174,7 @@ export default function FilterOptionsClient({
     setHoldIds([]);
     setHideSent(DEFAULT_CLIMB_FILTERS.hideSent);
     setMinStars(DEFAULT_CLIMB_FILTERS.minStars);
+    setRockoApprovedOnly(DEFAULT_CLIMB_FILTERS.rockoApprovedOnly);
     setOrder(DEFAULT_CLIMB_FILTERS.order);
   }
 
@@ -287,6 +301,25 @@ export default function FilterOptionsClient({
               )}
             </select>
           </label>
+
+          <div className="filter-toggle-choice">
+            <input
+              checked={rockoApprovedOnly}
+              id="rocko-approved-climbs"
+              onChange={(event) => setRockoApprovedOnly(event.target.checked)}
+              type="checkbox"
+            />
+            <label
+              className="filter-rocko-approved-label"
+              htmlFor="rocko-approved-climbs"
+            >
+              <span>Show only Rocko Approved climbs</span>
+              <span
+                aria-hidden="true"
+                className="rocko-approved-icon rocko-approved-filter-icon"
+              />
+            </label>
+          </div>
         </section>
 
         <section

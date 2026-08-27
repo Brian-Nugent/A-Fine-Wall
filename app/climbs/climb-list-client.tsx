@@ -217,6 +217,7 @@ export default function ClimbListClient({
       holds: climb.holds,
       id: climb.id,
       key: `saved-${climb.id}`,
+      rockoApproved: climb.rockoApproved === true,
       reference: {
         climbKind: "saved",
         climbId: climb.id,
@@ -235,6 +236,7 @@ export default function ClimbListClient({
       holds: climb.holds,
       id: climb.slug,
       key: `demo-${climb.slug}`,
+      rockoApproved: false,
       reference: {
         climbKind: "demo",
         climbId: climb.slug,
