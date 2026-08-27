@@ -583,7 +583,29 @@ select:focus-visible {
 }
 
 .filter-page {
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  flex-direction: column;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.filter-page > .detail-header {
+  position: relative;
+  top: auto;
+  flex: 0 0 auto;
+  background: #ffffff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.filter-scroll-region {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .filter-intro {
@@ -1504,7 +1526,11 @@ select:focus-visible {
 }
 
 .set-toolbar.filter-toolbar {
+  position: relative;
+  bottom: auto;
+  flex: 0 0 auto;
   background: #ffffff;
+  -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
@@ -1561,20 +1587,46 @@ select:focus-visible {
 }
 
 .compact-primary-button.filter-apply-button {
-  width: max-content;
-  min-width: 6.75rem;
+  width: auto;
+  min-width: 7rem;
+  min-inline-size: 7rem;
+  max-width: none;
+  max-inline-size: none;
   flex: 0 0 auto;
+  overflow: visible;
   white-space: nowrap;
+  isolation: isolate;
 }
 
 .filter-apply-spinner {
-  width: 1rem;
-  height: 1rem;
+  display: block;
+  width: 1.1rem;
+  height: 1.1rem;
   flex: 0 0 auto;
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: #ffffff;
-  border-radius: 50%;
-  animation: back-link-spin 700ms linear infinite;
+  overflow: visible;
+}
+
+.filter-apply-spinner-track,
+.filter-apply-spinner-indicator {
+  fill: none;
+  stroke-width: 3;
+}
+
+.filter-apply-spinner-track {
+  stroke: rgba(255, 255, 255, 0.35);
+}
+
+.filter-apply-spinner-indicator {
+  stroke: #ffffff;
+  stroke-dasharray: 24 76;
+  stroke-linecap: round;
+  animation: filter-apply-spinner-dash 800ms linear infinite;
+}
+
+@keyframes filter-apply-spinner-dash {
+  to {
+    stroke-dashoffset: -100;
+  }
 }
 
 .text-button:disabled,
@@ -2036,7 +2088,7 @@ select:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .back-link-spinner,
-  .filter-apply-spinner {
+  .filter-apply-spinner-indicator {
     animation: none;
   }
 

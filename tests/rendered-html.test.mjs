@@ -866,6 +866,11 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /No selection includes every setter\./);
   assert.doesNotMatch(html, /No selection includes every author\./);
   assert.match(html, /role="group"/);
+  assert.match(html, /class="filter-scroll-region"/);
+  assert.match(html, /class="filter-apply-spinner"/);
+  assert.match(html, /class="filter-apply-spinner-indicator"/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /aria-live="polite"/);
   assert.doesNotMatch(html, /<legend>(?:Order|Setter)<\/legend>/);
   assert.doesNotMatch(html, /Use your sends and the community rating\./);
   for (const fakeAuthor of ["Ben", "Maya", "Sam", "Lena", "Jordan"]) {
@@ -891,7 +896,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
   );
   assert.match(
     filterOptionsSource,
-    /const applyButtonLabel = matchCountUnavailable\s*\?\s*"View Climbs"\s*:\s*`Show \$\{matchingCount\}`/,
+    /const applyButtonState = isMatchCountLoading\s*\?\s*"loading"\s*:\s*matchCountUnavailable\s*\?\s*"unavailable"\s*:\s*"ready"/,
   );
   assert.match(
     filterOptionsSource,
@@ -899,12 +904,14 @@ test("renders the climb filter controls and applies URL filters", async () => {
   );
   assert.match(
     filterOptionsSource,
-    /aria-busy=\{isMatchCountLoading \? "true" : undefined\}/,
+    /applyButtonState === "loading" \? \([\s\S]*<a[\s\S]*aria-busy="true"[\s\S]*<svg[\s\S]*filter-apply-spinner-indicator[\s\S]*\) : \([\s\S]*<a/,
   );
-  assert.match(
-    filterOptionsSource,
-    /isMatchCountLoading \? \([\s\S]*className="filter-apply-spinner"[\s\S]*key=\{applyButtonLabel\}/,
+  assert.equal(
+    filterOptionsSource.match(/key=\{applyButtonKey\}/g)?.length,
+    2,
   );
+  assert.doesNotMatch(filterOptionsSource, /key=\{applyButtonLabel\}/);
+  assert.doesNotMatch(filterOptionsSource, /filter-apply-placeholder/);
   assert.doesNotMatch(
     filterOptionsSource,
     /isLoadingMatches \|\| matchCountUnavailable\s*\?\s*"View Climbs"/,
@@ -928,19 +935,47 @@ test("renders the climb filter controls and applies URL filters", async () => {
   const filterToolbarRule =
     filterStyles.match(/\.set-toolbar\.filter-toolbar\s*\{([^}]*)\}/)?.[1] ??
     "";
+  assert.match(filterToolbarRule, /position:\s*relative/);
+  assert.match(filterToolbarRule, /bottom:\s*auto/);
   assert.match(filterToolbarRule, /background:\s*#ffffff/);
+  assert.match(filterToolbarRule, /-webkit-backdrop-filter:\s*none/);
   assert.match(filterToolbarRule, /backdrop-filter:\s*none/);
+  const filterPageRule =
+    filterStyles.match(/\.filter-page\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(filterPageRule, /display:\s*flex/);
+  assert.match(filterPageRule, /height:\s*100dvh/);
+  assert.match(filterPageRule, /overflow:\s*hidden/);
+  const filterScrollRegionRule =
+    filterStyles.match(/\.filter-scroll-region\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(filterScrollRegionRule, /flex:\s*1 1 auto/);
+  assert.match(filterScrollRegionRule, /overflow-y:\s*auto/);
   const filterApplyButtonRule =
     filterStyles.match(
       /\.compact-primary-button\.filter-apply-button\s*\{([^}]*)\}/,
     )?.[1] ?? "";
-  assert.match(filterApplyButtonRule, /width:\s*max-content/);
-  assert.match(filterApplyButtonRule, /min-width:\s*6\.75rem/);
+  assert.match(filterApplyButtonRule, /width:\s*auto/);
+  assert.match(filterApplyButtonRule, /min-width:\s*7rem/);
+  assert.match(filterApplyButtonRule, /min-inline-size:\s*7rem/);
   assert.match(filterApplyButtonRule, /flex:\s*0 0 auto/);
+  assert.match(filterApplyButtonRule, /overflow:\s*visible/);
   assert.match(filterApplyButtonRule, /white-space:\s*nowrap/);
+  const filterSpinnerIndicatorRule =
+    filterStyles.match(
+      /\.filter-apply-spinner-indicator\s*\{(?=[^}]*stroke-dasharray)([^}]*)\}/,
+    )?.[1] ?? "";
+  assert.match(filterSpinnerIndicatorRule, /stroke-dasharray:\s*24 76/);
+  assert.match(
+    filterSpinnerIndicatorRule,
+    /animation:\s*filter-apply-spinner-dash 800ms linear infinite/,
+  );
+  assert.doesNotMatch(filterSpinnerIndicatorRule, /transform/);
   assert.match(
     filterStyles,
-    /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*\.filter-apply-spinner\s*\{\s*animation:\s*none/,
+    /@keyframes filter-apply-spinner-dash\s*\{[\s\S]*stroke-dashoffset:\s*-100/,
+  );
+  assert.match(
+    filterStyles,
+    /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*\.filter-apply-spinner-indicator\s*\{\s*animation:\s*none/,
   );
 
   response = await render("/climbs/filter/holds?hold=preset-one");
