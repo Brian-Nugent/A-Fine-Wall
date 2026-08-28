@@ -1902,6 +1902,34 @@ test("supports in-place swipe navigation without pager buttons", async () => {
     css,
     /\.wall-map--route\s*\{[^}]*touch-action:\s*none/,
   );
+  assert.match(detailSource, /className="climb-detail-content"/);
+  assert.match(detailSource, /className="climb-wall-stage"/);
+  assert.match(
+    detailSource,
+    /className="wall-map wall-map--route climb-route-map"/,
+  );
+
+  const lockedPageRule =
+    css.match(/\.detail-page--climb\s*\{([^}]*)\}/)?.[1] ?? "";
+  const detailContentRule =
+    css.match(/\.climb-detail-content\s*\{([^}]*)\}/)?.[1] ?? "";
+  const wallStageRule =
+    css.match(/\.climb-wall-stage\s*\{([^}]*)\}/)?.[1] ?? "";
+  const routeMapRule =
+    css.match(
+      /\.detail-page--climb\s+\.climb-route-map\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+  assert.match(lockedPageRule, /height:\s*100dvh/);
+  assert.match(lockedPageRule, /min-height:\s*0/);
+  assert.match(lockedPageRule, /overflow:\s*hidden/);
+  assert.match(detailContentRule, /min-height:\s*0/);
+  assert.match(detailContentRule, /overflow:\s*hidden/);
+  assert.match(wallStageRule, /min-height:\s*0/);
+  assert.match(wallStageRule, /flex:\s*1\s+1\s+auto/);
+  assert.match(wallStageRule, /overflow:\s*hidden/);
+  assert.match(routeMapRule, /max-width:\s*100%/);
+  assert.match(routeMapRule, /max-height:\s*100%/);
+  assert.match(routeMapRule, /aspect-ratio:\s*1086\s*\/\s*1448/);
 });
 
 test("limits the climb options menu to the setter and Admin", async () => {
@@ -1969,10 +1997,14 @@ test("shows Rocko approval on climb lists and in the requested detail rows", asy
   assert.match(tagRule, /white-space:\s*nowrap/);
 });
 
-test("shows a responsive climb logbook below the send action", async () => {
-  const [panelSource, sendApiSource, css] = await Promise.all([
+test("moves the responsive climb logbook to a dedicated page", async () => {
+  const [panelSource, logbookPageSource, sendApiSource, css] = await Promise.all([
     readFile(
       new URL("../app/climbs/climb-activity-panel.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/climbs/logbook/page.tsx", import.meta.url),
       "utf8",
     ),
     readFile(new URL("../app/climbs/send-api.ts", import.meta.url), "utf8"),
@@ -1987,6 +2019,15 @@ test("shows a responsive climb logbook below the send action", async () => {
     panelSource,
     /<h2 className="climb-section-label" id="climb-logbook-heading">/,
   );
+  assert.match(panelSource, /buildFilteredHref\("\/climbs\/logbook"/);
+  assert.match(panelSource, />\s*Logbook\s*</);
+  assert.match(logbookPageSource, /<ClimbLogbook reference=\{typedReference\}/);
+  assert.match(logbookPageSource, /loadSavedClimbForPage/);
+  const detailPanelSource = panelSource.slice(
+    panelSource.indexOf("export default function ClimbActivityPanel"),
+    panelSource.indexOf("export function ClimbLogbook"),
+  );
+  assert.doesNotMatch(detailPanelSource, /className="climb-logbook"/);
   assert.match(panelSource, /Loading logbook&hellip;/);
   assert.match(panelSource, /Logbook unavailable\./);
   assert.match(panelSource, /No sends yet\./);
@@ -2101,6 +2142,26 @@ test("retires every prototype climb and rating route", async () => {
     response = await render(`/climbs/sent?kind=demo&id=${slug}`);
     assert.equal(response.status, 404);
   }
+});
+
+test("renders a separate saved-climb logbook and preserves filters", async () => {
+  const response = await render(
+    "/climbs/logbook?kind=saved&id=test-climb&min=2&max=6&author=Sheafy&sent=hide&stars=4&order=ascents",
+  );
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /<h1 id="logbook-title">Logbook<\/h1>/);
+  assert.match(html, /Loading logbook/);
+  assert.match(
+    html,
+    /href="\/climbs\/saved\?min=2&amp;max=6&amp;author=Sheafy&amp;sent=hide&amp;stars=4&amp;order=ascents&amp;id=test-climb"/,
+  );
+
+  const notFoundResponse = await render(
+    "/climbs/logbook?kind=saved&id=not%20a%20valid%20id",
+  );
+  assert.equal(notFoundResponse.status, 404);
 });
 
 test("renders the saved-climb send shell and preserves filters", async () => {

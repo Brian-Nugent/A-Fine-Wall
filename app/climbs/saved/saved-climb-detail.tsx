@@ -171,7 +171,7 @@ function DetailShell({
   }
 
   return (
-    <main className="app-page detail-page">
+    <main className="app-page detail-page detail-page--climb">
       <header className="detail-header">
         <a
           aria-busy={isLeaving ? "true" : undefined}
@@ -893,7 +893,7 @@ export default function SavedClimbDetail({
         ) : undefined
       }
     >
-      <section aria-labelledby="climb-name">
+      <section className="climb-detail-content" aria-labelledby="climb-name">
         <div className="detail-title">
           <div className="detail-title-line">
             <h1 id="climb-name">{climb.name}</h1>
@@ -913,45 +913,47 @@ export default function SavedClimbDetail({
           </p>
         ) : null}
 
-        <figure
-          className="wall-map wall-map--route"
-          onLostPointerCapture={cancelMouseSwipe}
-          onPointerCancel={cancelMouseSwipe}
-          onPointerDown={startMouseSwipe}
-          onPointerUp={finishMouseSwipe}
-          onTouchCancel={cancelSwipe}
-          onTouchEnd={finishSwipe}
-          onTouchMove={moveSwipe}
-          onTouchStart={startSwipe}
-        >
-          <WallPhoto
-            className="wall-photo"
-            alt="Climbing wall with the route holds marked"
-            draggable={false}
-            width="1086"
-            height="1448"
-          />
-          {resolvedHolds.map((hold, index) => (
-            <span
-              aria-hidden="true"
-              className={`hold-marker hold-marker--${hold.role}`}
-              key={hold.holdId || `${hold.x}-${hold.y}-${index}`}
-              style={{
-                left: `${hold.x}%`,
-                top: `${hold.y}%`,
-                width: `${hold.size}%`,
-              }}
+        <div className="climb-wall-stage">
+          <figure
+            className="wall-map wall-map--route climb-route-map"
+            onLostPointerCapture={cancelMouseSwipe}
+            onPointerCancel={cancelMouseSwipe}
+            onPointerDown={startMouseSwipe}
+            onPointerUp={finishMouseSwipe}
+            onTouchCancel={cancelSwipe}
+            onTouchEnd={finishSwipe}
+            onTouchMove={moveSwipe}
+            onTouchStart={startSwipe}
+          >
+            <WallPhoto
+              className="wall-photo"
+              alt="Climbing wall with the route holds marked"
+              draggable={false}
+              width="1086"
+              height="1448"
             />
-          ))}
-          <figcaption className="sr-only">
-            {climb.name} uses {startCount} green-circled start{" "}
-            {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled
-            climbing {handCount === 1 ? "hold" : "holds"}, {footCount}{" "}
-            yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and{" "}
-            {finishCount} red-circled finish{" "}
-            {finishCount === 1 ? "hold" : "holds"}.
-          </figcaption>
-        </figure>
+            {resolvedHolds.map((hold, index) => (
+              <span
+                aria-hidden="true"
+                className={`hold-marker hold-marker--${hold.role}`}
+                key={hold.holdId || `${hold.x}-${hold.y}-${index}`}
+                style={{
+                  left: `${hold.x}%`,
+                  top: `${hold.y}%`,
+                  width: `${hold.size}%`,
+                }}
+              />
+            ))}
+            <figcaption className="sr-only">
+              {climb.name} uses {startCount} green-circled start{" "}
+              {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled
+              climbing {handCount === 1 ? "hold" : "holds"}, {footCount}{" "}
+              yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and{" "}
+              {finishCount} red-circled finish{" "}
+              {finishCount === 1 ? "hold" : "holds"}.
+            </figcaption>
+          </figure>
+        </div>
 
         <ClimbActivityPanel
           filters={filters}

@@ -31,7 +31,7 @@ export default async function ClimbPage({
   const filters = parseClimbFilters(rawFilters);
 
   return (
-    <main className="app-page detail-page">
+    <main className="app-page detail-page detail-page--climb">
       <header className="detail-header">
         <a
           className="back-link"
@@ -45,7 +45,7 @@ export default async function ClimbPage({
         </a>
       </header>
 
-      <section aria-labelledby="climb-name">
+      <section className="climb-detail-content" aria-labelledby="climb-name">
         <div className="detail-title">
           <div className="detail-title-line">
             <h1 id="climb-name">{climb.name}</h1>
@@ -56,29 +56,31 @@ export default async function ClimbPage({
           </div>
         </div>
 
-        <figure className="wall-map wall-map--route">
-          <WallPhoto
-            className="wall-photo"
-            alt="Climbing wall with the route holds marked"
-            width={1086}
-            height={1448}
-          />
-          {climb.holds.map((hold, index) => (
-            <span
-              aria-hidden="true"
-              className={`hold-marker hold-marker--${hold.role}`}
-              key={`${hold.x}-${hold.y}-${index}`}
-              style={{
-                left: `${hold.x}%`,
-                top: `${hold.y}%`,
-                width: `${hold.size}%`,
-              }}
+        <div className="climb-wall-stage">
+          <figure className="wall-map wall-map--route climb-route-map">
+            <WallPhoto
+              className="wall-photo"
+              alt="Climbing wall with the route holds marked"
+              width={1086}
+              height={1448}
             />
-          ))}
-          <figcaption className="sr-only">
-            {climb.name} uses {startCount} green-circled start {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled climbing {handCount === 1 ? "hold" : "holds"}, {footCount} yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and {finishCount} red-circled finish {finishCount === 1 ? "hold" : "holds"}.
-          </figcaption>
-        </figure>
+            {climb.holds.map((hold, index) => (
+              <span
+                aria-hidden="true"
+                className={`hold-marker hold-marker--${hold.role}`}
+                key={`${hold.x}-${hold.y}-${index}`}
+                style={{
+                  left: `${hold.x}%`,
+                  top: `${hold.y}%`,
+                  width: `${hold.size}%`,
+                }}
+              />
+            ))}
+            <figcaption className="sr-only">
+              {climb.name} uses {startCount} green-circled start {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled climbing {handCount === 1 ? "hold" : "holds"}, {footCount} yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and {finishCount} red-circled finish {finishCount === 1 ? "hold" : "holds"}.
+            </figcaption>
+          </figure>
+        </div>
 
         <ClimbActivityPanel
           filters={filters}
