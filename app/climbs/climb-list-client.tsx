@@ -22,7 +22,10 @@ import {
   type ClimbFilters,
 } from "./climb-filters";
 import { writeSessionClimbNavigationSnapshot } from "./climb-navigation-snapshot";
-import { getClimbListState } from "./climb-list-state";
+import {
+  getClimbListState,
+  matchesClimbSearch,
+} from "./climb-list-state";
 import type { SavedClimb } from "./saved-climbs";
 import { loadClimbActivities } from "./send-api";
 import { loadSyncedClimbs } from "./synced-climbs";
@@ -123,6 +126,7 @@ export default function ClimbListClient({
     "loading",
   );
   const [sharedLoadFailed, setSharedLoadFailed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [activityState, setActivityState] = useState<{
     profileId: string | null;
     status: "loading" | "ready" | "error";
@@ -245,15 +249,20 @@ export default function ClimbListClient({
     })),
   ];
   const filteredClimbs = selectVisibleClimbs(allClimbs, initialFilters);
+  const normalizedSearchQuery = searchQuery.trim();
+  const hasSearchQuery = normalizedSearchQuery.length > 0;
+  const searchedClimbs = filteredClimbs.filter((entry) =>
+    matchesClimbSearch(entry.climb.name, searchQuery),
+  );
   const totalClimbs = allClimbs.length;
-  const visibleClimbs = filteredClimbs.length;
+  const visibleClimbs = searchedClimbs.length;
   const activeFilterCount = activeClimbFilterCount(initialFilters);
   const hasFilterConstraints = hasClimbFilterConstraints(initialFilters);
   const isLoadingClimbs =
     loadStatus === "loading" ||
     (needsActivityData && activityStatus === "loading");
   const listState = getClimbListState({
-    hasActiveFilters: hasFilterConstraints,
+    hasActiveFilters: hasFilterConstraints || hasSearchQuery,
     isLoading: isLoadingClimbs,
     totalClimbs,
     visibleClimbs,
@@ -266,7 +275,7 @@ export default function ClimbListClient({
       window,
       profile.id,
       serializeClimbFilters(initialFilters),
-      filteredClimbs.map((entry) => entry.reference),
+      searchedClimbs.map((entry) => entry.reference),
     );
   }
 
@@ -324,10 +333,10 @@ export default function ClimbListClient({
             </button>
           </div>
           <div className="section-heading-tools">
-            <p aria-live="polite">
+            <p aria-live="polite" id="climb-search-results">
               {isLoadingClimbs
                 ? "Loading climbs..."
-                : hasFilterConstraints
+                : hasFilterConstraints || hasSearchQuery
                 ? `${visibleClimbs} of ${totalClimbs} climbs`
                 : `${totalClimbs} climbs`}
             </p>
@@ -362,6 +371,36 @@ export default function ClimbListClient({
           </div>
         </div>
 
+        <div aria-label="Search climbs" className="climb-search" role="search">
+          <label className="sr-only" htmlFor="climb-search-input">
+            Search climbs by name
+          </label>
+          <div className="climb-search-control">
+            <input
+              aria-describedby="climb-search-results"
+              autoComplete="off"
+              className="climb-search-input"
+              enterKeyHint="search"
+              id="climb-search-input"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search climbs"
+              spellCheck={false}
+              type="search"
+              value={searchQuery}
+            />
+            {searchQuery.length > 0 ? (
+              <button
+                aria-label="Clear climb search"
+                className="climb-search-clear"
+                onClick={() => setSearchQuery("")}
+                type="button"
+              >
+                <span aria-hidden="true">&times;</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
+
         {sharedLoadFailed ? (
           <div className="climb-sync-notice" role="status">
             Showing climbs saved on this device. Shared climbs could not be
@@ -379,7 +418,7 @@ export default function ClimbListClient({
 
         {!isLoadingClimbs && !activityOptionsUnavailable && visibleClimbs > 0 ? (
           <ul className="climb-list">
-            {filteredClimbs.map((entry) => (
+            {searchedClimbs.map((entry) => (
               <ClimbRow
                 activity={entry.activity}
                 activityStatus={activityStatus}
@@ -403,6 +442,22 @@ export default function ClimbListClient({
             <a className="primary-button" href="/set-climb">
               Set Climb
             </a>
+          </div>
+        ) : listState === "filtered-empty" && hasSearchQuery ? (
+          <div className="climb-filter-empty">
+            <h2>No climbs match your search</h2>
+            <p>
+              {hasFilterConstraints
+                ? "Try another climb name or adjust your active filters."
+                : `No climb names contain “${normalizedSearchQuery}”.`}
+            </p>
+            <button
+              className="secondary-button"
+              onClick={() => setSearchQuery("")}
+              type="button"
+            >
+              Clear Search
+            </button>
           </div>
         ) : listState === "filtered-empty" ? (
           <div className="climb-filter-empty">

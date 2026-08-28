@@ -178,6 +178,7 @@ select {
 .climb-options-button:focus-visible,
 .climb-option:focus-visible,
 .user-switch-button:focus-visible,
+.climb-search-clear:focus-visible,
 .secondary-button:focus-visible,
 .text-button:focus-visible,
 .compact-primary-button:focus-visible,
@@ -388,6 +389,64 @@ select:focus-visible {
 
 .user-switch-button:hover {
   border-color: var(--ink);
+  color: var(--ink);
+}
+
+.climb-search {
+  padding: 0 1.25rem 1.25rem;
+}
+
+.climb-search-control {
+  position: relative;
+}
+
+.climb-search-input {
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0.75rem 3.35rem 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 1rem;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.climb-search-input:hover,
+.climb-search-input:focus {
+  border-color: var(--ink);
+  background: #ffffff;
+}
+
+.climb-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.climb-search-input::placeholder {
+  color: var(--muted);
+}
+
+.climb-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.25rem;
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  transform: translateY(-50%);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.35rem;
+  line-height: 1;
+  place-items: center;
+}
+
+.climb-search-clear:hover {
+  background: #ffffff;
   color: var(--ink);
 }
 

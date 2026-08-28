@@ -44,7 +44,10 @@ import {
   horizontalSwipeDirection,
   updateSwipeIntent,
 } from "../app/climbs/swipe-gesture.ts";
-import { getClimbListState } from "../app/climbs/climb-list-state.ts";
+import {
+  getClimbListState,
+  matchesClimbSearch,
+} from "../app/climbs/climb-list-state.ts";
 import {
   climbActivityKey,
   DEMO_CLIMB_IDS,
@@ -789,6 +792,9 @@ test("renders the shared-climb shell without prototype climbs", async () => {
   assert.match(html, /href="\/set-climb"/i);
   assert.match(html, />Set Climb<\/a>/i);
   assert.match(html, /href="\/climbs\/filter"/i);
+  assert.match(html, /role="search"/i);
+  assert.match(html, /<label[^>]*for="climb-search-input"[^>]*>\s*Search climbs by name\s*<\/label>/i);
+  assert.match(html, /<input[^>]*id="climb-search-input"[^>]*placeholder="Search climbs"[^>]*type="search"/i);
   assert.match(html, /Loading climbs/);
   for (const [slug, name, setter] of [
     ["first-light", "First Light", "Ben"],
@@ -801,6 +807,31 @@ test("renders the shared-climb shell without prototype climbs", async () => {
     assert.doesNotMatch(html, new RegExp(name));
     assert.doesNotMatch(html, new RegExp(`Set by ${setter}`));
   }
+});
+
+test("searches climb names with trimmed case-insensitive substrings", () => {
+  assert.equal(matchesClimbSearch("I Hardly Know Her", "hardly"), true);
+  assert.equal(matchesClimbSearch("New and Slick", "  SLICK  "), true);
+  assert.equal(matchesClimbSearch("Ol’ Topper", "ol’"), true);
+  assert.equal(matchesClimbSearch("Corner Pocket", "corner pocket"), true);
+  assert.equal(matchesClimbSearch("Corner Pocket", "corner pockets"), false);
+  assert.equal(matchesClimbSearch("Any Climb", "   "), true);
+});
+
+test("keeps search results in the climb swipe snapshot", async () => {
+  const source = await readFile(
+    new URL("../app/climbs/climb-list-client.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /const searchedClimbs = filteredClimbs\.filter/);
+  assert.match(
+    source,
+    /writeSessionClimbNavigationSnapshot\([\s\S]*searchedClimbs\.map\(\(entry\) => entry\.reference\)/,
+  );
+  assert.match(source, /\{searchedClimbs\.map\(\(entry\) => \(/);
+  assert.match(source, /No climbs match your search/);
+  assert.match(source, />\s*Clear Search\s*</);
 });
 
 test("renders the climb filter controls and applies URL filters", async () => {

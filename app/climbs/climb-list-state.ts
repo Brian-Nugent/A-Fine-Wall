@@ -4,6 +4,14 @@ export type ClimbListState =
   | "empty"
   | "filtered-empty";
 
+export function matchesClimbSearch(name: string, query: string) {
+  const normalizedQuery = query.trim().toLocaleLowerCase("en-US");
+  return (
+    normalizedQuery.length === 0 ||
+    name.toLocaleLowerCase("en-US").includes(normalizedQuery)
+  );
+}
+
 export function getClimbListState({
   hasActiveFilters,
   isLoading,
