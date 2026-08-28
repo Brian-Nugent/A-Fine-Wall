@@ -19,7 +19,8 @@
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
     "db:migrate:remote": "wrangler d1 migrations apply a-fine-wall-db --remote --config wrangler.jsonc",
-    "deploy:cloudflare": "npm run build && npm run db:migrate:remote && wrangler deploy --config dist/server/wrangler.json"
+    "deploy:cloudflare:built": "npm run db:migrate:remote && wrangler deploy --config dist/server/wrangler.json",
+    "deploy:cloudflare": "npm run build && npm run deploy:cloudflare:built"
   },
   "dependencies": {
     "react": "19.2.8",
