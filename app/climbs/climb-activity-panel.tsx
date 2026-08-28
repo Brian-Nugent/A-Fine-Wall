@@ -23,7 +23,13 @@ type ActivityState = {
   logbookEntries: ClimbLogbookEntry[];
 };
 
-function useClimbActivityDetail(reference: ClimbReference) {
+export default function ClimbActivityPanel({
+  filters,
+  reference,
+}: {
+  filters: ClimbFilters;
+  reference: ClimbReference;
+}) {
   const { profile } = useActiveUser();
   const { climbKind, climbId } = reference;
   const referenceKey = climbActivityKey({ climbKind, climbId });
@@ -76,123 +82,93 @@ function useClimbActivityDetail(reference: ClimbReference) {
   const isCurrentRequest =
     state.profileId === profile?.id && state.referenceKey === referenceKey;
   const status = isCurrentRequest ? state.status : "loading";
-
-  return {
-    activity: status === "ready" ? state.activity : null,
-    logbookEntries: status === "ready" ? state.logbookEntries : [],
-    status,
-  };
-}
-
-export default function ClimbActivityPanel({
-  filters,
-  reference,
-}: {
-  filters: ClimbFilters;
-  reference: ClimbReference;
-}) {
-  const { activity, status } = useClimbActivityDetail(reference);
+  const activity = status === "ready" ? state.activity : null;
+  const logbookEntries =
+    status === "ready" ? state.logbookEntries : [];
   const sentHref = buildFilteredHref("/climbs/sent", filters, {
     kind: reference.climbKind,
     id: reference.climbId,
   });
-  const logbookHref = buildFilteredHref("/climbs/logbook", filters, {
-    kind: reference.climbKind,
-    id: reference.climbId,
-  });
 
   return (
-    <section className="climb-activity-panel" aria-label="Send and rating">
-      <div className="climb-activity-summary" aria-live="polite">
-        <p className="climb-section-label">Community rating</p>
-        {status === "loading" ? (
-          <strong>Loading&hellip;</strong>
-        ) : status === "error" ? (
-          <strong>Rating unavailable</strong>
-        ) : activity ? (
-          <strong
-            aria-label={`Average rating ${formatAverageRating(activity.averageRating)} out of 5 from ${activity.ratingCount} ${activity.ratingCount === 1 ? "rating" : "ratings"}`}
-          >
-            <span aria-hidden="true">&#9733;</span>{" "}
-            {formatAverageRating(activity.averageRating)} ({activity.ratingCount})
-          </strong>
-        ) : (
-          <strong>No ratings yet</strong>
-        )}
-        {activity?.userRating ? (
-          <p className="personal-send-status">
-            <span aria-hidden="true">&#10003;</span> Sent &middot; Your rating:{" "}
-            {activity.userRating}/5
-          </p>
-        ) : null}
-      </div>
-      <div className="climb-activity-actions">
-        <a className="secondary-button logbook-button" href={logbookHref}>
-          Logbook
-        </a>
+    <>
+      <section className="climb-activity-panel" aria-label="Send and rating">
+        <div className="climb-activity-summary" aria-live="polite">
+          <p className="climb-section-label">Community rating</p>
+          {status === "loading" ? (
+            <strong>Loading&hellip;</strong>
+          ) : status === "error" ? (
+            <strong>Rating unavailable</strong>
+          ) : activity ? (
+            <strong
+              aria-label={`Average rating ${formatAverageRating(activity.averageRating)} out of 5 from ${activity.ratingCount} ${activity.ratingCount === 1 ? "rating" : "ratings"}`}
+            >
+              <span aria-hidden="true">&#9733;</span>{" "}
+              {formatAverageRating(activity.averageRating)} ({activity.ratingCount})
+            </strong>
+          ) : (
+            <strong>No ratings yet</strong>
+          )}
+          {activity?.userRating ? (
+            <p className="personal-send-status">
+              <span aria-hidden="true">&#10003;</span> Sent &middot; Your rating:{" "}
+              {activity.userRating}/5
+            </p>
+          ) : null}
+        </div>
         <a className="primary-button sent-button" href={sentHref}>
           {activity?.userRating ? "Edit Send" : "Log Send"}
         </a>
-      </div>
-    </section>
-  );
-}
+      </section>
 
-export function ClimbLogbook({
-  reference,
-}: {
-  reference: ClimbReference;
-}) {
-  const { logbookEntries, status } = useClimbActivityDetail(reference);
-
-  return (
-    <section className="climb-logbook" aria-labelledby="climb-logbook-heading">
-      <h2 className="climb-section-label" id="climb-logbook-heading">
-        Sends
-      </h2>
-      {status === "loading" ? (
-        <p className="climb-logbook-status" role="status">
-          Loading logbook&hellip;
-        </p>
-      ) : status === "error" ? (
-        <p className="climb-logbook-status" role="status">
-          Logbook unavailable.
-        </p>
-      ) : logbookEntries.length === 0 ? (
-        <p className="climb-logbook-status">No sends yet.</p>
-      ) : (
-        <ul className="climb-logbook-list">
-          {logbookEntries.map((entry, index) => (
-            <li
-              className="climb-logbook-entry"
-              key={`${entry.profileName}-${index}`}
-            >
-              <span className="climb-logbook-name">{entry.profileName}</span>
-              <span className="climb-logbook-details">
-                <span
-                  aria-label={`${entry.rating} out of 5 stars`}
-                  className="climb-logbook-rating"
-                  role="img"
-                >
-                  {Array.from({ length: entry.rating }, (_, starIndex) => (
-                    <span aria-hidden="true" key={starIndex}>
-                      &#9733;
-                    </span>
-                  ))}
-                </span>
-                <span className="climb-logbook-grade">
-                  <span className="sr-only">
-                    {entry.grade
-                      ? `Grade ${entry.grade}`
-                      : "Grade not recorded"}
+      <section className="climb-logbook" aria-labelledby="climb-logbook-heading">
+        <h2 className="climb-section-label" id="climb-logbook-heading">
+          Logbook
+        </h2>
+        {status === "loading" ? (
+          <p className="climb-logbook-status" role="status">
+            Loading logbook&hellip;
+          </p>
+        ) : status === "error" ? (
+          <p className="climb-logbook-status" role="status">
+            Logbook unavailable.
+          </p>
+        ) : logbookEntries.length === 0 ? (
+          <p className="climb-logbook-status">No sends yet.</p>
+        ) : (
+          <ul className="climb-logbook-list">
+            {logbookEntries.map((entry, index) => (
+              <li
+                className="climb-logbook-entry"
+                key={`${entry.profileName}-${index}`}
+              >
+                <span className="climb-logbook-name">{entry.profileName}</span>
+                <span className="climb-logbook-details">
+                  <span
+                    aria-label={`${entry.rating} out of 5 stars`}
+                    className="climb-logbook-rating"
+                    role="img"
+                  >
+                    {Array.from({ length: entry.rating }, (_, starIndex) => (
+                      <span aria-hidden="true" key={starIndex}>
+                        &#9733;
+                      </span>
+                    ))}
                   </span>
-                  <span aria-hidden="true">{entry.grade ?? "—"}</span>
+                  <span className="climb-logbook-grade">
+                    <span className="sr-only">
+                      {entry.grade
+                        ? `Grade ${entry.grade}`
+                        : "Grade not recorded"}
+                    </span>
+                    <span aria-hidden="true">{entry.grade ?? "—"}</span>
+                  </span>
                 </span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
   );
 }
