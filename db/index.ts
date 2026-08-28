@@ -1,6 +1,4 @@
 import { env } from "cloudflare:workers";
-import { drizzle } from "drizzle-orm/d1";
-import * as schema from "./schema";
 
 export function getD1Database() {
   if (!env.DB) {
@@ -10,8 +8,4 @@ export function getD1Database() {
   }
 
   return env.DB;
-}
-
-export function getDb() {
-  return drizzle(getD1Database(), { schema });
 }

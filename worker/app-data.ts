@@ -612,7 +612,12 @@ async function ensureClimbSendGradeColumn(db: D1Database) {
   }
 }
 
-async function ensureSchema(db: D1Database) {
+const schemaInitializationByDatabase = new WeakMap<
+  D1Database,
+  Promise<void>
+>();
+
+async function initializeSchema(db: D1Database) {
   await db.batch([
     db.prepare(`
       CREATE TABLE IF NOT EXISTS profiles (
@@ -676,6 +681,20 @@ async function ensureSchema(db: D1Database) {
   ]);
   await ensureClimbApprovalColumn(db);
   await ensureClimbSendGradeColumn(db);
+}
+
+function ensureSchema(db: D1Database) {
+  const existingInitialization = schemaInitializationByDatabase.get(db);
+  if (existingInitialization) return existingInitialization;
+
+  const initialization = initializeSchema(db);
+  schemaInitializationByDatabase.set(db, initialization);
+  void initialization.catch(() => {
+    if (schemaInitializationByDatabase.get(db) === initialization) {
+      schemaInitializationByDatabase.delete(db);
+    }
+  });
+  return initialization;
 }
 
 function rowToProfile(row: ProfileRow): Profile {
@@ -1104,24 +1123,38 @@ async function handleSends(request: Request, db: D1Database) {
     const isDetailRequest =
       requestedClimbKind !== null || requestedClimbId !== null;
     if (isDetailRequest) {
-      if (
-        !isClimbKind(requestedClimbKind) ||
-        (requestedClimbKind === "demo"
-          ? !isDemoClimbId(requestedClimbId)
-          : !isSavedClimbId(requestedClimbId))
-      ) {
+      if (!isClimbKind(requestedClimbKind)) {
         throw new ApiError("Choose a valid climb before loading its logbook.", 400);
+      }
+
+      let climbId: string;
+      if (requestedClimbKind === "demo") {
+        if (!isDemoClimbId(requestedClimbId)) {
+          throw new ApiError(
+            "Choose a valid climb before loading its logbook.",
+            400,
+          );
+        }
+        climbId = requestedClimbId;
+      } else {
+        if (!isSavedClimbId(requestedClimbId)) {
+          throw new ApiError(
+            "Choose a valid climb before loading its logbook.",
+            400,
+          );
+        }
+        climbId = requestedClimbId;
       }
 
       if (requestedClimbKind === "saved") {
         const savedClimb = await db
           .prepare("SELECT id FROM climbs WHERE id = ?")
-          .bind(requestedClimbId)
+          .bind(climbId)
           .first<{ id: string }>();
         if (!savedClimb) {
           const wasDeleted = await db
             .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
-            .bind(requestedClimbId)
+            .bind(climbId)
             .first<{ id: string }>();
           if (wasDeleted) throw new ApiError("This climb was deleted.", 410);
           throw new ApiError("Climb not found.", 404);
@@ -1139,7 +1172,7 @@ async function handleSends(request: Request, db: D1Database) {
                     profile.name COLLATE NOCASE ASC,
                     profile.id ASC`,
         )
-        .bind(requestedClimbKind, requestedClimbId)
+        .bind(requestedClimbKind, climbId)
         .all<ClimbLogbookRow>();
       const logbookEntries = logbookResult.results.map(logbookEntryFromRow);
       const currentProfileIndex = logbookResult.results.findIndex(
@@ -1173,7 +1206,7 @@ async function handleSends(request: Request, db: D1Database) {
                 activityFromAggregate(
                   {
                     climb_kind: requestedClimbKind,
-                    climb_id: requestedClimbId,
+                    climb_id: climbId,
                     average_rating: averageRating,
                     rating_count: ratingCount,
                   },
@@ -1757,6 +1790,11 @@ export async function handleAppDataRequest(
     return jsonError("Not found.", 404);
   } catch (error) {
     if (error instanceof ApiError) return jsonError(error.message, error.status);
+    console.error("Unexpected app-data request error.", {
+      method: request.method,
+      pathname: new URL(request.url).pathname,
+      error,
+    });
     return jsonError("The app data request could not be completed.", 500);
   }
 }

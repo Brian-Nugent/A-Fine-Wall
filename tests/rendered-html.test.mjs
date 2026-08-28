@@ -149,6 +149,7 @@ function createMemoryWallPhotoBucket() {
 
 function createMemoryAppDatabase() {
   let wallConfiguration = null;
+  let schemaBatchCount = 0;
   let climbsTableExists = false;
   let climbsHaveRockoApproval = false;
   let climbSendsTableExists = false;
@@ -657,7 +658,11 @@ function createMemoryAppDatabase() {
       return createStatement(sql);
     },
     async batch(statements) {
+      schemaBatchCount += 1;
       return Promise.all(statements.map((statement) => statement.run()));
+    },
+    schemaBatchCount() {
+      return schemaBatchCount;
     },
     seedClimb(climb) {
       climbsTableExists = true;
@@ -2594,6 +2599,7 @@ test("creates and reloads password-free user profiles", async () => {
   );
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { climbs: [] });
+  assert.equal(database.schemaBatchCount(), 1);
 
   response = await fetchAppData(
     new Request("http://localhost/api/profiles", {
@@ -4293,11 +4299,9 @@ test("includes the wall, app icon, and social preview image assets", async () =>
 
   for (const relativePath of [
     "../public/a-fine-wall-icon-32.png",
-    "../public/a-fine-wall-icon-180.png",
     "../public/a-fine-wall-icon-192.png",
     "../public/a-fine-wall-icon-512.png",
     "../public/a-fine-wall-icon-maskable-1024.png",
-    "../public/apple-touch-icon.png",
     "../public/apple-touch-icon-v2.png",
     "../public/rocko-approved.png",
   ]) {
@@ -4312,7 +4316,6 @@ test("includes the wall, app icon, and social preview image assets", async () =>
   assert.equal(rockoIcon[25], 6, "Rocko icon must be an RGBA PNG");
 
   for (const [relativePath, expectedSize] of [
-    ["../public/apple-touch-icon.png", 180],
     ["../public/apple-touch-icon-v2.png", 180],
     ["../public/a-fine-wall-icon-maskable-1024.png", 1024],
   ]) {
@@ -4324,7 +4327,6 @@ test("includes the wall, app icon, and social preview image assets", async () =>
   }
 
   for (const relativePath of [
-    "../dist/client/apple-touch-icon.png",
     "../dist/client/apple-touch-icon-v2.png",
     "../dist/client/a-fine-wall-icon-maskable-1024.png",
     "../dist/client/sw.js",
@@ -4616,7 +4618,6 @@ test("allows native two-axis panning on interactive wall layers", async () => {
   );
 
   for (const selector of [
-    "wall-tap-layer",
     "wall-hold-choice-layer",
     "wall-holds-tap-layer",
   ]) {

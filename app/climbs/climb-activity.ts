@@ -96,26 +96,36 @@ function parseLogbookEntry(value: unknown): ClimbLogbookEntry | null {
 function parseActivity(value: unknown): ClimbActivity | null {
   if (!value || typeof value !== "object") return null;
   const activity = value as Record<string, unknown>;
+  const reference = isClimbReference(activity) ? activity : null;
+  const averageRating = activity.averageRating;
+  const ratingCount = activity.ratingCount;
+  const userRating = activity.userRating;
+  const parsedUserRating =
+    userRating === null
+      ? null
+      : isRating(userRating)
+        ? userRating
+        : undefined;
   if (
-    !isClimbReference(activity) ||
-    typeof activity.averageRating !== "number" ||
-    !Number.isFinite(activity.averageRating) ||
-    activity.averageRating < 1 ||
-    activity.averageRating > 5 ||
-    typeof activity.ratingCount !== "number" ||
-    !Number.isSafeInteger(activity.ratingCount) ||
-    activity.ratingCount < 1 ||
-    (activity.userRating !== null && !isRating(activity.userRating))
+    !reference ||
+    typeof averageRating !== "number" ||
+    !Number.isFinite(averageRating) ||
+    averageRating < 1 ||
+    averageRating > 5 ||
+    typeof ratingCount !== "number" ||
+    !Number.isSafeInteger(ratingCount) ||
+    ratingCount < 1 ||
+    parsedUserRating === undefined
   ) {
     return null;
   }
 
   return {
-    climbKind: activity.climbKind,
-    climbId: activity.climbId,
-    averageRating: activity.averageRating,
-    ratingCount: activity.ratingCount,
-    userRating: activity.userRating,
+    climbKind: reference.climbKind,
+    climbId: reference.climbId,
+    averageRating,
+    ratingCount,
+    userRating: parsedUserRating,
   };
 }
 

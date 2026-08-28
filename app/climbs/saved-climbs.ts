@@ -108,7 +108,7 @@ function isSavedHold(value: unknown): value is SavedHold {
   );
 }
 
-function isSavedClimb(value: unknown): value is SavedClimb {
+export function isSavedClimb(value: unknown): value is SavedClimb {
   if (!value || typeof value !== "object") return false;
 
   const climb = value as Record<string, unknown>;

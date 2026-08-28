@@ -103,18 +103,20 @@ dependencies and updating `package-lock.json`.
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Start the Vinext development server. |
-| `npm run build` | Create a production build in `dist/`. |
+| `npm run build` | Type-check the app and create a production build in `dist/`. |
 | `npm start` | Serve the built app locally. |
 | `npm run lint` | Run ESLint with TypeScript, React, hooks, accessibility, and Next rules. |
+| `npm run typegen` | Regenerate Cloudflare binding/runtime types after editing `wrangler.jsonc`. |
+| `npm run typecheck` | Verify generated Worker types and run strict TypeScript checks. |
+| `npm run check` | Run lint, migration validation, the production build, and all tests. |
 | `npm test` | Build the app, then run the full Node test suite. |
+| `npm run db:check` | Validate the Drizzle schema and migration metadata. |
 | `npm run db:generate` | Generate migration SQL and metadata from `db/schema.ts`. |
 | `npm run db:migrate:remote` | Apply pending migrations to the configured production D1 database. |
-| `npm run deploy:cloudflare:built` | Migrate D1 and deploy an existing build. |
 | `npm run deploy:cloudflare` | Build, migrate D1, and deploy the Worker. |
 
 `npm run db:migrate:remote` changes the production database; it is not part of
-local setup. Use `npm run deploy:cloudflare:built` only when `dist/` was freshly
-built from the same commit.
+local setup.
 
 ## Data and Storage
 
@@ -158,10 +160,6 @@ cookie, or the Admin name as secure identity for a public or multi-tenant
 deployment. The current model is best suited to a trusted group or a deployment
 protected by an external access policy.
 
-`app/chatgpt-auth.ts` contains optional Sign in with ChatGPT helpers retained
-from the hosting starter, but current application pages do not use them for
-profile selection or authorization.
-
 ## Database Changes
 
 When changing the schema:
@@ -170,7 +168,7 @@ When changing the schema:
 2. Generate a migration with `npm run db:generate`.
 3. Review and commit the new SQL and metadata under `drizzle/` together with
    the schema change.
-4. Run `npm run lint` and `npm test`.
+4. Run `npm run check`.
 5. Deploy with `npm run deploy:cloudflare`.
 
 The deployment script applies remote D1 migrations before deploying the
@@ -181,10 +179,16 @@ installations, but those checks do not replace committed migrations.
 
 ## Testing
 
-`npm test` first builds the production Worker and then runs
-`tests/rendered-html.test.mjs` with Node's built-in test runner. The suite
+`npm test` first verifies the generated Cloudflare types, runs TypeScript, and
+builds the production Worker before running the files under `tests/` with
+Node's built-in test runner. The suite
 exercises rendered routes, API behavior, migrations, filtering, sync logic,
 authorization, and PWA configuration with in-memory D1 and R2 substitutes.
+
+`worker-configuration.d.ts` is generated from `wrangler.jsonc` and committed so
+the app, CI, and editors use the same Cloudflare runtime and binding types. Run
+`npm run typegen` whenever the Worker compatibility date, flags, or bindings
+change.
 
 The suite is not a real-browser test. Visual behavior, touch interactions, and
 installed-PWA behavior should also be checked manually in the target browser.
@@ -245,6 +249,7 @@ Worker deployment configuration.
 | `public/` | PWA assets, icons, service worker, and offline fallback. |
 | `tests/` | Build-backed integration and utility tests. |
 | `build/` | Custom Vite build integration for hosting metadata. |
+| `docs/maintenance-review.md` | Latest code-health review and deferred architectural work. |
 
 ## References
 

@@ -1,4 +1,4 @@
-import type { SavedClimb } from "./saved-climbs";
+import { isSavedClimb, type SavedClimb } from "./saved-climbs";
 
 export const CLIMBS_ENDPOINT = "/api/climbs";
 
@@ -17,8 +17,17 @@ function isClimbPayload(value: unknown): value is { climb: SavedClimb } {
     value &&
       typeof value === "object" &&
       "climb" in value &&
-      (value as { climb?: unknown }).climb,
+      isSavedClimb((value as { climb?: unknown }).climb),
   );
+}
+
+function parseClimbsPayload(value: unknown): SavedClimb[] | null {
+  if (!value || typeof value !== "object" || !("climbs" in value)) {
+    return null;
+  }
+
+  const climbs = (value as { climbs?: unknown }).climbs;
+  return Array.isArray(climbs) && climbs.every(isSavedClimb) ? climbs : null;
 }
 
 export async function loadClimbs(signal?: AbortSignal) {
@@ -28,8 +37,9 @@ export async function loadClimbs(signal?: AbortSignal) {
   });
   if (!response.ok) throw new Error("Climbs could not be loaded.");
 
-  const payload = (await response.json()) as { climbs?: SavedClimb[] };
-  return Array.isArray(payload.climbs) ? payload.climbs : [];
+  const climbs = parseClimbsPayload(await response.json());
+  if (!climbs) throw new Error("Climbs could not be loaded.");
+  return climbs;
 }
 
 export async function loadClimb(id: string, signal?: AbortSignal) {
@@ -48,13 +58,17 @@ export async function loadClimb(id: string, signal?: AbortSignal) {
   }
 
   const payload: unknown = await response.json();
-  return isClimbPayload(payload) ? payload.climb : null;
+  if (!isClimbPayload(payload)) {
+    throw new Error("This climb could not be loaded.");
+  }
+  return payload.climb;
 }
 
 export async function saveClimb(
   climb: SavedClimb,
   expectedWallUpdatedAt: number,
   profileId: string,
+  signal?: AbortSignal,
 ) {
   const climbPayload = {
     id: climb.id,
@@ -72,6 +86,7 @@ export async function saveClimb(
       expectedWallUpdatedAt,
       profileId,
     }),
+    signal,
   });
   const payload: unknown = await response.json().catch(() => null);
 

@@ -47,24 +47,51 @@ export async function loadSyncedClimbs(
   signal?: AbortSignal,
 ): Promise<SyncedClimbs> {
   const browserClimbs = readBrowserClimbs(profile, storage);
+  let appClimbs: SavedClimb[];
 
+  try {
+    appClimbs = await loadClimbs(signal);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return { climbs: browserClimbs, sharedUnavailable: true };
+  }
+
+  const appIds = new Set(appClimbs.map((climb) => climb.id));
+  const browserOnlyClimbs = browserClimbs.filter(
+    (climb) => !appIds.has(climb.id),
+  );
+  if (browserOnlyClimbs.length === 0) {
+    return { climbs: appClimbs, sharedUnavailable: false };
+  }
+
+  const deletedBrowserIds = new Set<string>();
+  const migratedBrowserClimbs = new Map<string, SavedClimb>();
   try {
     const wallMap = await loadWallHoldMap(signal);
     const syncResults = await Promise.allSettled(
-      browserClimbs.map((climb) =>
-        saveClimbToApp(climb, wallMap.updatedAt, climb.profileId),
+      browserOnlyClimbs.map((climb) =>
+        saveClimbToApp(
+          climb,
+          wallMap.updatedAt,
+          climb.profileId,
+          signal,
+        ),
       ),
     );
-    const deletedBrowserIds = new Set(
-      browserClimbs.flatMap((climb, index) => {
-        const result = syncResults[index];
-        return result.status === "rejected" &&
-          result.reason instanceof ClimbRequestError &&
-          result.reason.status === 410
-          ? [climb.id]
-          : [];
-      }),
-    );
+    if (signal?.aborted) {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
+    for (const [index, climb] of browserOnlyClimbs.entries()) {
+      const result = syncResults[index];
+      if (result.status === "fulfilled") {
+        migratedBrowserClimbs.set(climb.id, result.value);
+      } else if (
+        result.reason instanceof ClimbRequestError &&
+        result.reason.status === 410
+      ) {
+        deletedBrowserIds.add(climb.id);
+      }
+    }
     for (const climbId of deletedBrowserIds) {
       try {
         removeSavedClimb(storage, climbId);
@@ -72,21 +99,18 @@ export async function loadSyncedClimbs(
         // The durable tombstone still prevents this copy from returning.
       }
     }
-
-    const appClimbs = await loadClimbs(signal);
-    const appIds = new Set(appClimbs.map((climb) => climb.id));
-    return {
-      climbs: [
-        ...appClimbs,
-        ...browserClimbs.filter(
-          (climb) =>
-            !appIds.has(climb.id) && !deletedBrowserIds.has(climb.id),
-        ),
-      ],
-      sharedUnavailable: false,
-    };
   } catch (error) {
     if (signal?.aborted) throw error;
-    return { climbs: browserClimbs, sharedUnavailable: true };
+    // Shared climbs remain usable when legacy browser migration is unavailable.
   }
+
+  return {
+    climbs: [
+      ...appClimbs,
+      ...browserOnlyClimbs
+        .filter((climb) => !deletedBrowserIds.has(climb.id))
+        .map((climb) => migratedBrowserClimbs.get(climb.id) ?? climb),
+    ],
+    sharedUnavailable: false,
+  };
 }

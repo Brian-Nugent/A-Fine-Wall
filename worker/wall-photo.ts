@@ -192,7 +192,12 @@ export async function handleWallPhotoRequest(
       status: 405,
       headers: { Allow: "GET, HEAD, POST, DELETE" },
     });
-  } catch {
+  } catch (error) {
+    console.error("Unexpected wall-photo request error.", {
+      method: request.method,
+      pathname: new URL(request.url).pathname,
+      error,
+    });
     return jsonError("The wall photo could not be updated. Please try again.", 500);
   }
 }
