@@ -391,10 +391,32 @@ export function filterClimbs<T extends FilterableClimb>(
 }
 
 export function uniqueFilterAuthors(values: readonly string[]) {
-  return uniqueAuthors(
-    values.flatMap((value) => {
-      const author = normalizeAuthor(value);
-      return author ? [author] : [];
-    }),
-  );
+  const authorsByKey = new Map<
+    string,
+    { author: string; climbCount: number }
+  >();
+
+  values.forEach((value) => {
+    const author = normalizeAuthor(value);
+    if (!author) return;
+
+    const key = authorKey(author);
+    const existing = authorsByKey.get(key);
+    if (existing) {
+      existing.climbCount += 1;
+      return;
+    }
+
+    authorsByKey.set(key, { author, climbCount: 1 });
+  });
+
+  return [...authorsByKey.values()]
+    .sort(
+      (left, right) =>
+        right.climbCount - left.climbCount ||
+        left.author.localeCompare(right.author, undefined, {
+          sensitivity: "base",
+        }),
+    )
+    .map(({ author }) => author);
 }

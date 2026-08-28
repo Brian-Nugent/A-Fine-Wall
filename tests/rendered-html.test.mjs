@@ -1110,13 +1110,16 @@ test("normalizes, serializes, and combines climb filters", () => {
   assert.equal(matchesClimbFilters(candidates[6], filters), false);
   assert.deepEqual(
     uniqueFilterAuthors([
-      " Sam ",
+      " Zoe ",
       "Alex",
-      "Sam",
+      "zoe",
       "alex",
+      "Sam",
+      "Alex",
+      "sam",
       "Bad\nName",
     ]),
-    ["Alex", "Sam"],
+    ["Alex", "Sam", "Zoe"],
   );
 
   const sentActivity = {
