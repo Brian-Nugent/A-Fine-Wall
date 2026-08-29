@@ -901,11 +901,28 @@ export default function SavedClimbDetail({
           </div>
           <div className="detail-meta-line">
             <p>Set by {climb.setter}</p>
-            {climb.rockoApproved ? (
-              <span className="rocko-approved-tag">Rocko Approved</span>
+            {climb.outdated || climb.rockoApproved ? (
+              <div className="detail-status-tags">
+                {climb.outdated ? (
+                  <span className="outdated-tag">Outdated</span>
+                ) : null}
+                {climb.rockoApproved ? (
+                  <span className="rocko-approved-tag">Rocko Approved</span>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
+
+        {climb.outdated ? (
+          <div className="climb-outdated-notice" role="status">
+            <strong>This climb is outdated</strong>
+            <span>
+              At least one hold used by this climb has been deleted from the
+              current wall setup.
+            </span>
+          </div>
+        ) : null}
 
         {actionError ? (
           <p className="form-error climb-action-error" role="alert">

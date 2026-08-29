@@ -43,7 +43,7 @@ function ClimbRow({
   activityStatus: "loading" | "ready" | "error";
   climb: Pick<
     SavedClimb,
-    "name" | "grade" | "setter" | "rockoApproved"
+    "name" | "grade" | "setter" | "outdated" | "rockoApproved"
   >;
   href: string;
   onOpen(): void;
@@ -80,6 +80,9 @@ function ClimbRow({
         <span className="climb-row-copy">
           <strong>
             <span className="climb-name-text">{climb.name}</span>
+            {climb.outdated ? (
+              <span className="outdated-tag">Outdated</span>
+            ) : null}
             {climb.rockoApproved ? (
               <span
                 aria-label="Rocko Approved"
@@ -221,6 +224,7 @@ export default function ClimbListClient({
       holds: climb.holds,
       id: climb.id,
       key: `saved-${climb.id}`,
+      outdated: climb.outdated === true,
       rockoApproved: climb.rockoApproved === true,
       reference: {
         climbKind: "saved",
@@ -240,6 +244,7 @@ export default function ClimbListClient({
       holds: climb.holds,
       id: climb.slug,
       key: `demo-${climb.slug}`,
+      outdated: false,
       rockoApproved: false,
       reference: {
         climbKind: "demo",
@@ -254,7 +259,16 @@ export default function ClimbListClient({
   const searchedClimbs = filteredClimbs.filter((entry) =>
     matchesClimbSearch(entry.climb.name, searchQuery),
   );
-  const totalClimbs = allClimbs.length;
+  const currentClimbCount = allClimbs.filter(
+    (entry) => !entry.outdated,
+  ).length;
+  const totalClimbs = initialFilters.showOutdated
+    ? allClimbs.length
+    : currentClimbCount;
+  const hasOnlyHiddenOutdatedClimbs =
+    !initialFilters.showOutdated &&
+    allClimbs.length > 0 &&
+    currentClimbCount === 0;
   const visibleClimbs = searchedClimbs.length;
   const activeFilterCount = activeClimbFilterCount(initialFilters);
   const hasFilterConstraints = hasClimbFilterConstraints(initialFilters);
@@ -434,6 +448,20 @@ export default function ClimbListClient({
         {activityOptionsUnavailable ? null : listState === "loading" ? (
           <div className="climb-filter-loading" role="status">
             Loading climbs&hellip;
+          </div>
+        ) : listState === "empty" && hasOnlyHiddenOutdatedClimbs ? (
+          <div className="climb-filter-empty">
+            <h2>No current climbs</h2>
+            <p>Every saved climb uses at least one hold that has been deleted.</p>
+            <a
+              className="secondary-button"
+              href={buildFilteredHref("/climbs", {
+                ...initialFilters,
+                showOutdated: true,
+              })}
+            >
+              Show Outdated Climbs
+            </a>
           </div>
         ) : listState === "empty" ? (
           <div className="climb-filter-empty">

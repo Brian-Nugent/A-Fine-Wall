@@ -45,6 +45,9 @@ export default function FilterOptionsClient({
   const [authors, setAuthors] = useState(initialFilters.authors);
   const [holdIds, setHoldIds] = useState(initialFilters.holdIds);
   const [hideSent, setHideSent] = useState(initialFilters.hideSent);
+  const [showOutdated, setShowOutdated] = useState(
+    initialFilters.showOutdated,
+  );
   const [minStars, setMinStars] = useState(initialFilters.minStars);
   const [rockoApprovedOnly, setRockoApprovedOnly] = useState(
     initialFilters.rockoApprovedOnly,
@@ -109,6 +112,7 @@ export default function FilterOptionsClient({
       authors,
       holdIds,
       hideSent,
+      showOutdated,
       minStars,
       rockoApprovedOnly,
       order,
@@ -122,6 +126,7 @@ export default function FilterOptionsClient({
       minStars,
       order,
       rockoApprovedOnly,
+      showOutdated,
     ],
   );
   const authorOptions = uniqueFilterAuthors(
@@ -173,6 +178,7 @@ export default function FilterOptionsClient({
     setAuthors([]);
     setHoldIds([]);
     setHideSent(DEFAULT_CLIMB_FILTERS.hideSent);
+    setShowOutdated(DEFAULT_CLIMB_FILTERS.showOutdated);
     setMinStars(DEFAULT_CLIMB_FILTERS.minStars);
     setRockoApprovedOnly(DEFAULT_CLIMB_FILTERS.rockoApprovedOnly);
     setOrder(DEFAULT_CLIMB_FILTERS.order);
@@ -201,7 +207,10 @@ export default function FilterOptionsClient({
       <div className="filter-scroll-region">
         <section className="filter-intro" aria-labelledby="filter-heading">
           <h1 id="filter-heading">Filter climbs</h1>
-          <p>Narrow the list by grade, sends, stars, holds, and author.</p>
+          <p>
+            Narrow the list by wall status, grade, sends, stars, holds, and
+            author.
+          </p>
         </section>
 
         {climbLoadFailed || activityLoadFailed ? (
@@ -224,6 +233,27 @@ export default function FilterOptionsClient({
             </button>
           </div>
         ) : null}
+
+        <section
+          aria-labelledby="wall-status-filter-heading"
+          className="filter-section"
+        >
+          <div className="filter-section-heading">
+            <div>
+              <h2 id="wall-status-filter-heading">Wall status</h2>
+              <p>Outdated climbs use at least one hold that has been deleted.</p>
+            </div>
+          </div>
+          <div className="filter-toggle-choice">
+            <input
+              checked={showOutdated}
+              id="show-outdated-climbs"
+              onChange={(event) => setShowOutdated(event.target.checked)}
+              type="checkbox"
+            />
+            <label htmlFor="show-outdated-climbs">Show outdated climbs</label>
+          </div>
+        </section>
 
         <section className="filter-section" aria-labelledby="grade-filter-heading">
           <div className="filter-section-heading">
@@ -412,7 +442,7 @@ export default function FilterOptionsClient({
         <div className="selection-status">
           <strong>
             {activeFilterCount === 0
-              ? "All climbs"
+              ? "Current climbs"
               : `${activeFilterCount} active`}
           </strong>
           <span aria-live="polite">

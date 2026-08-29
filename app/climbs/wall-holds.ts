@@ -35,6 +35,15 @@ type SavedHoldCoordinates = {
   size: number;
 };
 
+type HoldLinkedClimb = {
+  holds: readonly { holdId?: string | null }[];
+};
+
+type BrowserClimbWithOutdatedState = HoldLinkedClimb & {
+  id: string;
+  outdated?: boolean;
+};
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -239,4 +248,35 @@ export function resolveSavedHold<T extends SavedHoldCoordinates>(
     y: currentSpot.y,
     size: currentSpot.size,
   };
+}
+
+export function climbUsesMissingWallHold(
+  climb: HoldLinkedClimb,
+  wallHolds: readonly WallHold[],
+) {
+  const currentHoldIds = new Set(wallHolds.map((hold) => hold.id));
+  return climb.holds.some(
+    (hold) => !hold.holdId || !currentHoldIds.has(hold.holdId),
+  );
+}
+
+export function reconcileBrowserClimbsAfterWallSave<
+  T extends BrowserClimbWithOutdatedState,
+>(
+  climbs: readonly T[],
+  wallHolds: readonly WallHold[],
+  unresolvedClimbIds: ReadonlySet<string>,
+) {
+  const currentHoldIds = new Set(wallHolds.map((hold) => hold.id));
+
+  return climbs.map((climb) => ({
+    ...climb,
+    outdated:
+      unresolvedClimbIds.has(climb.id) ||
+      climb.holds.some(
+        (hold) =>
+          typeof hold.holdId === "string" &&
+          !currentHoldIds.has(hold.holdId),
+      ),
+  }));
 }

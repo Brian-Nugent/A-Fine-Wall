@@ -12,7 +12,11 @@ import {
   type AttributedSavedClimb,
   type SavedClimb,
 } from "./saved-climbs";
-import { loadWallHoldMap } from "./wall-holds";
+import {
+  climbUsesMissingWallHold,
+  loadWallHoldMap,
+  type WallHold,
+} from "./wall-holds";
 
 export type SyncedClimbs = {
   climbs: SavedClimb[];
@@ -66,8 +70,10 @@ export async function loadSyncedClimbs(
 
   const deletedBrowserIds = new Set<string>();
   const migratedBrowserClimbs = new Map<string, SavedClimb>();
+  let currentWallHolds: WallHold[] | null = null;
   try {
     const wallMap = await loadWallHoldMap(signal);
+    currentWallHolds = wallMap.holds;
     const syncResults = await Promise.allSettled(
       browserOnlyClimbs.map((climb) =>
         saveClimbToApp(
@@ -109,7 +115,20 @@ export async function loadSyncedClimbs(
       ...appClimbs,
       ...browserOnlyClimbs
         .filter((climb) => !deletedBrowserIds.has(climb.id))
-        .map((climb) => migratedBrowserClimbs.get(climb.id) ?? climb),
+        .map(
+          (climb) =>
+            migratedBrowserClimbs.get(climb.id) ?? {
+              ...climb,
+              ...(currentWallHolds
+                ? {
+                    outdated: climbUsesMissingWallHold(
+                      climb,
+                      currentWallHolds,
+                    ),
+                  }
+                : {}),
+            },
+        ),
     ],
     sharedUnavailable: false,
   };

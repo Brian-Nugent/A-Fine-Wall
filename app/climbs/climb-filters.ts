@@ -12,6 +12,7 @@ export type ClimbFilters = {
   authors: string[];
   holdIds: string[];
   hideSent: boolean;
+  showOutdated: boolean;
   minStars: number;
   rockoApprovedOnly: boolean;
   order: "newest" | "ascents";
@@ -24,6 +25,7 @@ export type FilterSearchParams = Record<
 
 export type FilterableClimb = {
   grade: string;
+  outdated?: boolean;
   rockoApproved?: boolean;
   setter: string;
   holds: readonly { holdId?: string | null }[];
@@ -52,6 +54,7 @@ export const DEFAULT_CLIMB_FILTERS: Readonly<ClimbFilters> = {
   authors: [],
   holdIds: [],
   hideSent: false,
+  showOutdated: false,
   minStars: MIN_FILTER_STARS,
   rockoApprovedOnly: false,
   order: "newest",
@@ -162,6 +165,7 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
     authors,
     holdIds,
     hideSent: filters.hideSent === true,
+    showOutdated: filters.showOutdated === true,
     minStars: normalizeStars(filters.minStars),
     rockoApprovedOnly: filters.rockoApprovedOnly === true,
     order: filters.order === "ascents" ? "ascents" : "newest",
@@ -183,6 +187,7 @@ export function parseClimbFilters(
     authors: valuesFor(source, "author"),
     holdIds: valuesFor(source, "hold"),
     hideSent: valuesFor(source, "sent")[0] === "hide",
+    showOutdated: valuesFor(source, "outdated")[0] === "show",
     minStars: readStars(valuesFor(source, "stars")),
     rockoApprovedOnly: valuesFor(source, "rocko")[0] === "approved",
     order: valuesFor(source, "order")[0] === "ascents" ? "ascents" : "newest",
@@ -202,6 +207,7 @@ export function createClimbFilterSearchParams(filters: ClimbFilters) {
   normalized.authors.forEach((author) => searchParams.append("author", author));
   normalized.holdIds.forEach((holdId) => searchParams.append("hold", holdId));
   if (normalized.hideSent) searchParams.set("sent", "hide");
+  if (normalized.showOutdated) searchParams.set("outdated", "show");
   if (normalized.minStars !== DEFAULT_CLIMB_FILTERS.minStars) {
     searchParams.set("stars", String(normalized.minStars));
   }
@@ -242,6 +248,7 @@ export function activeClimbFilterCount(filters: ClimbFilters) {
     Number(normalized.authors.length > 0) +
     Number(normalized.holdIds.length > 0) +
     Number(normalized.hideSent) +
+    Number(normalized.showOutdated) +
     Number(normalized.minStars > MIN_FILTER_STARS) +
     Number(normalized.rockoApprovedOnly) +
     Number(normalized.order !== DEFAULT_CLIMB_FILTERS.order)
@@ -284,6 +291,10 @@ export function matchesClimbFilters(
   filters: ClimbFilters,
 ) {
   const normalized = normalizeClimbFilters(filters);
+  if (!normalized.showOutdated && climb.outdated === true) {
+    return false;
+  }
+
   const grade = gradeNumber(climb.grade);
   if (
     grade === null ||

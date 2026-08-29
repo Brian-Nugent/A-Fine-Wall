@@ -77,6 +77,22 @@ test("validates successful climb API payloads at runtime", async () => {
     },
   );
 
+  const outdatedClimb = { ...sharedClimb, outdated: true };
+  await withFetch(
+    async () => Response.json({ climbs: [outdatedClimb] }),
+    async () => {
+      assert.deepEqual(await loadClimbs(), [outdatedClimb]);
+    },
+  );
+
+  await withFetch(
+    async () =>
+      Response.json({ climbs: [{ ...sharedClimb, outdated: "yes" }] }),
+    async () => {
+      await assert.rejects(loadClimbs(), /Climbs could not be loaded/);
+    },
+  );
+
   await withFetch(
     async () => Response.json({ climbs: [{ ...sharedClimb, holds: [] }] }),
     async () => {
@@ -199,6 +215,42 @@ test("keeps shared climbs usable if legacy device migration is unavailable", asy
 
   assert.deepEqual(result, {
     climbs: [sharedClimb, localClimb],
+    sharedUnavailable: false,
+  });
+});
+
+test("marks an unmigrated device climb outdated when a referenced hold is gone", async () => {
+  const storage = createStorage([localClimb]);
+
+  const result = await withFetch(
+    async (input, init = {}) => {
+      const path = requestPath(input);
+      if (path === "/api/climbs" && !init.method) {
+        return Response.json({ climbs: [sharedClimb] });
+      }
+      if (path === "/api/wall-holds") {
+        return Response.json({
+          holds: [{ id: "hold-finish", x: 70, y: 15, size: 7 }],
+          updatedAt: 7,
+        });
+      }
+      if (path === "/api/climbs" && init.method === "POST") {
+        return Response.json(
+          { error: "Every climb hold must be one of the saved wall spots." },
+          { status: 400 },
+        );
+      }
+      throw new Error(`Unexpected request: ${init.method ?? "GET"} ${path}`);
+    },
+    () =>
+      loadSyncedClimbs(
+        { id: "profile-monica", name: "Monica" },
+        storage,
+      ),
+  );
+
+  assert.deepEqual(result, {
+    climbs: [sharedClimb, { ...localClimb, outdated: true }],
     sharedUnavailable: false,
   });
 });

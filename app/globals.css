@@ -510,6 +510,22 @@ select:focus-visible {
   white-space: normal;
 }
 
+.outdated-tag {
+  display: inline-flex;
+  min-height: 1.55rem;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #c76d15;
+  border-radius: 999px;
+  background: #fff4e5;
+  color: #8a4308;
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
 .rocko-approved-icon {
   display: inline-block;
   width: 1.65rem;
@@ -955,6 +971,14 @@ select:focus-visible {
   align-items: baseline;
 }
 
+.detail-status-tags {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
 .detail-title h1 {
   min-width: 0;
   font-size: clamp(1.8rem, 7vw, 2.5rem);
@@ -980,6 +1004,24 @@ select:focus-visible {
   font-weight: 750;
   letter-spacing: 0.01em;
   white-space: nowrap;
+}
+
+.climb-outdated-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0 1.25rem 1rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #e0a15f;
+  border-radius: 0.75rem;
+  background: #fff7ec;
+  color: #6f3908;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.climb-outdated-notice strong {
+  font-size: 0.82rem;
 }
 
 .wall-map {
@@ -2022,13 +2064,6 @@ select:focus-visible {
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
-}
-
-.wall-hold-saved-label {
-  padding: 0.55rem 0.4rem;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 650;
 }
 
 .wall-hold-add-button {

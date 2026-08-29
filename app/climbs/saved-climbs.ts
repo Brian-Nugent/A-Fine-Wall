@@ -36,6 +36,7 @@ export type SavedClimb = {
   profileId?: string;
   createdAt: number;
   holds: SavedHold[];
+  outdated?: boolean;
   rockoApproved?: boolean;
 };
 
@@ -122,6 +123,7 @@ export function isSavedClimb(value: unknown): value is SavedClimb {
     (climb.setterGrade === undefined || isClimbGrade(climb.setterGrade)) &&
     isStoredSetterName(climb.setter) &&
     (climb.profileId === undefined || isStoredProfileId(climb.profileId)) &&
+    (climb.outdated === undefined || typeof climb.outdated === "boolean") &&
     (climb.rockoApproved === undefined ||
       typeof climb.rockoApproved === "boolean") &&
     isFiniteNumber(climb.createdAt) &&

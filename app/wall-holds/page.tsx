@@ -29,6 +29,7 @@ import {
   MIN_WALL_HOLD_SIZE,
   createWallHold,
   loadWallHoldMap,
+  reconcileBrowserClimbsAfterWallSave,
   saveWallHolds,
   type WallHold,
   wallHoldSizeFromHorizontalDrag,
@@ -455,7 +456,15 @@ export default function WallHoldsPage() {
   }
 
   function removeSelectedHold() {
-    if (!selectedHold || selectedHoldIsSaved || isSaving) return;
+    if (!selectedHold || isSaving) return;
+    if (
+      selectedHoldIsSaved &&
+      !window.confirm(
+        "Delete this saved hold spot? Climbs that use it will be marked outdated and hidden by default after you save the wall.",
+      )
+    ) {
+      return;
+    }
 
     setHolds((current) => current.filter((hold) => hold.id !== selectedHold.id));
     setSelectedHoldId(null);
@@ -521,19 +530,25 @@ export default function WallHoldsPage() {
       setHolds(savedMap.holds);
       setHasChanges(false);
 
+      let remainingClimbs: BrowserClimb[] = [];
       if (climbsToMigrate.length > 0) {
-        const remainingClimbs = await climbsNeedingMigration(
+        remainingClimbs = await climbsNeedingMigration(
           climbsToMigrate,
           savedMap.updatedAt,
         );
-        if (remainingClimbs.length > 0) {
-          const count = remainingClimbs.length;
-          setError(
-            `Wall saved, but ${count} older ${count === 1 ? "climb" : "climbs"} could not be connected to the preset spots. ${count === 1 ? "It is" : "They are"} still stored on this device. Adjust the circles and save again.`,
-          );
-          setIsSaving(false);
-          return;
-        }
+      }
+
+      try {
+        persistSavedClimbs(
+          window.localStorage,
+          reconcileBrowserClimbsAfterWallSave(
+            browserClimbs,
+            savedMap.holds,
+            new Set(remainingClimbs.map((climb) => climb.id)),
+          ),
+        );
+      } catch {
+        // The shared wall is already saved, so browser storage cannot block it.
       }
 
       allowNavigation.current = true;
@@ -701,17 +716,15 @@ export default function WallHoldsPage() {
             >
               Add Hold
             </button>
-            {selectedHold && !selectedHoldIsSaved ? (
+            {selectedHold ? (
               <button
                 className="wall-hold-remove-button"
                 disabled={isSaving}
                 onClick={removeSelectedHold}
                 type="button"
               >
-                Remove
+                {selectedHoldIsSaved ? "Delete Hold" : "Remove"}
               </button>
-            ) : selectedHoldIsSaved ? (
-              <span className="wall-hold-saved-label">Saved spot</span>
             ) : null}
           </div>
         </div>

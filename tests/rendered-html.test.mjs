@@ -59,6 +59,7 @@ import {
 } from "../app/climbs/climb-activity.ts";
 import { climbs as demoClimbs } from "../app/climbs/data.ts";
 import {
+  reconcileBrowserClimbsAfterWallSave,
   resolveSavedHold,
   wallHoldSizeFromHorizontalDrag,
   wallSetupReturnPath,
@@ -887,7 +888,9 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /Loading climbs/);
   assert.doesNotMatch(html, /No climbs match these filters/);
 
-  response = await render("/climbs/filter?min=2&max=9&rocko=approved");
+  response = await render(
+    "/climbs/filter?min=2&max=9&outdated=show&rocko=approved",
+  );
   assert.equal(response.status, 200);
   html = await response.text();
   assert.match(html, /<h1 id="filter-heading">Filter climbs<\/h1>/);
@@ -895,6 +898,11 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /Minimum/);
   assert.match(html, /Maximum/);
   assert.match(html, /Hide climbs I have sent/);
+  assert.match(html, /<h2 id="wall-status-filter-heading">Wall status<\/h2>/);
+  assert.match(html, /Show outdated climbs/);
+  const showOutdatedInput =
+    html.match(/<input[^>]*id="show-outdated-climbs"[^>]*>/)?.[0] ?? "";
+  assert.match(showOutdatedInput, /checked=""/);
   assert.doesNotMatch(html, /Hide sent climbs/);
   assert.doesNotMatch(html, /Only show climbs you have not logged\./);
   assert.match(html, /Minimum community rating/);
@@ -967,6 +975,10 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(
     filterOptionsSource,
     /setRockoApprovedOnly\(DEFAULT_CLIMB_FILTERS\.rockoApprovedOnly\)/,
+  );
+  assert.match(
+    filterOptionsSource,
+    /setShowOutdated\(DEFAULT_CLIMB_FILTERS\.showOutdated\)/,
   );
 
   const filterStyles = await readFile(
@@ -1051,7 +1063,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
 test("normalizes, serializes, and combines climb filters", () => {
   const filters = parseClimbFilters(
     new URLSearchParams(
-      "min=11&max=3&author=Sam&author=Alex&author=alex&hold=hold-b&hold=hold-a&hold=bad%20hold&sent=hide&stars=4&rocko=approved&order=ascents",
+      "min=11&max=3&author=Sam&author=Alex&author=alex&hold=hold-b&hold=hold-a&hold=bad%20hold&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents",
     ),
   );
   assert.deepEqual(filters, {
@@ -1060,19 +1072,20 @@ test("normalizes, serializes, and combines climb filters", () => {
     authors: ["Alex", "Sam"],
     holdIds: ["hold-a", "hold-b"],
     hideSent: true,
+    showOutdated: true,
     minStars: 4,
     rockoApprovedOnly: true,
     order: "ascents",
   });
-  assert.equal(activeClimbFilterCount(filters), 7);
+  assert.equal(activeClimbFilterCount(filters), 8);
   assert.equal(hasClimbFilterConstraints(filters), true);
   assert.equal(
     serializeClimbFilters(filters),
-    "min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&stars=4&rocko=approved&order=ascents",
+    "min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents",
   );
   assert.equal(
     buildFilteredHref("/climbs/saved", filters, { id: "route 1" }),
-    "/climbs/saved?min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&stars=4&rocko=approved&order=ascents&id=route+1",
+    "/climbs/saved?min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents&id=route+1",
   );
 
   const candidates = [
@@ -1139,6 +1152,17 @@ test("normalizes, serializes, and combines climb filters", () => {
   );
   assert.equal(matchesClimbFilters(candidates[4], filters), false);
   assert.equal(matchesClimbFilters(candidates[6], filters), false);
+  const outdatedClimb = { ...candidates[0], name: "Outdated", outdated: true };
+  const defaultFilters = parseClimbFilters(new URLSearchParams());
+  assert.equal(matchesClimbFilters(outdatedClimb, defaultFilters), false);
+  const showOutdated = parseClimbFilters(
+    new URLSearchParams("outdated=show"),
+  );
+  assert.equal(matchesClimbFilters(outdatedClimb, showOutdated), true);
+  assert.equal(matchesClimbFilters(candidates[0], showOutdated), true);
+  assert.equal(activeClimbFilterCount(showOutdated), 1);
+  assert.equal(hasClimbFilterConstraints(showOutdated), false);
+  assert.equal(serializeClimbFilters(showOutdated), "outdated=show");
   assert.deepEqual(
     uniqueFilterAuthors([
       " Zoe ",
@@ -1200,6 +1224,7 @@ test("normalizes, serializes, and combines climb filters", () => {
       authors: [],
       holdIds: [],
       hideSent: false,
+      showOutdated: false,
       minStars: 0,
       rockoApprovedOnly: false,
       order: "newest",
@@ -1846,6 +1871,80 @@ test("resizes selected wall circles with a direct manipulation handle", async ()
   assert.equal(wallHoldSizeFromHorizontalDrag(7, -100, 350), 1);
   assert.equal(wallHoldSizeFromHorizontalDrag(7, 100, 350), 20);
   assert.equal(wallHoldSizeFromHorizontalDrag(7, 100, 0), 7);
+});
+
+test("lets Admin delete saved hold spots without deleting climbs", async () => {
+  const [editorSource, workerSource, listSource, detailSource] =
+    await Promise.all([
+      readFile(new URL("../app/wall-holds/page.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../worker/app-data.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL("../app/climbs/climb-list-client.tsx", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL(
+          "../app/climbs/saved/saved-climb-detail.tsx",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ]);
+
+  assert.match(editorSource, /Delete this saved hold spot\?/);
+  assert.match(editorSource, /marked outdated and hidden by default/);
+  assert.match(editorSource, /selectedHoldIsSaved \? "Delete Hold" : "Remove"/);
+  assert.doesNotMatch(editorSource, /Wall saved, but/);
+  assert.match(editorSource, /reconcileBrowserClimbsAfterWallSave/);
+  assert.doesNotMatch(
+    workerSource,
+    /Saved hold spots cannot be removed/,
+  );
+  assert.match(workerSource, /outdated:\s*true/);
+  assert.match(workerSource, /outdated:\s*false/);
+  assert.match(listSource, /className="outdated-tag">Outdated/);
+  assert.match(detailSource, /This climb is outdated/);
+});
+
+test("preserves browser climbs and marks only unresolved or removed-hold climbs outdated", () => {
+  const currentHold = { id: "hold-current", x: 20, y: 30, size: 7 };
+  const climbs = [
+    {
+      id: "current-climb",
+      outdated: true,
+      holds: [{ holdId: currentHold.id }],
+    },
+    {
+      id: "removed-hold-climb",
+      holds: [{ holdId: "hold-removed" }],
+    },
+    {
+      id: "unresolved-legacy-climb",
+      holds: [{}],
+    },
+    {
+      id: "migrated-legacy-climb",
+      outdated: true,
+      holds: [{}],
+    },
+  ];
+
+  const reconciled = reconcileBrowserClimbsAfterWallSave(
+    climbs,
+    [currentHold],
+    new Set(["unresolved-legacy-climb"]),
+  );
+
+  assert.equal(reconciled.length, climbs.length);
+  assert.deepEqual(
+    reconciled.map((climb) => [climb.id, climb.outdated]),
+    [
+      ["current-climb", false],
+      ["removed-hold-climb", true],
+      ["unresolved-legacy-climb", true],
+      ["migrated-legacy-climb", false],
+    ],
+  );
 });
 
 test("returns to climbs after wall setup while preserving hold-filter returns", () => {
@@ -3394,14 +3493,18 @@ test("uses explicit send grades for the consensus while preserving the setter gr
   assert.equal(
     matchesClimbFilters(
       climb,
-      parseClimbFilters(new URLSearchParams("min=5&max=5")),
+      parseClimbFilters(
+        new URLSearchParams("min=5&max=5&outdated=show"),
+      ),
     ),
     true,
   );
   assert.equal(
     matchesClimbFilters(
       climb,
-      parseClimbFilters(new URLSearchParams("min=4&max=4")),
+      parseClimbFilters(
+        new URLSearchParams("min=4&max=4&outdated=show"),
+      ),
     ),
     false,
   );
@@ -3671,6 +3774,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
   assert.equal(savedClimb.grade, "V17");
   assert.equal(savedClimb.setterGrade, "V17");
   assert.equal(savedClimb.setter, "Alex Rivera");
+  assert.equal(savedClimb.outdated, false);
   assert.equal(savedClimb.rockoApproved, false);
   assert.equal(savedClimb.holds[0].holdId, "start-hold");
   assert.equal(savedClimb.holds[0].x, wallHolds[0].x);
@@ -3959,11 +4063,11 @@ test("stores climbs by preset hold id and resolves them from shared data", async
       body: JSON.stringify({
         holds: wallHolds.slice(1),
         expectedUpdatedAt: wallRevision,
-        profileId: adminProfileId,
+        profileId,
       }),
     }),
   );
-  assert.equal(response.status, 409);
+  assert.equal(response.status, 403);
 
   response = await fetchAppData(
     new Request("http://localhost/api/wall-holds", {
@@ -4180,6 +4284,132 @@ test("stores climbs by preset hold id and resolves them from shared data", async
     }),
   );
   assert.equal(response.status, 400);
+
+  const controlClimb = {
+    ...climb,
+    id: "current-control-route",
+    name: "Current Control Route",
+    grade: "V4",
+    holds: [
+      { holdId: "foot-hold", x: 0, y: 0, size: 1, role: "start" },
+      { holdId: "finish-hold", x: 0, y: 0, size: 1, role: "finish" },
+    ],
+  };
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb: controlClimb,
+        expectedWallUpdatedAt: movedWallRevision,
+        profileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).climb.outdated, false);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/wall-holds", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        holds: movedWallHolds.slice(1),
+        expectedUpdatedAt: movedWallRevision,
+        profileId: adminProfileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 200);
+  const deletedHoldRevision = (await response.json()).updatedAt;
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/wall-holds"),
+  );
+  const wallAfterDeletion = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(wallAfterDeletion.holds, movedWallHolds.slice(1));
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/stable-route-one"),
+  );
+  assert.equal(response.status, 200);
+  const outdatedClimb = (await response.json()).climb;
+  assert.equal(outdatedClimb.outdated, true);
+  assert.equal(outdatedClimb.holds[0].holdId, "start-hold");
+  assert.equal(outdatedClimb.holds[0].x, movedWallHolds[0].x);
+  assert.equal(outdatedClimb.holds[1].x, movedWallHolds[1].x);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs/current-control-route"),
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).climb.outdated, false);
+
+  response = await fetchAppData(new Request("http://localhost/api/climbs"));
+  const climbsAfterDeletion = (await response.json()).climbs;
+  assert.equal(
+    climbsAfterDeletion.find((item) => item.id === climb.id)?.outdated,
+    true,
+  );
+  assert.equal(
+    climbsAfterDeletion.find((item) => item.id === controlClimb.id)?.outdated,
+    false,
+  );
+
+  response = await fetchAppData(
+    new Request(`http://localhost/api/sends?profileId=${profileId}`),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(
+    (await response.json()).activities.find(
+      (activity) => activity.climbId === climb.id,
+    )?.userRating,
+    5,
+  );
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/climbs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        climb: { ...climb, id: "deleted-hold-route" },
+        expectedWallUpdatedAt: deletedHoldRevision,
+        profileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 400);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/wall-holds", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost",
+      },
+      body: JSON.stringify({
+        holds: movedWallHolds.slice(2),
+        expectedUpdatedAt: movedWallRevision,
+        profileId: adminProfileId,
+      }),
+    }),
+  );
+  assert.equal(response.status, 409);
+
+  response = await fetchAppData(
+    new Request("http://localhost/api/wall-holds"),
+  );
+  assert.deepEqual((await response.json()).holds, movedWallHolds.slice(1));
 
   response = await fetchAppData(
     new Request("http://localhost/api/climbs/stable-route-one", {
@@ -4781,6 +5011,14 @@ test("safely parses and stores device-local climbs", () => {
   assert.deepEqual(parseSavedClimbs(JSON.stringify([approvedClimb])), [
     approvedClimb,
   ]);
+  const outdatedClimb = { ...climb, outdated: true };
+  assert.deepEqual(parseSavedClimbs(JSON.stringify([outdatedClimb])), [
+    outdatedClimb,
+  ]);
+  assert.deepEqual(
+    parseSavedClimbs(JSON.stringify([{ ...climb, outdated: "yes" }])),
+    [],
+  );
   assert.deepEqual(
     parseSavedClimbs(
       JSON.stringify([{ ...climb, rockoApproved: "true" }]),

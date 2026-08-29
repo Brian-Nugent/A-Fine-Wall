@@ -52,7 +52,11 @@ type Climb = {
   rockoApproved: boolean;
 };
 
-type ClimbForRead = Climb & {
+type ResolvedClimb = Climb & {
+  outdated: boolean;
+};
+
+type ClimbForRead = ResolvedClimb & {
   setterGrade: string;
 };
 
@@ -823,7 +827,7 @@ async function loadConsensusGrade(db: D1Database, climbId: string) {
 }
 
 function withConsensusGrade(
-  climb: Climb,
+  climb: ResolvedClimb,
   consensusGrade: number | null,
 ): ClimbForRead {
   return {
@@ -896,10 +900,29 @@ function resolveClimbHolds(
   });
 }
 
-function resolveClimbForRead(climb: Climb, wallHolds: WallHold[]): Climb {
+function resolveClimbForRead(
+  climb: Climb,
+  wallHolds: WallHold[],
+): ResolvedClimb {
+  try {
+    return {
+      ...climb,
+      holds: resolveClimbHolds(climb.holds, wallHolds),
+      outdated: false,
+    };
+  } catch (error) {
+    if (
+      !(error instanceof ApiError) ||
+      (error.status !== 400 && error.status !== 409)
+    ) {
+      throw error;
+    }
+  }
+
   const wallHoldsById = new Map(wallHolds.map((hold) => [hold.id, hold]));
   return {
     ...climb,
+    outdated: true,
     holds: climb.holds.map((hold) => {
       const current = hold.holdId ? wallHoldsById.get(hold.holdId) : undefined;
       return current
@@ -946,17 +969,6 @@ async function handleWallHolds(request: Request, db: D1Database) {
     if (currentConfiguration.updated_at !== expectedUpdatedAt) {
       throw new ApiError(
         "The wall spots changed in another tab. Reload them and try again.",
-        409,
-      );
-    }
-
-    const currentIds = new Set(
-      parseStoredHolds(currentConfiguration.holds_json).map((hold) => hold.id),
-    );
-    const nextIds = new Set(holds.map((hold) => hold.id));
-    if ([...currentIds].some((holdId) => !nextIds.has(holdId))) {
-      throw new ApiError(
-        "Saved hold spots cannot be removed. Reposition them so existing climbs keep working.",
         409,
       );
     }
@@ -1421,10 +1433,11 @@ async function handleClimbs(request: Request, db: D1Database) {
 
       let claimedHolds = existingClimb.holds;
       const wallConfiguration = await loadWallConfiguration(db);
+      const wallHolds = parseStoredHolds(wallConfiguration.holds_json);
       try {
         claimedHolds = resolveClimbHolds(
           existingClimb.holds,
-          parseStoredHolds(wallConfiguration.holds_json),
+          wallHolds,
         );
       } catch (error) {
         if (
@@ -1455,7 +1468,7 @@ async function handleClimbs(request: Request, db: D1Database) {
 
       return json({
         climb: withConsensusGrade(
-          rowToClimb(claimed),
+          resolveClimbForRead(rowToClimb(claimed), wallHolds),
           await loadConsensusGrade(db, claimed.id),
         ),
       });
@@ -1534,7 +1547,15 @@ async function handleClimbs(request: Request, db: D1Database) {
       throw error;
     }
 
-    return json({ climb: withConsensusGrade(climb, null) }, 201);
+    return json(
+      {
+        climb: withConsensusGrade(
+          resolveClimbForRead(climb, wallHolds),
+          null,
+        ),
+      },
+      201,
+    );
   }
 
   return methodNotAllowed(["GET", "POST"]);
@@ -1692,10 +1713,8 @@ async function handleClimbDetail(
       );
     }
 
-    const holds = resolveClimbHolds(
-      changes.holds,
-      parseStoredHolds(wallConfiguration.holds_json),
-    );
+    const wallHolds = parseStoredHolds(wallConfiguration.holds_json);
+    const holds = resolveClimbHolds(changes.holds, wallHolds);
     const updated = await db
       .prepare(
         `UPDATE climbs
@@ -1729,7 +1748,7 @@ async function handleClimbDetail(
 
     return json({
       climb: withConsensusGrade(
-        rowToClimb(updated),
+        resolveClimbForRead(rowToClimb(updated), wallHolds),
         await loadConsensusGrade(db, updated.id),
       ),
     });
