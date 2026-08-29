@@ -234,27 +234,6 @@ export default function FilterOptionsClient({
           </div>
         ) : null}
 
-        <section
-          aria-labelledby="wall-status-filter-heading"
-          className="filter-section"
-        >
-          <div className="filter-section-heading">
-            <div>
-              <h2 id="wall-status-filter-heading">Wall status</h2>
-              <p>Outdated climbs use at least one hold that has been deleted.</p>
-            </div>
-          </div>
-          <div className="filter-toggle-choice">
-            <input
-              checked={showOutdated}
-              id="show-outdated-climbs"
-              onChange={(event) => setShowOutdated(event.target.checked)}
-              type="checkbox"
-            />
-            <label htmlFor="show-outdated-climbs">Show outdated climbs</label>
-          </div>
-        </section>
-
         <section className="filter-section" aria-labelledby="grade-filter-heading">
           <div className="filter-section-heading">
             <div>
@@ -380,6 +359,15 @@ export default function FilterOptionsClient({
               />
               <span>Most ascents</span>
             </label>
+            <label className="filter-radio-choice">
+              <input
+                checked={order === "grade"}
+                name="climb-order"
+                onChange={() => setOrder("grade")}
+                type="radio"
+              />
+              <span>Grade (low to high)</span>
+            </label>
           </div>
         </section>
 
@@ -434,6 +422,27 @@ export default function FilterOptionsClient({
                 <span>{author}</span>
               </label>
             ))}
+          </div>
+        </section>
+
+        <section
+          aria-labelledby="wall-status-filter-heading"
+          className="filter-section"
+        >
+          <div className="filter-section-heading">
+            <div>
+              <h2 id="wall-status-filter-heading">Wall status</h2>
+              <p>Outdated climbs use at least one hold that has been deleted.</p>
+            </div>
+          </div>
+          <div className="filter-toggle-choice">
+            <input
+              checked={showOutdated}
+              id="show-outdated-climbs"
+              onChange={(event) => setShowOutdated(event.target.checked)}
+              type="checkbox"
+            />
+            <label htmlFor="show-outdated-climbs">Show outdated climbs</label>
           </div>
         </section>
       </div>

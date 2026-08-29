@@ -6,6 +6,8 @@ export const MAX_FILTER_STARS = 5;
 
 const holdIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
+export type ClimbOrder = "newest" | "ascents" | "grade";
+
 export type ClimbFilters = {
   minGrade: number;
   maxGrade: number;
@@ -15,7 +17,7 @@ export type ClimbFilters = {
   showOutdated: boolean;
   minStars: number;
   rockoApprovedOnly: boolean;
-  order: "newest" | "ascents";
+  order: ClimbOrder;
 };
 
 export type FilterSearchParams = Record<
@@ -40,6 +42,7 @@ export type FilterableClimbActivity = {
 export type OrderableClimb = {
   activity: FilterableClimbActivity | null;
   createdAt: number;
+  grade: string;
   id: string;
 };
 
@@ -140,6 +143,10 @@ function readStars(values: readonly string[]) {
     : DEFAULT_CLIMB_FILTERS.minStars;
 }
 
+function normalizeOrder(value: unknown): ClimbOrder {
+  return value === "ascents" || value === "grade" ? value : "newest";
+}
+
 export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
   const firstGrade = normalizeGrade(
     filters.minGrade,
@@ -168,7 +175,7 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
     showOutdated: filters.showOutdated === true,
     minStars: normalizeStars(filters.minStars),
     rockoApprovedOnly: filters.rockoApprovedOnly === true,
-    order: filters.order === "ascents" ? "ascents" : "newest",
+    order: normalizeOrder(filters.order),
   };
 }
 
@@ -190,7 +197,7 @@ export function parseClimbFilters(
     showOutdated: valuesFor(source, "outdated")[0] === "show",
     minStars: readStars(valuesFor(source, "stars")),
     rockoApprovedOnly: valuesFor(source, "rocko")[0] === "approved",
-    order: valuesFor(source, "order")[0] === "ascents" ? "ascents" : "newest",
+    order: normalizeOrder(valuesFor(source, "order")[0]),
   });
 }
 
@@ -359,6 +366,17 @@ export function compareClimbsByOrder(
       (right.activity?.ratingCount ?? 0) -
       (left.activity?.ratingCount ?? 0);
     if (ascentDifference !== 0) return ascentDifference;
+  }
+
+  if (normalized.order === "grade") {
+    const leftGrade = gradeNumber(left.grade);
+    const rightGrade = gradeNumber(right.grade);
+    if (leftGrade === null && rightGrade !== null) return 1;
+    if (leftGrade !== null && rightGrade === null) return -1;
+    if (leftGrade !== null && rightGrade !== null) {
+      const gradeDifference = leftGrade - rightGrade;
+      if (gradeDifference !== 0) return gradeDifference;
+    }
   }
 
   const dateDifference = right.createdAt - left.createdAt;

@@ -915,6 +915,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
     html.match(/<input[^>]*id="rocko-approved-climbs"[^>]*>/)?.[0] ?? "";
   assert.match(rockoApprovedInput, /checked=""/);
   assert.match(html, /Most ascents/);
+  assert.match(html, /Grade \(low to high\)/);
   assert.match(html, /Choose Holds/);
   assert.match(html, /<h2 id="order-filter-heading">Order<\/h2>/);
   assert.match(html, /role="radiogroup"/);
@@ -922,6 +923,21 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /No selection includes every setter\./);
   assert.doesNotMatch(html, /No selection includes every author\./);
   assert.match(html, /role="group"/);
+  const orderSectionPosition = html.indexOf(
+    '<h2 id="order-filter-heading">Order</h2>',
+  );
+  const holdsSectionPosition = html.indexOf(
+    '<h2 id="hold-filter-heading">Holds</h2>',
+  );
+  const setterSectionPosition = html.indexOf(
+    '<h2 id="author-filter-heading">Setter</h2>',
+  );
+  const wallStatusSectionPosition = html.indexOf(
+    '<h2 id="wall-status-filter-heading">Wall status</h2>',
+  );
+  assert.ok(orderSectionPosition < holdsSectionPosition);
+  assert.ok(holdsSectionPosition < setterSectionPosition);
+  assert.ok(setterSectionPosition < wallStatusSectionPosition);
   assert.match(html, /class="filter-scroll-region"/);
   assert.match(html, /class="filter-apply-spinner"/);
   assert.match(html, /class="filter-apply-spinner-indicator"/);
@@ -1205,6 +1221,35 @@ test("normalizes, serializes, and combines climb filters", () => {
   assert.equal(activeClimbFilterCount(sortOnly), 1);
   assert.equal(hasClimbFilterConstraints(sortOnly), false);
   assert.equal(requiresClimbActivity(sortOnly), true);
+  const gradeSortOnly = parseClimbFilters(
+    new URLSearchParams("order=grade"),
+  );
+  assert.equal(gradeSortOnly.order, "grade");
+  assert.equal(activeClimbFilterCount(gradeSortOnly), 1);
+  assert.equal(hasClimbFilterConstraints(gradeSortOnly), false);
+  assert.equal(requiresClimbActivity(gradeSortOnly), false);
+  assert.equal(serializeClimbFilters(gradeSortOnly), "order=grade");
+  assert.equal(
+    buildFilteredHref("/climbs", gradeSortOnly),
+    "/climbs?order=grade",
+  );
+  assert.equal(
+    parseClimbFilters(new URLSearchParams("order=unknown")).order,
+    "newest",
+  );
+  const gradeOrdered = [
+    { id: "v10-older", createdAt: 20, grade: "V10", activity: null },
+    { id: "invalid", createdAt: 50, grade: "invalid", activity: null },
+    { id: "v2", createdAt: 10, grade: "V2", activity: null },
+    { id: "v17", createdAt: 40, grade: "V17", activity: null },
+    { id: "v10-newer", createdAt: 30, grade: "V10", activity: null },
+  ].sort((left, right) =>
+    compareClimbsByOrder(left, right, gradeSortOnly),
+  );
+  assert.deepEqual(
+    gradeOrdered.map((entry) => entry.id),
+    ["v2", "v10-newer", "v10-older", "v17", "invalid"],
+  );
   const rockoOnly = parseClimbFilters(
     new URLSearchParams("rocko=approved"),
   );
@@ -1302,6 +1347,26 @@ test("finds adjacent climbs in the active filtered order", () => {
     previousId: null,
     nextId: null,
   });
+
+  const gradeOrder = parseClimbFilters(new URLSearchParams("order=grade"));
+  const gradeOrderedCandidates = [
+    { ...candidates[0], grade: "V10" },
+    { ...candidates[1], grade: "V2" },
+    { ...candidates[2], grade: "V6" },
+  ];
+  assert.deepEqual(
+    selectVisibleClimbs(gradeOrderedCandidates, gradeOrder).map(
+      (climb) => climb.id,
+    ),
+    ["middle", "oldest", "newest"],
+  );
+  assert.deepEqual(
+    adjacentClimbIds(gradeOrderedCandidates, "oldest", gradeOrder),
+    {
+      previousId: "middle",
+      nextId: "newest",
+    },
+  );
 });
 
 test("remembers the exact climb order for swipe navigation", () => {
