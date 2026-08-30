@@ -207,10 +207,6 @@ export default function FilterOptionsClient({
       <div className="filter-scroll-region">
         <section className="filter-intro" aria-labelledby="filter-heading">
           <h1 id="filter-heading">Filter climbs</h1>
-          <p>
-            Narrow the list by wall status, grade, sends, stars, holds, and
-            author.
-          </p>
         </section>
 
         {climbLoadFailed || activityLoadFailed ? (
@@ -238,7 +234,6 @@ export default function FilterOptionsClient({
           <div className="filter-section-heading">
             <div>
               <h2 id="grade-filter-heading">Grade range</h2>
-              <p>Include climbs from V{minGrade} through V{maxGrade}.</p>
             </div>
             <strong>V{minGrade}&ndash;V{maxGrade}</strong>
           </div>
@@ -432,7 +427,7 @@ export default function FilterOptionsClient({
           <div className="filter-section-heading">
             <div>
               <h2 id="wall-status-filter-heading">Wall status</h2>
-              <p>Outdated climbs use at least one hold that has been deleted.</p>
+              <p>Outdated climbs use at least one hold that has been changed or deleted.</p>
             </div>
           </div>
           <div className="filter-toggle-choice">
