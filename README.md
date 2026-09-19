@@ -8,8 +8,10 @@ The app runs at
 ## Features
 
 - Set and edit climbs against preset spots on the photo of the board.
-- Browse and filter by grade, sends, community rating, holds, setter,
+- Browse and filter by difficulty color, sends, community rating, holds, setter,
   and Rocko approval.
+- See green (V0–V4), yellow (V5–V7), or red (V8+) grade ovals before sending.
+  Exact climb and logbook grades appear only after the active user logs a send.
 - Log a send with a proposed grade and rating.
 - View consensus grades and community ratings from send entries.
 - Per-climb logbook with each climber's grade and stars.

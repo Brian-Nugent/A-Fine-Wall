@@ -2,8 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useActiveUser } from "../../user-profile-provider";
-import type { ClimbReference } from "../climb-activity";
+import { climbActivityKey, type ClimbReference } from "../climb-activity";
 import { loadClimb } from "../climb-api";
+import GradeBadge from "../climb-grade";
 import { clearSessionClimbNavigationSnapshot } from "../climb-navigation-snapshot";
 import {
   loadClimbActivityDetail,
@@ -19,6 +20,7 @@ type ClimbSummary = {
 
 type RatingState = {
   profileId: string | null;
+  climbKey: string | null;
   status: "loading" | "ready" | "error";
   existingRating: number | null;
 };
@@ -36,11 +38,13 @@ export default function SentClimbClient({
 }) {
   const { profile } = useActiveUser();
   const { climbId, climbKind } = reference;
+  const climbKey = climbActivityKey(reference);
   const [climb, setClimb] = useState<ClimbSummary | null | undefined>(
     climbKind === "demo" ? initialClimb : undefined,
   );
   const [ratingState, setRatingState] = useState<RatingState>({
     profileId: null,
+    climbKey: null,
     status: "loading",
     existingRating: null,
   });
@@ -80,18 +84,20 @@ export default function SentClimbClient({
           const existingRating =
             activityResult.value.activity?.userRating ?? null;
           const existingGrade = activityResult.value.userGrade;
-          setGrade(existingGrade ?? loadedClimb?.grade ?? "");
+          setGrade(existingRating !== null ? existingGrade ?? "" : "");
           setRating(existingRating ?? 0);
           setRatingState({
             profileId: profile.id,
+            climbKey,
             status: "ready",
             existingRating,
           });
         } else {
-          setGrade(loadedClimb?.grade ?? "");
+          setGrade("");
           setRating(0);
           setRatingState({
             profileId: profile.id,
+            climbKey,
             status: "error",
             existingRating: null,
           });
@@ -103,18 +109,16 @@ export default function SentClimbClient({
       isActive = false;
       controller.abort();
     };
-  }, [climbId, climbKind, initialClimb, profile]);
+  }, [climbId, climbKind, climbKey, initialClimb, profile]);
 
-  const ratingStatus =
-    ratingState.profileId === profile?.id ? ratingState.status : "loading";
+  const isCurrentRatingState =
+    ratingState.profileId === profile?.id && ratingState.climbKey === climbKey;
+  const ratingStatus = isCurrentRatingState ? ratingState.status : "loading";
   const existingRating =
     ratingStatus === "ready" ? ratingState.existingRating : null;
-  const displayedGrade =
-    ratingState.profileId === profile?.id ? grade : "";
-  const displayedRating =
-    ratingState.profileId === profile?.id ? rating : 0;
-  const visibleActionError =
-    ratingState.profileId === profile?.id ? actionError : "";
+  const displayedGrade = isCurrentRatingState ? grade : "";
+  const displayedRating = isCurrentRatingState ? rating : 0;
+  const visibleActionError = isCurrentRatingState ? actionError : "";
   const isBusy = isSaving || isRemoving;
 
   async function saveSend(event: FormEvent<HTMLFormElement>) {
@@ -205,6 +209,11 @@ export default function SentClimbClient({
         <section className="sent-content" aria-labelledby="sent-heading">
           <div className="sent-climb-heading">
             <h1 id="sent-heading">{climb.name}</h1>
+            <GradeBadge
+              className="detail-grade"
+              grade={climb.grade}
+              revealed={existingRating !== null}
+            />
           </div>
 
           <form className="sent-form" onSubmit={saveSend}>
@@ -223,7 +232,9 @@ export default function SentClimbClient({
                   value={displayedGrade}
                 >
                   <option disabled value="">
-                    Loading grade&hellip;
+                    {ratingStatus === "loading"
+                      ? "Loading grade…"
+                      : "Choose a grade"}
                   </option>
                   {CLIMB_GRADES.map((gradeOption) => (
                     <option key={gradeOption} value={gradeOption}>
@@ -275,8 +286,8 @@ export default function SentClimbClient({
               </p>
             ) : ratingStatus === "error" ? (
               <p className="sent-load-status" role="status">
-                Your previous send details could not be loaded. The consensus
-                grade is selected; choose a rating to save.
+                Your previous send details could not be loaded. Choose your
+                grade and rating to save.
               </p>
             ) : null}
 

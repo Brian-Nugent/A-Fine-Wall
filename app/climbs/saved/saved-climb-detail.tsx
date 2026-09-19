@@ -35,6 +35,7 @@ import {
 } from "../wall-holds";
 import WallPhoto from "../wall-photo";
 import ClimbActivityPanel from "../climb-activity-panel";
+import { ClimbActivityProvider, ClimbDetailGrade } from "../climb-activity-context";
 import {
   buildFilteredHref,
   requiresClimbActivity,
@@ -893,88 +894,90 @@ export default function SavedClimbDetail({
         ) : undefined
       }
     >
-      <section aria-labelledby="climb-name">
-        <div className="detail-title">
-          <div className="detail-title-line">
-            <h1 id="climb-name">{climb.name}</h1>
-            <strong className="detail-grade">{climb.grade}</strong>
+      <ClimbActivityProvider reference={{ climbKind: "saved", climbId: climb.id }}>
+        <section aria-labelledby="climb-name">
+          <div className="detail-title">
+            <div className="detail-title-line">
+              <h1 id="climb-name">{climb.name}</h1>
+              <ClimbDetailGrade className="detail-grade" grade={climb.grade} />
+            </div>
+            <div className="detail-meta-line">
+              <p>Set by {climb.setter}</p>
+              {climb.outdated || climb.rockoApproved ? (
+                <div className="detail-status-tags">
+                  {climb.outdated ? (
+                    <span className="outdated-tag">Outdated</span>
+                  ) : null}
+                  {climb.rockoApproved ? (
+                    <span className="rocko-approved-tag">Rocko Approved</span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
-          <div className="detail-meta-line">
-            <p>Set by {climb.setter}</p>
-            {climb.outdated || climb.rockoApproved ? (
-              <div className="detail-status-tags">
-                {climb.outdated ? (
-                  <span className="outdated-tag">Outdated</span>
-                ) : null}
-                {climb.rockoApproved ? (
-                  <span className="rocko-approved-tag">Rocko Approved</span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
 
-        {climb.outdated ? (
-          <div className="climb-outdated-notice" role="status">
-            <strong>This climb is outdated</strong>
-            <span>
-              At least one hold used by this climb has been deleted from the
-              current wall setup.
-            </span>
-          </div>
-        ) : null}
+          {climb.outdated ? (
+            <div className="climb-outdated-notice" role="status">
+              <strong>This climb is outdated</strong>
+              <span>
+                At least one hold used by this climb has been deleted from the
+                current wall setup.
+              </span>
+            </div>
+          ) : null}
 
-        {actionError ? (
-          <p className="form-error climb-action-error" role="alert">
-            {actionError}
-          </p>
-        ) : null}
+          {actionError ? (
+            <p className="form-error climb-action-error" role="alert">
+              {actionError}
+            </p>
+          ) : null}
 
-        <figure
-          className="wall-map wall-map--route"
-          onLostPointerCapture={cancelMouseSwipe}
-          onPointerCancel={cancelMouseSwipe}
-          onPointerDown={startMouseSwipe}
-          onPointerUp={finishMouseSwipe}
-          onTouchCancel={cancelSwipe}
-          onTouchEnd={finishSwipe}
-          onTouchMove={moveSwipe}
-          onTouchStart={startSwipe}
-        >
-          <WallPhoto
-            className="wall-photo"
-            alt="Climbing wall with the route holds marked"
-            draggable={false}
-            width="1086"
-            height="1448"
-          />
-          {resolvedHolds.map((hold, index) => (
-            <span
-              aria-hidden="true"
-              className={`hold-marker hold-marker--${hold.role}`}
-              key={hold.holdId || `${hold.x}-${hold.y}-${index}`}
-              style={{
-                left: `${hold.x}%`,
-                top: `${hold.y}%`,
-                width: `${hold.size}%`,
-              }}
+          <figure
+            className="wall-map wall-map--route"
+            onLostPointerCapture={cancelMouseSwipe}
+            onPointerCancel={cancelMouseSwipe}
+            onPointerDown={startMouseSwipe}
+            onPointerUp={finishMouseSwipe}
+            onTouchCancel={cancelSwipe}
+            onTouchEnd={finishSwipe}
+            onTouchMove={moveSwipe}
+            onTouchStart={startSwipe}
+          >
+            <WallPhoto
+              className="wall-photo"
+              alt="Climbing wall with the route holds marked"
+              draggable={false}
+              width="1086"
+              height="1448"
             />
-          ))}
-          <figcaption className="sr-only">
-            {climb.name} uses {startCount} green-circled start{" "}
-            {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled
-            climbing {handCount === 1 ? "hold" : "holds"}, {footCount}{" "}
-            yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and{" "}
-            {finishCount} red-circled finish{" "}
-            {finishCount === 1 ? "hold" : "holds"}.
-          </figcaption>
-        </figure>
+            {resolvedHolds.map((hold, index) => (
+              <span
+                aria-hidden="true"
+                className={`hold-marker hold-marker--${hold.role}`}
+                key={hold.holdId || `${hold.x}-${hold.y}-${index}`}
+                style={{
+                  left: `${hold.x}%`,
+                  top: `${hold.y}%`,
+                  width: `${hold.size}%`,
+                }}
+              />
+            ))}
+            <figcaption className="sr-only">
+              {climb.name} uses {startCount} green-circled start{" "}
+              {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled
+              climbing {handCount === 1 ? "hold" : "holds"}, {footCount}{" "}
+              yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and{" "}
+              {finishCount} red-circled finish{" "}
+              {finishCount === 1 ? "hold" : "holds"}.
+            </figcaption>
+          </figure>
 
-        <ClimbActivityPanel
-          filters={filters}
-          reference={{ climbKind: "saved", climbId: climb.id }}
-        />
-      </section>
+          <ClimbActivityPanel
+            filters={filters}
+            reference={{ climbKind: "saved", climbId: climb.id }}
+          />
+        </section>
+      </ClimbActivityProvider>
     </DetailShell>
   );
 }

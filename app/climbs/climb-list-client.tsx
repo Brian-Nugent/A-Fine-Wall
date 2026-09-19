@@ -12,6 +12,7 @@ import {
   type ClimbReference,
 } from "./climb-activity";
 import { climbs } from "./data";
+import GradeBadge from "./climb-grade";
 import {
   activeClimbFilterCount,
   buildFilteredHref,
@@ -110,7 +111,10 @@ function ClimbRow({
           </span>
         </span>
         <span className="climb-row-meta">
-          <strong>{climb.grade}</strong>
+          <GradeBadge
+            grade={climb.grade}
+            revealed={activityStatus === "ready" && activity?.userRating != null}
+          />
           <span aria-hidden="true">&rarr;</span>
         </span>
       </a>

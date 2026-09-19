@@ -1,27 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useActiveUser } from "../user-profile-provider";
-import {
-  climbActivityKey,
-  formatAverageRating,
-  type ClimbActivity,
-  type ClimbLogbookEntry,
-  type ClimbReference,
-} from "./climb-activity";
-import {
-  buildFilteredHref,
-  type ClimbFilters,
-} from "./climb-filters";
-import { loadClimbActivityDetail } from "./send-api";
-
-type ActivityState = {
-  profileId: string | null;
-  referenceKey: string | null;
-  status: "loading" | "ready" | "error";
-  activity: ClimbActivity | null;
-  logbookEntries: ClimbLogbookEntry[];
-};
+import { formatAverageRating, type ClimbReference } from "./climb-activity";
+import { useClimbActivity } from "./climb-activity-context";
+import { buildFilteredHref, type ClimbFilters } from "./climb-filters";
 
 export default function ClimbActivityPanel({
   filters,
@@ -30,61 +11,7 @@ export default function ClimbActivityPanel({
   filters: ClimbFilters;
   reference: ClimbReference;
 }) {
-  const { profile } = useActiveUser();
-  const { climbKind, climbId } = reference;
-  const referenceKey = climbActivityKey({ climbKind, climbId });
-  const [state, setState] = useState<ActivityState>({
-    profileId: null,
-    referenceKey: null,
-    status: "loading",
-    activity: null,
-    logbookEntries: [],
-  });
-
-  useEffect(() => {
-    if (!profile) return;
-    const controller = new AbortController();
-    let isActive = true;
-
-    void loadClimbActivityDetail(
-      { climbKind, climbId },
-      profile.id,
-      controller.signal,
-    )
-      .then(({ activity, logbookEntries }) => {
-        if (!isActive) return;
-        setState({
-          profileId: profile.id,
-          referenceKey,
-          status: "ready",
-          activity,
-          logbookEntries,
-        });
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        if (!isActive) return;
-        setState({
-          profileId: profile.id,
-          referenceKey,
-          status: "error",
-          activity: null,
-          logbookEntries: [],
-        });
-      });
-
-    return () => {
-      isActive = false;
-      controller.abort();
-    };
-  }, [climbId, climbKind, profile, referenceKey]);
-
-  const isCurrentRequest =
-    state.profileId === profile?.id && state.referenceKey === referenceKey;
-  const status = isCurrentRequest ? state.status : "loading";
-  const activity = status === "ready" ? state.activity : null;
-  const logbookEntries =
-    status === "ready" ? state.logbookEntries : [];
+  const { status, activity, logbookEntries, hasSent } = useClimbActivity();
   const sentHref = buildFilteredHref("/climbs/sent", filters, {
     kind: reference.climbKind,
     id: reference.climbId,
@@ -155,14 +82,16 @@ export default function ClimbActivityPanel({
                       </span>
                     ))}
                   </span>
-                  <span className="climb-logbook-grade">
-                    <span className="sr-only">
-                      {entry.grade
-                        ? `Grade ${entry.grade}`
-                        : "Grade not recorded"}
+                  {hasSent ? (
+                    <span className="climb-logbook-grade">
+                      <span className="sr-only">
+                        {entry.grade
+                          ? `Grade ${entry.grade}`
+                          : "Grade not recorded"}
+                      </span>
+                      <span aria-hidden="true">{entry.grade ?? "—"}</span>
                     </span>
-                    <span aria-hidden="true">{entry.grade ?? "—"}</span>
-                  </span>
+                  ) : null}
                 </span>
               </li>
             ))}

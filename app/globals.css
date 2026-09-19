@@ -571,19 +571,37 @@ select:focus-visible {
   gap: 0.8rem;
 }
 
-.climb-row-meta strong {
+.climb-grade {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  min-width: 3.1rem;
-  min-height: 2.2rem;
-  padding: 0.3rem 0.65rem;
+  width: 3.5rem;
+  height: 2.3rem;
+  padding: 0.2rem 0.4rem;
   border-radius: 999px;
-  background: var(--surface);
   font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.climb-row-meta span {
+.climb-grade--green {
+  background: #50bf78;
+  color: #12351e;
+}
+
+.climb-grade--yellow {
+  background: #f0c94b;
+  color: #382d09;
+}
+
+.climb-grade--red {
+  background: #ce394b;
+  color: #fff;
+}
+
+.climb-row-meta > span:last-child {
   color: var(--muted);
   font-size: 1.1rem;
 }
@@ -752,32 +770,54 @@ select:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.grade-filter-control {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+.difficulty-color-options {
+  display: grid;
+  gap: 0.5rem;
 }
 
-.grade-filter-label {
+.difficulty-color-choice {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  font-size: 0.78rem;
-  font-weight: 650;
+  gap: 0.75rem;
+  min-height: 3.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  cursor: pointer;
 }
 
-.grade-filter-label output {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+.difficulty-color-choice:has(input:checked) {
+  border-color: var(--ink);
 }
 
-.grade-filter-control input[type="range"] {
-  width: 100%;
-  min-height: 2.75rem;
+.difficulty-color-choice input {
+  width: 1.15rem;
+  height: 1.15rem;
   margin: 0;
   accent-color: var(--ink);
-  cursor: pointer;
+}
+
+.climb-grade.difficulty-color-swatch {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 1.65rem;
+  min-height: 1.65rem;
+  padding: 0;
+}
+
+.difficulty-color-copy {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.86rem;
+}
+
+.difficulty-color-copy > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .filter-toggle-choice,
@@ -968,7 +1008,7 @@ select:focus-visible {
 }
 
 .detail-title-line {
-  align-items: baseline;
+  align-items: center;
 }
 
 .detail-status-tags {
@@ -1271,10 +1311,15 @@ select:focus-visible {
 }
 
 .sent-climb-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   padding: 1.75rem 1.25rem 0;
 }
 
 .sent-climb-heading h1 {
+  min-width: 0;
   margin: 0;
   font-size: clamp(2rem, 8vw, 2.75rem);
   font-weight: 650;

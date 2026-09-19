@@ -5,6 +5,7 @@ import {
   type FilterSearchParams,
 } from "../climb-filters";
 import ClimbActivityPanel from "../climb-activity-panel";
+import { ClimbActivityProvider, ClimbDetailGrade } from "../climb-activity-context";
 import { climbs, getClimb } from "../data";
 import WallPhoto from "../wall-photo";
 
@@ -45,46 +46,48 @@ export default async function ClimbPage({
         </a>
       </header>
 
-      <section aria-labelledby="climb-name">
-        <div className="detail-title">
-          <div className="detail-title-line">
-            <h1 id="climb-name">{climb.name}</h1>
-            <strong className="detail-grade">{climb.grade}</strong>
+      <ClimbActivityProvider reference={{ climbKind: "demo", climbId: climb.slug }}>
+        <section aria-labelledby="climb-name">
+          <div className="detail-title">
+            <div className="detail-title-line">
+              <h1 id="climb-name">{climb.name}</h1>
+              <ClimbDetailGrade className="detail-grade" grade={climb.grade} />
+            </div>
+            <div className="detail-meta-line">
+              <p>Set by {climb.setter}</p>
+            </div>
           </div>
-          <div className="detail-meta-line">
-            <p>Set by {climb.setter}</p>
-          </div>
-        </div>
 
-        <figure className="wall-map wall-map--route">
-          <WallPhoto
-            className="wall-photo"
-            alt="Climbing wall with the route holds marked"
-            width={1086}
-            height={1448}
-          />
-          {climb.holds.map((hold, index) => (
-            <span
-              aria-hidden="true"
-              className={`hold-marker hold-marker--${hold.role}`}
-              key={`${hold.x}-${hold.y}-${index}`}
-              style={{
-                left: `${hold.x}%`,
-                top: `${hold.y}%`,
-                width: `${hold.size}%`,
-              }}
+          <figure className="wall-map wall-map--route">
+            <WallPhoto
+              className="wall-photo"
+              alt="Climbing wall with the route holds marked"
+              width={1086}
+              height={1448}
             />
-          ))}
-          <figcaption className="sr-only">
-            {climb.name} uses {startCount} green-circled start {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled climbing {handCount === 1 ? "hold" : "holds"}, {footCount} yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and {finishCount} red-circled finish {finishCount === 1 ? "hold" : "holds"}.
-          </figcaption>
-        </figure>
+            {climb.holds.map((hold, index) => (
+              <span
+                aria-hidden="true"
+                className={`hold-marker hold-marker--${hold.role}`}
+                key={`${hold.x}-${hold.y}-${index}`}
+                style={{
+                  left: `${hold.x}%`,
+                  top: `${hold.y}%`,
+                  width: `${hold.size}%`,
+                }}
+              />
+            ))}
+            <figcaption className="sr-only">
+              {climb.name} uses {startCount} green-circled start {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled climbing {handCount === 1 ? "hold" : "holds"}, {footCount} yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and {finishCount} red-circled finish {finishCount === 1 ? "hold" : "holds"}.
+            </figcaption>
+          </figure>
 
-        <ClimbActivityPanel
-          filters={filters}
-          reference={{ climbKind: "demo", climbId: climb.slug }}
-        />
-      </section>
+          <ClimbActivityPanel
+            filters={filters}
+            reference={{ climbKind: "demo", climbId: climb.slug }}
+          />
+        </section>
+      </ClimbActivityProvider>
     </main>
   );
 }

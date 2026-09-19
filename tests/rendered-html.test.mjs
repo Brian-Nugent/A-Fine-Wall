@@ -850,7 +850,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /Loading climbs/);
   assert.match(
     html,
-    /class="small-brand" href="\/climbs\?min=3&amp;max=3"/i,
+    /class="small-brand" href="\/climbs\?color=green"/i,
   );
   assert.match(
     html,
@@ -858,7 +858,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
   );
   assert.match(
     html,
-    /class="filter-link" href="\/climbs\/filter\?min=3&amp;max=3"/i,
+    /class="filter-link" href="\/climbs\/filter\?color=green"/i,
   );
   assert.doesNotMatch(html, /First Light/);
   assert.doesNotMatch(html, /Barn Door Protocol/);
@@ -894,9 +894,11 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.equal(response.status, 200);
   html = await response.text();
   assert.match(html, /<h1 id="filter-heading">Filter climbs<\/h1>/);
-  assert.match(html, /type="range"/);
-  assert.match(html, /Minimum/);
-  assert.match(html, /Maximum/);
+  assert.match(html, /Difficulty colors/);
+  assert.match(html, /Green/);
+  assert.match(html, /Yellow/);
+  assert.match(html, /Red/);
+  assert.doesNotMatch(html, /id="minimum-grade"|id="maximum-grade"/);
   assert.match(html, /Hide climbs I have sent/);
   assert.match(html, /<h2 id="wall-status-filter-heading">Wall status<\/h2>/);
   assert.match(html, /Show outdated climbs/);
@@ -915,7 +917,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
     html.match(/<input[^>]*id="rocko-approved-climbs"[^>]*>/)?.[0] ?? "";
   assert.match(rockoApprovedInput, /checked=""/);
   assert.match(html, /Most ascents/);
-  assert.match(html, /Grade \(low to high\)/);
+  assert.match(html, /Difficulty \(Green to Red\)/);
   assert.match(html, /Choose Holds/);
   assert.match(html, /<h2 id="order-filter-heading">Order<\/h2>/);
   assert.match(html, /role="radiogroup"/);
@@ -1083,8 +1085,7 @@ test("normalizes, serializes, and combines climb filters", () => {
     ),
   );
   assert.deepEqual(filters, {
-    minGrade: 3,
-    maxGrade: 11,
+    colors: ["green", "yellow", "red"],
     authors: ["Alex", "Sam"],
     holdIds: ["hold-a", "hold-b"],
     hideSent: true,
@@ -1097,11 +1098,11 @@ test("normalizes, serializes, and combines climb filters", () => {
   assert.equal(hasClimbFilterConstraints(filters), true);
   assert.equal(
     serializeClimbFilters(filters),
-    "min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents",
+    "color=green&color=yellow&color=red&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents",
   );
   assert.equal(
     buildFilteredHref("/climbs/saved", filters, { id: "route 1" }),
-    "/climbs/saved?min=3&max=11&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents&id=route+1",
+    "/climbs/saved?color=green&color=yellow&color=red&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents&id=route+1",
   );
 
   const candidates = [
@@ -1141,7 +1142,7 @@ test("normalizes, serializes, and combines climb filters", () => {
       holds: [{ x: 25, y: 40 }],
     },
     {
-      name: "Out of range",
+      name: "Expanded red band",
       grade: "V12",
       rockoApproved: true,
       setter: "Alex",
@@ -1164,7 +1165,7 @@ test("normalizes, serializes, and combines climb filters", () => {
   };
   assert.deepEqual(
     filterClimbs(candidates, structuralFilters).map((climb) => climb.name),
-    ["Lower bound", "Author alternative", "Upper bound"],
+    ["Lower bound", "Author alternative", "Upper bound", "Expanded red band"],
   );
   assert.equal(matchesClimbFilters(candidates[4], filters), false);
   assert.equal(matchesClimbFilters(candidates[6], filters), false);
@@ -1248,7 +1249,7 @@ test("normalizes, serializes, and combines climb filters", () => {
   );
   assert.deepEqual(
     gradeOrdered.map((entry) => entry.id),
-    ["v2", "v10-newer", "v10-older", "v17", "invalid"],
+    ["v2", "v17", "v10-newer", "v10-older", "invalid"],
   );
   const rockoOnly = parseClimbFilters(
     new URLSearchParams("rocko=approved"),
@@ -1264,8 +1265,7 @@ test("normalizes, serializes, and combines climb filters", () => {
   assert.deepEqual(
     parseClimbFilters(new URLSearchParams("stars=bad&rocko=true")),
     {
-      minGrade: 0,
-      maxGrade: 17,
+      colors: [],
       authors: [],
       holdIds: [],
       hideSent: false,
@@ -2165,13 +2165,14 @@ test("shows Rocko approval on climb lists and in the requested detail rows", asy
 });
 
 test("shows a responsive climb logbook below the send action", async () => {
-  const [panelSource, sendApiSource, css] = await Promise.all([
+  const [panelSource, sendApiSource, css, contextSource] = await Promise.all([
     readFile(
       new URL("../app/climbs/climb-activity-panel.tsx", import.meta.url),
       "utf8",
     ),
     readFile(new URL("../app/climbs/send-api.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/climbs/climb-activity-context.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(
@@ -2202,13 +2203,13 @@ test("shows a responsive climb logbook below the send action", async () => {
     panelSource.indexOf('className="primary-button sent-button"') <
       panelSource.indexOf('className="climb-logbook"'),
   );
-  assert.match(panelSource, /loadClimbActivityDetail\(/);
-  assert.match(panelSource, /referenceKey/);
+  assert.match(contextSource, /loadClimbActivityDetail\(/);
+  assert.match(contextSource, /referenceKey/);
   assert.match(
-    panelSource,
+    contextSource,
     /\[climbId, climbKind, profile, referenceKey\]/,
   );
-  assert.match(panelSource, /controller\.abort\(\)/);
+  assert.match(contextSource, /controller\.abort\(\)/);
   assert.doesNotMatch(panelSource, /dangerouslySetInnerHTML/);
   assert.match(sendApiSource, /climbKind:\s*reference\.climbKind/);
   assert.match(sendApiSource, /climbId:\s*reference\.climbId/);
@@ -2308,7 +2309,7 @@ test("renders the saved-climb send shell and preserves filters", async () => {
   assert.match(html, /Loading climb/);
   assert.match(
     html,
-    /href="\/climbs\/saved\?min=2&amp;max=6&amp;author=Sheafy&amp;sent=hide&amp;stars=4&amp;order=ascents&amp;id=test-climb"/,
+    /href="\/climbs\/saved\?color=green&amp;color=yellow&amp;author=Sheafy&amp;sent=hide&amp;stars=4&amp;order=ascents&amp;id=test-climb"/,
   );
 
   const notFoundResponse = await render(
@@ -2346,7 +2347,7 @@ test("logs a send with a grade selector before the star rating", async () => {
   assert.match(panelSource, /"Edit Send"\s*:\s*"Log Send"/);
   assert.doesNotMatch(panelSource, /"Edit Rating"\s*:\s*"Sent"/);
   assert.match(sentSource, /loadClimbActivityDetail\(/);
-  assert.match(sentSource, /existingGrade \?\? loadedClimb\?\.grade \?\? ""/);
+  assert.match(sentSource, /setGrade\(existingRating !== null \? existingGrade \?\? "" : ""\)/);
   assert.match(sentSource, /What grade would you give this climb\?/);
   assert.match(
     sentSource,

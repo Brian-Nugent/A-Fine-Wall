@@ -6,15 +6,15 @@ import {
   activeClimbFilterCount,
   buildFilteredHref,
   DEFAULT_CLIMB_FILTERS,
-  MAX_FILTER_GRADE,
+  FILTER_GRADE_COLORS,
   MAX_FILTER_STARS,
-  MIN_FILTER_GRADE,
   matchesClimbActivityFilters,
   matchesClimbFilters,
   uniqueFilterAuthors,
   type ClimbFilters,
   type FilterableClimb,
 } from "../climb-filters";
+import type { GradeBand } from "../climb-grade";
 import {
   climbActivityKey,
   type ClimbActivity,
@@ -26,6 +26,12 @@ import { loadSyncedClimbs } from "../synced-climbs";
 type AvailableClimb = {
   climb: FilterableClimb;
   key: string;
+};
+
+const colorOptions: Record<GradeBand, { label: string; range: string }> = {
+  green: { label: "Green", range: "V0–V4" },
+  yellow: { label: "Yellow", range: "V5–V7" },
+  red: { label: "Red", range: "V8+" },
 };
 
 function isSameAuthor(left: string, right: string) {
@@ -40,8 +46,7 @@ export default function FilterOptionsClient({
   initialFilters: ClimbFilters;
 }) {
   const { profile } = useActiveUser();
-  const [minGrade, setMinGrade] = useState(initialFilters.minGrade);
-  const [maxGrade, setMaxGrade] = useState(initialFilters.maxGrade);
+  const [colors, setColors] = useState(initialFilters.colors);
   const [authors, setAuthors] = useState(initialFilters.authors);
   const [holdIds, setHoldIds] = useState(initialFilters.holdIds);
   const [hideSent, setHideSent] = useState(initialFilters.hideSent);
@@ -107,8 +112,7 @@ export default function FilterOptionsClient({
 
   const currentFilters = useMemo<ClimbFilters>(
     () => ({
-      minGrade,
-      maxGrade,
+      colors,
       authors,
       holdIds,
       hideSent,
@@ -119,10 +123,9 @@ export default function FilterOptionsClient({
     }),
     [
       authors,
+      colors,
       hideSent,
       holdIds,
-      maxGrade,
-      minGrade,
       minStars,
       order,
       rockoApprovedOnly,
@@ -172,9 +175,16 @@ export default function FilterOptionsClient({
     );
   }
 
+  function toggleColor(color: GradeBand) {
+    setColors((current) =>
+      current.includes(color)
+        ? current.filter((item) => item !== color)
+        : [...current, color],
+    );
+  }
+
   function resetFilters() {
-    setMinGrade(DEFAULT_CLIMB_FILTERS.minGrade);
-    setMaxGrade(DEFAULT_CLIMB_FILTERS.maxGrade);
+    setColors([]);
     setAuthors([]);
     setHoldIds([]);
     setHideSent(DEFAULT_CLIMB_FILTERS.hideSent);
@@ -230,44 +240,41 @@ export default function FilterOptionsClient({
           </div>
         ) : null}
 
-        <section className="filter-section" aria-labelledby="grade-filter-heading">
+        <section className="filter-section" aria-labelledby="color-filter-heading">
           <div className="filter-section-heading">
             <div>
-              <h2 id="grade-filter-heading">Grade range</h2>
+              <h2 id="color-filter-heading">Difficulty colors</h2>
             </div>
-            <strong>V{minGrade}&ndash;V{maxGrade}</strong>
           </div>
-
-          <div className="grade-filter-control">
-            <div className="grade-filter-label">
-              <label htmlFor="minimum-grade">Minimum</label>
-              <output htmlFor="minimum-grade">V{minGrade}</output>
-            </div>
-            <input
-              aria-valuetext={`V${minGrade}`}
-              id="minimum-grade"
-              max={maxGrade}
-              min={MIN_FILTER_GRADE}
-              onChange={(event) => setMinGrade(Number(event.target.value))}
-              type="range"
-              value={minGrade}
-            />
-          </div>
-
-          <div className="grade-filter-control">
-            <div className="grade-filter-label">
-              <label htmlFor="maximum-grade">Maximum</label>
-              <output htmlFor="maximum-grade">V{maxGrade}</output>
-            </div>
-            <input
-              aria-valuetext={`V${maxGrade}`}
-              id="maximum-grade"
-              max={MAX_FILTER_GRADE}
-              min={minGrade}
-              onChange={(event) => setMaxGrade(Number(event.target.value))}
-              type="range"
-              value={maxGrade}
-            />
+          <p className="filter-help">No selection includes every color.</p>
+          <div
+            aria-labelledby="color-filter-heading"
+            className="difficulty-color-options"
+            role="group"
+          >
+            {FILTER_GRADE_COLORS.map((color) => (
+              <label
+                aria-label={`${colorOptions[color].label} ${colorOptions[color].range}`}
+                className="difficulty-color-choice"
+                htmlFor={`difficulty-color-${color}`}
+                key={color}
+              >
+                <input
+                  checked={colors.includes(color)}
+                  id={`difficulty-color-${color}`}
+                  onChange={() => toggleColor(color)}
+                  type="checkbox"
+                />
+                <span
+                  aria-hidden="true"
+                  className={`climb-grade climb-grade--${color} difficulty-color-swatch`}
+                />
+                <span className="difficulty-color-copy">
+                  <strong>{colorOptions[color].label}</strong>
+                  <span>{colorOptions[color].range}</span>
+                </span>
+              </label>
+            ))}
           </div>
         </section>
 
@@ -361,7 +368,7 @@ export default function FilterOptionsClient({
                 onChange={() => setOrder("grade")}
                 type="radio"
               />
-              <span>Grade (low to high)</span>
+              <span>Difficulty (Green to Red)</span>
             </label>
           </div>
         </section>

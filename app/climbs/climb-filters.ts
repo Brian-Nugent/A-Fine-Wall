@@ -1,16 +1,20 @@
+import { getGradeBand, type GradeBand } from "./climb-grade";
+
 export const MIN_FILTER_GRADE = 0;
 export const MAX_FILTER_GRADE = 17;
 export const MAX_FILTER_HOLDS = 200;
 export const MIN_FILTER_STARS = 0;
 export const MAX_FILTER_STARS = 5;
+export const FILTER_GRADE_COLORS: readonly GradeBand[] = [
+  "green", "yellow", "red",
+];
 
 const holdIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
 export type ClimbOrder = "newest" | "ascents" | "grade";
 
 export type ClimbFilters = {
-  minGrade: number;
-  maxGrade: number;
+  colors: GradeBand[];
   authors: string[];
   holdIds: string[];
   hideSent: boolean;
@@ -52,8 +56,7 @@ export type AdjacentClimbIds = {
 };
 
 export const DEFAULT_CLIMB_FILTERS: Readonly<ClimbFilters> = {
-  minGrade: MIN_FILTER_GRADE,
-  maxGrade: MAX_FILTER_GRADE,
+  colors: [],
   authors: [],
   holdIds: [],
   hideSent: false,
@@ -148,13 +151,8 @@ function normalizeOrder(value: unknown): ClimbOrder {
 }
 
 export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
-  const firstGrade = normalizeGrade(
-    filters.minGrade,
-    DEFAULT_CLIMB_FILTERS.minGrade,
-  );
-  const secondGrade = normalizeGrade(
-    filters.maxGrade,
-    DEFAULT_CLIMB_FILTERS.maxGrade,
+  const colors = FILTER_GRADE_COLORS.filter(
+    (color) => filters.colors.includes(color),
   );
   const authors = uniqueAuthors(
     filters.authors.flatMap((value) => {
@@ -167,8 +165,7 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
   ).slice(0, MAX_FILTER_HOLDS);
 
   return {
-    minGrade: Math.min(firstGrade, secondGrade),
-    maxGrade: Math.max(firstGrade, secondGrade),
+    colors,
     authors,
     holdIds,
     hideSent: filters.hideSent === true,
@@ -182,15 +179,26 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
 export function parseClimbFilters(
   source: URLSearchParams | FilterSearchParams,
 ): ClimbFilters {
+  const requestedColors = valuesFor(source, "color");
+  const colors = FILTER_GRADE_COLORS.filter((color) =>
+    requestedColors.includes(color),
+  );
+  // Old grade-range links expand to the full overlapping color bands.
+  // They must never narrow an unsent climb down to its exact grade.
+  if (requestedColors.length === 0) {
+    const firstGrade = readGrade(valuesFor(source, "min"), MIN_FILTER_GRADE);
+    const secondGrade = readGrade(valuesFor(source, "max"), MAX_FILTER_GRADE);
+    const minimum = Math.min(firstGrade, secondGrade);
+    const maximum = Math.max(firstGrade, secondGrade);
+    if (minimum > MIN_FILTER_GRADE || maximum < MAX_FILTER_GRADE) {
+      if (minimum <= 4) colors.push("green");
+      if (minimum <= 7 && maximum >= 5) colors.push("yellow");
+      if (maximum >= 8) colors.push("red");
+    }
+  }
+
   return normalizeClimbFilters({
-    minGrade: readGrade(
-      valuesFor(source, "min"),
-      DEFAULT_CLIMB_FILTERS.minGrade,
-    ),
-    maxGrade: readGrade(
-      valuesFor(source, "max"),
-      DEFAULT_CLIMB_FILTERS.maxGrade,
-    ),
+    colors,
     authors: valuesFor(source, "author"),
     holdIds: valuesFor(source, "hold"),
     hideSent: valuesFor(source, "sent")[0] === "hide",
@@ -205,12 +213,7 @@ export function createClimbFilterSearchParams(filters: ClimbFilters) {
   const normalized = normalizeClimbFilters(filters);
   const searchParams = new URLSearchParams();
 
-  if (normalized.minGrade !== DEFAULT_CLIMB_FILTERS.minGrade) {
-    searchParams.set("min", String(normalized.minGrade));
-  }
-  if (normalized.maxGrade !== DEFAULT_CLIMB_FILTERS.maxGrade) {
-    searchParams.set("max", String(normalized.maxGrade));
-  }
+  normalized.colors.forEach((color) => searchParams.append("color", color));
   normalized.authors.forEach((author) => searchParams.append("author", author));
   normalized.holdIds.forEach((holdId) => searchParams.append("hold", holdId));
   if (normalized.hideSent) searchParams.set("sent", "hide");
@@ -248,10 +251,7 @@ export function buildFilteredHref(
 export function activeClimbFilterCount(filters: ClimbFilters) {
   const normalized = normalizeClimbFilters(filters);
   return (
-    Number(
-      normalized.minGrade !== DEFAULT_CLIMB_FILTERS.minGrade ||
-        normalized.maxGrade !== DEFAULT_CLIMB_FILTERS.maxGrade,
-    ) +
+    Number(normalized.colors.length > 0) +
     Number(normalized.authors.length > 0) +
     Number(normalized.holdIds.length > 0) +
     Number(normalized.hideSent) +
@@ -269,8 +269,7 @@ export function hasActiveClimbFilters(filters: ClimbFilters) {
 export function hasClimbFilterConstraints(filters: ClimbFilters) {
   const normalized = normalizeClimbFilters(filters);
   return (
-    normalized.minGrade !== DEFAULT_CLIMB_FILTERS.minGrade ||
-    normalized.maxGrade !== DEFAULT_CLIMB_FILTERS.maxGrade ||
+    normalized.colors.length > 0 ||
     normalized.authors.length > 0 ||
     normalized.holdIds.length > 0 ||
     normalized.hideSent ||
@@ -305,8 +304,8 @@ export function matchesClimbFilters(
   const grade = gradeNumber(climb.grade);
   if (
     grade === null ||
-    grade < normalized.minGrade ||
-    grade > normalized.maxGrade
+    (normalized.colors.length > 0 &&
+      !normalized.colors.includes(getGradeBand(climb.grade)))
   ) {
     return false;
   }
@@ -374,8 +373,10 @@ export function compareClimbsByOrder(
     if (leftGrade === null && rightGrade !== null) return 1;
     if (leftGrade !== null && rightGrade === null) return -1;
     if (leftGrade !== null && rightGrade !== null) {
-      const gradeDifference = leftGrade - rightGrade;
-      if (gradeDifference !== 0) return gradeDifference;
+      const colorDifference =
+        FILTER_GRADE_COLORS.indexOf(getGradeBand(left.grade)) -
+        FILTER_GRADE_COLORS.indexOf(getGradeBand(right.grade));
+      if (colorDifference !== 0) return colorDifference;
     }
   }
 
