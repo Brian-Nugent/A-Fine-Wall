@@ -27,7 +27,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.54.2",
+    "@cloudflare/vite-plugin": "1.57.1",
     "@eslint/js": "9.39.4",
     "@next/eslint-plugin-next": "16.3.3",
     "@tailwindcss/postcss": "4.2.1",
@@ -51,7 +51,12 @@
     "typescript-eslint": "8.68.0",
     "vinext": "1.0.0-beta.8",
     "vite": "8.2.2",
-    "wrangler": "4.127.1"
+    "wrangler": "4.136.1"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.12"
+    }
   },
   "type": "module"
 }
