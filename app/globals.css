@@ -1046,6 +1046,11 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+.detail-status-tags .rocko-approved-tag[aria-hidden="true"] {
+  /* Reserve the badge's space so approval never shifts the wall photo. */
+  visibility: hidden;
+}
+
 .climb-outdated-notice {
   display: flex;
   flex-direction: column;

@@ -761,16 +761,17 @@ export default function SavedClimbDetail({
             </div>
             <div className="detail-meta-line">
               <p>Set by {climb.setter}</p>
-              {climb.outdated || climb.rockoApproved ? (
-                <div className="detail-status-tags">
-                  {climb.outdated ? (
-                    <span className="outdated-tag">Outdated</span>
-                  ) : null}
-                  {climb.rockoApproved ? (
-                    <span className="rocko-approved-tag">Rocko Approved</span>
-                  ) : null}
-                </div>
-              ) : null}
+              <div className="detail-status-tags">
+                {climb.outdated ? (
+                  <span className="outdated-tag">Outdated</span>
+                ) : null}
+                <span
+                  className="rocko-approved-tag"
+                  aria-hidden={!climb.rockoApproved}
+                >
+                  Rocko Approved
+                </span>
+              </div>
             </div>
           </div>
 

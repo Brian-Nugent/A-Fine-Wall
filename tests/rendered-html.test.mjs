@@ -2084,7 +2084,7 @@ test("shows Rocko approval on climb lists and in the requested detail rows", asy
   assert.match(listSource, /aria-label="Rocko Approved"/);
   assert.match(listSource, /className="rocko-approved-icon"/);
   assert.match(savedDetailSource, /className="rocko-approved-tag"/);
-  assert.match(savedDetailSource, />Rocko Approved</);
+  assert.match(savedDetailSource, />\s*Rocko Approved\s*</);
   for (const source of [savedDetailSource, demoDetailSource]) {
     assert.match(source, /className="detail-title-line"/);
     assert.match(source, /className="detail-grade"/);
