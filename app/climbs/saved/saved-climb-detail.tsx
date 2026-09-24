@@ -7,9 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  type TouchEvent as ReactTouchEvent,
 } from "react";
 import {
   ClimbRequestError,
@@ -34,6 +32,7 @@ import {
   type WallHold,
 } from "../wall-holds";
 import WallPhoto from "../wall-photo";
+import ClimbPhotoNavigation from "../climb-photo-navigation";
 import ClimbActivityPanel from "../climb-activity-panel";
 import { ClimbActivityProvider, ClimbDetailGrade } from "../climb-activity-context";
 import {
@@ -51,12 +50,6 @@ import {
 } from "../climb-navigation-snapshot";
 import { loadClimbActivities } from "../send-api";
 import { loadSyncedClimbs } from "../synced-climbs";
-import {
-  horizontalSwipeDirection,
-  type SwipePoint,
-  type SwipeIntent,
-  updateSwipeIntent,
-} from "../swipe-gesture";
 import { canManageClimb, isAdminUser } from "../../user-access";
 import { useActiveUser } from "../../user-profile-provider";
 
@@ -120,23 +113,6 @@ async function loadClimbWithBrowserFallback(climbId: string) {
     if (browserClimb) return browserClimb;
     throw error;
   }
-}
-
-type TouchCollection = {
-  length: number;
-  item(index: number): {
-    clientX: number;
-    clientY: number;
-    identifier: number;
-  } | null;
-};
-
-function findTouch(touches: TouchCollection, identifier: number) {
-  for (let index = 0; index < touches.length; index += 1) {
-    const touch = touches.item(index);
-    if (touch?.identifier === identifier) return touch;
-  }
-  return null;
 }
 
 function DetailShell({
@@ -205,6 +181,7 @@ function ClimbOptions({
   editHref,
   isApproving,
   isDeleting,
+  isNavigating,
   onChangeApproval,
   onDelete,
   rockoApproved,
@@ -213,6 +190,7 @@ function ClimbOptions({
   editHref: string;
   isApproving: boolean;
   isDeleting: boolean;
+  isNavigating: boolean;
   onChangeApproval(rockoApproved: boolean): void;
   onDelete(): void;
   rockoApproved: boolean;
@@ -263,7 +241,7 @@ function ClimbOptions({
         aria-expanded={isOpen}
         aria-label="Climb options"
         className="climb-options-button"
-        disabled={isApproving || isDeleting}
+        disabled={isApproving || isDeleting || isNavigating}
         onClick={() => setIsOpen((current) => !current)}
         ref={buttonRef}
         type="button"
@@ -275,7 +253,7 @@ function ClimbOptions({
           {canChangeApproval ? (
             <button
               className="climb-option"
-              disabled={isApproving || isDeleting}
+              disabled={isApproving || isDeleting || isNavigating}
               onClick={() => {
                 setIsOpen(false);
                 onChangeApproval(!rockoApproved);
@@ -285,12 +263,20 @@ function ClimbOptions({
               {approvalActionLabel}
             </button>
           ) : null}
-          <a className="climb-option" href={editHref}>
+          <a
+            aria-disabled={isNavigating ? "true" : undefined}
+            className="climb-option"
+            href={editHref}
+            onClick={(event) => {
+              if (isNavigating) event.preventDefault();
+            }}
+            tabIndex={isNavigating ? -1 : undefined}
+          >
             Edit climb
           </a>
           <button
             className="climb-option climb-option--delete"
-            disabled={isApproving || isDeleting}
+            disabled={isApproving || isDeleting || isNavigating}
             onClick={() => {
               setIsOpen(false);
               onDelete();
@@ -327,6 +313,7 @@ export default function SavedClimbDetail({
     filters: "",
     profileId: null,
   });
+  const [isNavigating, setIsNavigating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -338,18 +325,7 @@ export default function SavedClimbDetail({
     Map<string, Promise<SavedClimb | null>>
   >(new Map());
   const transitionTokenRef = useRef(0);
-  const swipeStartRef = useRef<{
-    touchIdentifier: number;
-    point: SwipePoint;
-    viewportWidth: number;
-    intent: SwipeIntent;
-  } | null>(null);
-  const mouseSwipeStartRef = useRef<{
-    pointerId: number;
-    point: SwipePoint;
-    viewportWidth: number;
-  } | null>(null);
-  const isSwipeNavigatingRef = useRef(false);
+  const isNavigatingRef = useRef(false);
 
   const removeUnavailableClimbFromNavigation = useCallback(
     (unavailableClimbId: string) => {
@@ -391,19 +367,6 @@ export default function SavedClimbDetail({
   }, []);
 
   useEffect(() => {
-    function cancelInterruptedSwipe() {
-      swipeStartRef.current = null;
-      mouseSwipeStartRef.current = null;
-    }
-
-    document.addEventListener("visibilitychange", cancelInterruptedSwipe);
-    return () => {
-      document.removeEventListener("visibilitychange", cancelInterruptedSwipe);
-      transitionTokenRef.current += 1;
-    };
-  }, []);
-
-  useEffect(() => {
     if (initialClimb) return;
 
     let isActive = true;
@@ -433,6 +396,18 @@ export default function SavedClimbDetail({
   }, []);
 
   const serializedFilters = serializeClimbFilters(filters);
+
+  useEffect(() => {
+    let isActive = true;
+    queueMicrotask(() => {
+      if (isActive) setIsNavigating(false);
+    });
+    return () => {
+      isActive = false;
+      transitionTokenRef.current += 1;
+      isNavigatingRef.current = false;
+    };
+  }, [profile?.id, serializedFilters]);
 
   useEffect(() => {
     if (!profile) return;
@@ -557,7 +532,7 @@ export default function SavedClimbDetail({
           }
         })
         .catch(() => {
-          // The real link remains available if an eager load fails.
+          // Clicking the arrow retries if an eager load fails.
         });
     }
   }, [
@@ -576,7 +551,7 @@ export default function SavedClimbDetail({
     }
     if (
       target.reference.climbId === activeClimbIdRef.current ||
-      isSwipeNavigatingRef.current ||
+      isNavigatingRef.current ||
       isDeleting ||
       isApproving
     ) {
@@ -585,7 +560,8 @@ export default function SavedClimbDetail({
 
     const transitionToken = transitionTokenRef.current + 1;
     transitionTokenRef.current = transitionToken;
-    isSwipeNavigatingRef.current = true;
+    isNavigatingRef.current = true;
+    setIsNavigating(true);
 
     try {
       const nextClimb = await ensureClimbCached(target.reference.climbId);
@@ -615,7 +591,8 @@ export default function SavedClimbDetail({
       window.location.assign(target.href);
     } finally {
       if (transitionTokenRef.current === transitionToken) {
-        isSwipeNavigatingRef.current = false;
+        isNavigatingRef.current = false;
+        setIsNavigating(false);
       }
     }
   }, [
@@ -625,134 +602,13 @@ export default function SavedClimbDetail({
     removeUnavailableClimbFromNavigation,
   ]);
 
-  function startSwipe(event: ReactTouchEvent<HTMLElement>) {
-    if (isSwipeNavigatingRef.current || isDeleting || isApproving) return;
-    if (
-      event.touches.length !== 1 ||
-      (window.visualViewport?.scale ?? 1) > 1.01
-    ) {
-      swipeStartRef.current = null;
-      return;
-    }
-
-    const touch = event.touches.item(0);
-    if (!touch) return;
-    swipeStartRef.current = {
-      touchIdentifier: touch.identifier,
-      point: { x: touch.clientX, y: touch.clientY, time: event.timeStamp },
-      viewportWidth: window.innerWidth,
-      intent: "pending",
-    };
-  }
-
-  function moveSwipe(event: ReactTouchEvent<HTMLElement>) {
-    const swipeStart = swipeStartRef.current;
-    if (
-      !swipeStart ||
-      event.touches.length !== 1 ||
-      (window.visualViewport?.scale ?? 1) > 1.01
-    ) {
-      swipeStartRef.current = null;
-      return;
-    }
-
-    const touch = findTouch(event.touches, swipeStart.touchIdentifier);
-    if (!touch) {
-      swipeStartRef.current = null;
-      return;
-    }
-
-    const intent = updateSwipeIntent(
-      swipeStart.intent,
-      swipeStart.point,
-      { x: touch.clientX, y: touch.clientY, time: event.timeStamp },
-    );
-    swipeStartRef.current =
-      intent === "vertical" ? null : { ...swipeStart, intent };
-  }
-
-  function finishSwipe(event: ReactTouchEvent<HTMLElement>) {
-    const swipeStart = swipeStartRef.current;
-    swipeStartRef.current = null;
-    if (
-      !swipeStart ||
-      event.touches.length > 0 ||
-      (window.visualViewport?.scale ?? 1) > 1.01
-    ) return;
-
-    const touch = findTouch(event.changedTouches, swipeStart.touchIdentifier);
-    if (!touch) return;
-    const endPoint = {
-      x: touch.clientX,
-      y: touch.clientY,
-      time: event.timeStamp,
-    };
-    const intent = updateSwipeIntent(
-      swipeStart.intent,
-      swipeStart.point,
-      endPoint,
-    );
-    if (intent !== "horizontal") return;
-
-    navigateFromSwipe(swipeStart.point, endPoint, swipeStart.viewportWidth);
-  }
-
-  function startMouseSwipe(event: ReactPointerEvent<HTMLElement>) {
-    if (
-      event.pointerType !== "mouse" ||
-      event.button !== 0 ||
-      isSwipeNavigatingRef.current ||
-      isDeleting ||
-      isApproving ||
-      (window.visualViewport?.scale ?? 1) > 1.01
-    ) return;
-
-    mouseSwipeStartRef.current = {
-      pointerId: event.pointerId,
-      point: { x: event.clientX, y: event.clientY, time: event.timeStamp },
-      viewportWidth: window.innerWidth,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function finishMouseSwipe(event: ReactPointerEvent<HTMLElement>) {
-    const swipeStart = mouseSwipeStartRef.current;
-    mouseSwipeStartRef.current = null;
-    if (
-      event.pointerType !== "mouse" ||
-      !swipeStart ||
-      swipeStart.pointerId !== event.pointerId ||
-      (window.visualViewport?.scale ?? 1) > 1.01
-    ) return;
-
-    navigateFromSwipe(
-      swipeStart.point,
-      { x: event.clientX, y: event.clientY, time: event.timeStamp },
-      swipeStart.viewportWidth,
-    );
-  }
-
-  function cancelMouseSwipe() {
-    mouseSwipeStartRef.current = null;
-  }
-
-  function navigateFromSwipe(
-    start: SwipePoint,
-    end: SwipePoint,
-    viewportWidth: number,
-  ) {
-    const direction = horizontalSwipeDirection(start, end, viewportWidth);
-    const target = direction ? navigationTargets[direction] : null;
-    if (!direction || !target) return;
-
-    void transitionToTarget(target);
-  }
-
-  function cancelSwipe() {
-    swipeStartRef.current = null;
+  function navigateToClimb(direction: "previous" | "next") {
+    const target = navigationTargets[direction];
+    if (target) void transitionToTarget(target);
   }
 
   async function handleDeleteClimb(climbToDelete: SavedClimb) {
+    if (isNavigatingRef.current) return;
     if (!profile || !canManageClimb(profile, climbToDelete.setter)) {
       setActionError("You can only delete climbs you set.");
       return;
@@ -791,6 +647,7 @@ export default function SavedClimbDetail({
     climbToUpdate: SavedClimb,
     rockoApproved: boolean,
   ) {
+    if (isNavigatingRef.current) return;
     if (!profile || !isAdminUser(profile)) {
       setActionError("Only Admin can change Rocko's approval.");
       return;
@@ -884,6 +741,7 @@ export default function SavedClimbDetail({
             editHref={editHref}
             isApproving={isApproving}
             isDeleting={isDeleting}
+            isNavigating={isNavigating}
             key={climb.id}
             onChangeApproval={(rockoApproved) =>
               handleSetRockoApproval(climb, rockoApproved)
@@ -932,17 +790,7 @@ export default function SavedClimbDetail({
             </p>
           ) : null}
 
-          <figure
-            className="wall-map wall-map--route"
-            onLostPointerCapture={cancelMouseSwipe}
-            onPointerCancel={cancelMouseSwipe}
-            onPointerDown={startMouseSwipe}
-            onPointerUp={finishMouseSwipe}
-            onTouchCancel={cancelSwipe}
-            onTouchEnd={finishSwipe}
-            onTouchMove={moveSwipe}
-            onTouchStart={startSwipe}
-          >
+          <figure className="wall-map wall-map--route">
             <WallPhoto
               className="wall-photo"
               alt="Climbing wall with the route holds marked"
@@ -962,6 +810,12 @@ export default function SavedClimbDetail({
                 }}
               />
             ))}
+            <ClimbPhotoNavigation
+              hasPrevious={navigationTargets.previous !== null}
+              hasNext={navigationTargets.next !== null}
+              busy={isNavigating || isDeleting || isApproving}
+              onNavigate={navigateToClimb}
+            />
             <figcaption className="sr-only">
               {climb.name} uses {startCount} green-circled start{" "}
               {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled

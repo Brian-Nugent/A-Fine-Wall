@@ -41,10 +41,6 @@ import {
   writeSessionClimbNavigationSnapshot,
 } from "../app/climbs/climb-navigation-snapshot.ts";
 import {
-  horizontalSwipeDirection,
-  updateSwipeIntent,
-} from "../app/climbs/swipe-gesture.ts";
-import {
   getClimbListState,
   matchesClimbSearch,
 } from "../app/climbs/climb-list-state.ts";
@@ -819,7 +815,7 @@ test("searches climb names with trimmed case-insensitive substrings", () => {
   assert.equal(matchesClimbSearch("Any Climb", "   "), true);
 });
 
-test("keeps search results in the climb swipe snapshot", async () => {
+test("keeps search results in the climb navigation snapshot", async () => {
   const source = await readFile(
     new URL("../app/climbs/climb-list-client.tsx", import.meta.url),
     "utf8",
@@ -1369,7 +1365,7 @@ test("finds adjacent climbs in the active filtered order", () => {
   );
 });
 
-test("remembers the exact climb order for swipe navigation", () => {
+test("remembers the exact climb order for climb navigation", () => {
   const values = new Map();
   const storage = {
     getItem(key) {
@@ -1544,70 +1540,6 @@ test("rejects stale, malformed, or unavailable climb navigation snapshots", () =
     false,
   );
   assert.doesNotThrow(() => clearSessionClimbNavigationSnapshot(blockedHost));
-});
-
-test("recognizes deliberate horizontal touch swipes", () => {
-  const start = { x: 200, y: 200, time: 100 };
-  assert.equal(
-    updateSwipeIntent("pending", start, { x: 205, y: 207, time: 120 }),
-    "pending",
-  );
-  assert.equal(
-    updateSwipeIntent("pending", start, { x: 205, y: 230, time: 140 }),
-    "vertical",
-  );
-  assert.equal(
-    updateSwipeIntent("pending", start, { x: 230, y: 205, time: 140 }),
-    "horizontal",
-  );
-  assert.equal(
-    horizontalSwipeDirection(
-      { x: 300, y: 200, time: 100 },
-      { x: 200, y: 215, time: 450 },
-      390,
-    ),
-    "next",
-  );
-  assert.equal(
-    horizontalSwipeDirection(
-      { x: 100, y: 200, time: 100 },
-      { x: 190, y: 180, time: 500 },
-      390,
-    ),
-    "previous",
-  );
-  assert.equal(
-    horizontalSwipeDirection(
-      { x: 200, y: 200, time: 100 },
-      { x: 240, y: 200, time: 300 },
-      390,
-    ),
-    null,
-  );
-  assert.equal(
-    horizontalSwipeDirection(
-      { x: 200, y: 100, time: 100 },
-      { x: 280, y: 250, time: 400 },
-      390,
-    ),
-    null,
-  );
-  assert.equal(
-    horizontalSwipeDirection(
-      { x: 20, y: 200, time: 100 },
-      { x: 120, y: 200, time: 400 },
-      390,
-    ),
-    null,
-  );
-  assert.equal(
-    horizontalSwipeDirection(
-      { x: 200, y: 200, time: 100 },
-      { x: 100, y: 200, time: 1_200 },
-      390,
-    ),
-    null,
-  );
 });
 
 test("distinguishes an empty wall from an empty filtered result", () => {
@@ -2063,7 +1995,7 @@ test("preloads a selected saved climb before rendering its page", async () => {
   assert.doesNotMatch(detailSource, /Loading climb(?:&hellip;|\.\.\.)/i);
 });
 
-test("supports in-place swipe navigation without pager buttons", async () => {
+test("uses photo arrow controls for in-place climb navigation", async () => {
   const [detailSource, css] = await Promise.all([
     readFile(
       new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
@@ -2072,13 +2004,18 @@ test("supports in-place swipe navigation without pager buttons", async () => {
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(detailSource, /onTouchStart=\{startSwipe\}/);
-  assert.match(detailSource, /onTouchMove=\{moveSwipe\}/);
-  assert.match(detailSource, /onPointerDown=\{startMouseSwipe\}/);
-  assert.match(detailSource, /window\.visualViewport\?\.scale/);
-  assert.doesNotMatch(detailSource, /climb-pager/);
-  assert.doesNotMatch(detailSource, /Previous climb/);
-  assert.doesNotMatch(detailSource, /Next climb/);
+  assert.match(detailSource, /<ClimbPhotoNavigation\b/);
+  assert.match(
+    detailSource,
+    /<figure\b[^>]*className="wall-map wall-map--route"[^>]*>[\s\S]*<ClimbPhotoNavigation\b[\s\S]*<\/figure>/,
+  );
+  assert.match(detailSource, /hasPrevious=\{/);
+  assert.match(detailSource, /hasNext=\{/);
+  assert.match(detailSource, /busy=\{/);
+  assert.match(detailSource, /onNavigate=\{/);
+  assert.doesNotMatch(detailSource, /swipe/i);
+  assert.doesNotMatch(detailSource, /on(?:Touch|Pointer|LostPointer|Drag)\w*=/);
+  assert.doesNotMatch(detailSource, /setPointerCapture|releasePointerCapture/);
   assert.match(detailSource, /ensureClimbCached/);
   assert.match(detailSource, /loadSyncedClimbs/);
   assert.match(detailSource, /removeUnavailableClimbFromNavigation/);
@@ -2092,7 +2029,6 @@ test("supports in-place swipe navigation without pager buttons", async () => {
   assert.match(detailSource, /window\.location\.assign\(target\.href\)/);
   assert.equal((detailSource.match(/<WallPhoto\b/g) ?? []).length, 1);
   assert.doesNotMatch(detailSource, /setClimb\(undefined\)/);
-  assert.doesNotMatch(css, /\.climb-pager(?:-link)?\b/);
   assert.doesNotMatch(
     css,
     /\.wall-map--route\s*\{[^}]*touch-action:\s*none/,

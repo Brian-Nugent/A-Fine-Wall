@@ -10,6 +10,8 @@ The app runs at
 - Set and edit climbs against preset spots on the photo of the board.
 - Browse and filter by difficulty color, sends, community rating, holds, setter,
   and Rocko approval.
+- Use the left and right arrows on the wall photo to browse climbs in the
+  current search and filter order.
 - See green (V0–V4), yellow (V5–V7), or red (V8+) grade ovals before sending.
   Exact climb and logbook grades appear only after the active user logs a send.
 - Log a send with a proposed grade and rating.
@@ -141,7 +143,8 @@ The browser also uses:
 
 - `localStorage` for the active profile and device-local climb copies.
 - A `SameSite=Lax` profile cookie to seed server-rendered pages.
-- `sessionStorage` for the filtered climb order used by swipe navigation.
+- `sessionStorage` for the filtered climb order used by the photo's navigation
+  arrows.
 
 `app/climbs/synced-climbs.ts` uploads device-local climbs when possible, merges
 them with shared D1 records, and retains local records if shared storage is

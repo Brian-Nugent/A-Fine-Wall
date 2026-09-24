@@ -1083,6 +1083,64 @@ select:focus-visible {
   filter: brightness(0.6);
 }
 
+.wall-climb-navigation {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+}
+
+.wall-climb-arrow {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  transform: translateY(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.wall-climb-arrow--previous {
+  left: 0.5rem;
+}
+
+.wall-climb-arrow--next {
+  right: 0.5rem;
+}
+
+.wall-climb-arrow svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wall-climb-arrow:not(:disabled):hover {
+  background: #ffffff;
+}
+
+.wall-climb-arrow:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 3px;
+}
+
+.wall-climb-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .hold-marker {
   position: absolute;
   aspect-ratio: 1;
