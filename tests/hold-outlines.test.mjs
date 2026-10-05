@@ -3,7 +3,8 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import HoldOutlines from "../app/climbs/hold-outlines.tsx";
+import HoldOutlines, { holdOutlineStrokeWidth } from "../app/climbs/hold-outlines.tsx";
+import WallPhoto from "../app/climbs/wall-photo.tsx";
 import {
   findHoldAtPoint, isHoldOutline, moveHoldTo, outlineBounds, outlineHitStyle,
   pointInOutline, resizeHoldTo, withHoldOutline,
@@ -64,6 +65,43 @@ test("shows the saved polygons in the correct role colors without adding circles
   assert.match(html, /vector-effect="non-scaling-stroke"/);
   assert.equal((html.match(/<polygon/g) ?? []).length, 1);
   assert.doesNotMatch(html, /<circle|<ellipse/);
+});
+
+test("keeps small hold outlines thin and increases thickness linearly to twice that width", () => {
+  for (const [size, expected] of [[0.5, 0.75], [2, 0.75], [3.5, 0.9375], [5, 1.125], [8, 1.5], [20, 1.5]]) {
+    assert.equal(holdOutlineStrokeWidth(size), expected);
+    const html = renderToStaticMarkup(createElement(HoldOutlines, {
+      holds: [{ ...hold, size, role: "hand" }],
+    }));
+    assert.match(html, new RegExp(`--hold-outline-width:${expected}px`));
+    assert.match(html, /vector-effect="non-scaling-stroke"/);
+  }
+});
+
+test("restores the original photo only inside selected hold boundaries", () => {
+  const html = renderToStaticMarkup(createElement(WallPhoto, {
+    alt: "Wall", className: "wall-photo", highlightedHolds: [hold],
+  }));
+  const clipId = html.match(/<clipPath id="([^"]+)"/)?.[1];
+  assert.ok(clipId);
+  assert.ok(html.includes(`clip-path="url(#${clipId})"`));
+  assert.match(html, /class="wall-hold-highlights"/);
+  assert.match(html, /clipPathUnits="userSpaceOnUse"/);
+  assert.match(html, /points="10,20 20,20 15,30"/);
+  assert.match(html, /<image href="\/api\/wall-photo" x="0" y="0" width="100" height="100" preserveAspectRatio="none"/);
+  assert.match(html, /<svg aria-hidden="true" focusable="false"/);
+  const plain = renderToStaticMarkup(createElement(WallPhoto, { alt: "Wall" }));
+  assert.doesNotMatch(plain, /wall-hold-highlights|<clipPath/);
+});
+
+test("each wall photo has its own clipping region", () => {
+  const html = renderToStaticMarkup(createElement("div", {},
+    createElement(WallPhoto, { alt: "First wall", highlightedHolds: [hold] }),
+    createElement(WallPhoto, { alt: "Second wall", highlightedHolds: [hold] }),
+  ));
+  const ids = [...html.matchAll(/<clipPath id="([^"]+)"/g)].map(match => match[1]);
+  assert.equal(ids.length, 2);
+  assert.notEqual(ids[0], ids[1]);
 });
 
 test("client wall save/load and climb resolution preserve the outline", async () => {

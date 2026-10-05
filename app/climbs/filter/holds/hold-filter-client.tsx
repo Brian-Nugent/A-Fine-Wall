@@ -131,9 +131,10 @@ export default function HoldFilterClient({
         </div>
       ) : null}
 
-      <figure className="wall-map set-wall filter-hold-wall">
+      <figure className={`wall-map set-wall filter-hold-wall${selectedHoldIds.length > 0 ? " wall-map--route" : ""}`}>
         <WallPhoto
           alt="Climbing wall used to choose holds for the filter"
+          highlightedHolds={wallHolds.filter(hold => selectedHoldIds.includes(hold.id))}
           className="wall-photo"
           draggable="false"
           height="1448"

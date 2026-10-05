@@ -435,10 +435,11 @@ export default function SetClimbPage() {
             </div>
           ) : null}
 
-          <figure className="wall-map set-wall">
+          <figure className={`wall-map set-wall${selectedHolds.length > 0 ? " wall-map--route" : ""}`}>
             <WallPhoto
               className="wall-photo"
               alt="Climbing wall used to set the route"
+              highlightedHolds={wallHolds.filter(hold => selectedHolds.some(selection => selection.holdId === hold.id))}
               width="1086"
               height="1448"
               draggable="false"

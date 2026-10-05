@@ -796,6 +796,7 @@ export default function SavedClimbDetail({
             <WallPhoto
               className="wall-photo"
               alt="Climbing wall with the route holds marked"
+              highlightedHolds={resolvedHolds}
               draggable={false}
               width="1086"
               height="1448"
