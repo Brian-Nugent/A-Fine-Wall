@@ -117,6 +117,7 @@ dependencies and updating `package-lock.json`.
 | `npm run db:check` | Validate the Drizzle schema and migration metadata. |
 | `npm run db:generate` | Generate migration SQL and metadata from `db/schema.ts`. |
 | `npm run db:migrate:remote` | Apply pending migrations to the configured production D1 database. |
+| `npm run deploy:preview` | Build the current branch, migrate the test database, and publish the iPhone test link. |
 | `npm run deploy:cloudflare` | Build, migrate D1, and deploy the Worker. |
 
 `npm run db:migrate:remote` changes the production database; it is not part of
@@ -242,6 +243,41 @@ generated Worker. The repository also retains `.openai/hosting.json` as an
 OpenAI Sites migration fallback. The custom build plugin copies that metadata
 and the Drizzle migrations into `dist/.openai`, but it is not the Cloudflare
 Worker deployment configuration.
+
+### Testing changes on an iPhone
+
+The test app is available at
+[A Fine Wall Test](https://iphone-test-a-fine-wall.bnugent1021.workers.dev/climbs).
+Open it in Safari, then use Share → Add to Home Screen and name the shortcut
+**A Fine Wall Test**. Profiles and sends are separate from the live app; choose
+your name again on the test site. The `Admin` profile can manage the test wall.
+
+To publish work for phone testing, check out the feature branch and run:
+
+```bash
+npm run deploy:preview
+```
+
+The command builds the current checkout (including local edits), checks that
+Preview storage is separate from production, applies migrations to the test
+database, and updates the stable `iphone-test` Preview URL. Pushing a branch
+alone does not run this command. After testing, merge the feature into `main`
+and use the production deployment workflow to release it.
+
+The `previews` block in `wrangler.jsonc` binds `DB` to `a-fine-wall-test-db`
+and `WALL_PHOTOS` to `a-fine-wall-test-wall-photos`. The publisher ignores
+dashboard Preview defaults so these explicit bindings are always used.
+The test database started with a one-time copy of the live wall configuration
+and 20 climbs on October 4, 2026, plus a copy of the wall photo. Live profiles
+and send history were not copied. Later Preview deployments retain test data;
+they do not copy or synchronize production data again. All branches published
+with this command update the same test link and share this test storage.
+
+Keep `preview_urls: true` in the production configuration. This account's
+Worker preview routing was enabled separately without replacing the live
+Worker deployment. Disabling it on a later production deployment makes the
+test link unavailable. Use `npm run deploy:preview` for phone testing;
+`npm run deploy:cloudflare` and `deploy:cloudflare:built` target production.
 
 ## Repository Map
 

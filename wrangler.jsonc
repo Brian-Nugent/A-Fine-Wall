@@ -6,7 +6,7 @@
   "compatibility_date": "2026-08-26",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
-  "preview_urls": false,
+  "preview_urls": true,
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "none"
@@ -25,6 +25,22 @@
       "bucket_name": "a-fine-wall-wall-photos"
     }
   ],
+  "previews": {
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "a-fine-wall-test-db",
+        "database_id": "8e6c04fc-d17b-4af2-a9cd-149fd663a8ea",
+        "migrations_dir": "drizzle"
+      }
+    ],
+    "r2_buckets": [
+      {
+        "binding": "WALL_PHOTOS",
+        "bucket_name": "a-fine-wall-test-wall-photos"
+      }
+    ]
+  },
   "observability": {
     "enabled": true
   }
