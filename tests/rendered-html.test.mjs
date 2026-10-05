@@ -117,20 +117,28 @@ function createContext() {
 }
 
 function createMemoryWallPhotoBucket() {
-  let stored = null;
+  const objects = new Map();
+  let sequence = 0;
 
   return {
     async delete(key) {
-      if (stored?.key === key) stored = null;
+      objects.delete(key);
+    },
+    async head(key) {
+      const stored = objects.get(key);
+      if (!stored) return null;
+      return { size: stored.bytes.byteLength, httpEtag: stored.httpEtag,
+        httpMetadata: { contentType: stored.contentType } };
     },
     async get(key) {
-      if (!stored || stored.key !== key) return null;
+      const stored = objects.get(key);
+      if (!stored) return null;
 
       const { bytes, contentType } = stored;
       return {
         body: new Blob([bytes]).stream(),
         size: bytes.byteLength,
-        httpEtag: '"wall-photo-test"',
+        httpEtag: stored.httpEtag,
         httpMetadata: { contentType },
         writeHttpMetadata(headers) {
           headers.set("Content-Type", contentType);
@@ -138,11 +146,15 @@ function createMemoryWallPhotoBucket() {
       };
     },
     async put(key, value, options) {
-      stored = {
+      sequence++;
+      const stored = {
         key,
         bytes: new Uint8Array(value.slice(0)),
         contentType: options.httpMetadata.contentType,
+        httpEtag: sequence === 1 ? '"wall-photo-test"' : `"wall-photo-test-${sequence}"`,
       };
+      objects.set(key, stored);
+      return { httpEtag: stored.httpEtag };
     },
   };
 }
@@ -1069,7 +1081,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.equal(response.status, 200);
   html = await response.text();
   assert.match(html, /<h1 id="hold-filter-heading">Choose holds<\/h1>/);
-  assert.match(html, /src="\/api\/wall-photo"/);
+  assert.match(html, /src="\/api\/wall-photo\?view=display"/);
   assert.match(html, /Loading hold spots/);
   assert.match(html, />Done<\/a>/);
 });
@@ -1757,7 +1769,7 @@ test("renders the climb setter with the wall and selectable holds", async () => 
   assert.match(html, /Tap a hold for a blue circle/);
   assert.match(html, /again for a yellow foothold/);
   assert.match(html, /A fifth tap clears it/);
-  assert.match(html, /src="\/api\/wall-photo"/);
+  assert.match(html, /src="\/api\/wall-photo\?view=display"/);
   assert.doesNotMatch(html, /href="\/wall-photo"/);
   assert.match(html, /Loading hold spots/);
   assert.match(html, /class="wall-hold-choice-layer"/);
@@ -2530,6 +2542,70 @@ test("uploads, serves, and resets the shared wall photo", async () => {
   response = await fetchWallPhoto(
     new Request("http://localhost/api/wall-photo"),
   );
+  assert.equal(response.status, 307);
+});
+
+test("serves smaller display photos only for their matching original and preserves the original", async () => {
+  const worker = await loadWorker();
+  const bucket = createMemoryWallPhotoBucket();
+  const database = createMemoryAppDatabase();
+  database.seedProfile({ id: "profile-admin", name: "Admin", createdAt: 1 });
+  const environment = createEnvironment({ DB: database, WALL_PHOTOS: bucket });
+  const originalUrl = "http://localhost/api/wall-photo";
+  const displayUrl = `${originalUrl}?view=display`;
+  const fetchPhoto = (url, options) => worker.fetch(new Request(url, options), environment, createContext());
+  const original = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+  const smaller = new Uint8Array([255, 216, 255, 2]);
+  const upload = (url, body, headers = {}) => fetchPhoto(url, {
+    method: "POST", body,
+    headers: { [ACTIVE_USER_PROFILE_HEADER]: "profile-admin", "Content-Type": "image/png", ...headers },
+  });
+  let response = await upload(originalUrl, original);
+  assert.equal(response.status, 200);
+  const sourceEtag = response.headers.get("ETag");
+  assert.ok(sourceEtag);
+
+  // Existing walls remain usable before a derivative is generated.
+  response = await fetchPhoto(displayUrl);
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), original);
+  assert.equal(response.headers.get("ETag"), sourceEtag);
+  response = await upload(displayUrl, smaller, { "Content-Type": "image/jpeg" });
+  assert.equal(response.status, 412);
+  response = await upload(displayUrl, smaller, {
+    "Content-Type": "image/jpeg", "If-Match": sourceEtag, [ACTIVE_USER_PROFILE_HEADER]: "not-admin",
+  });
+  assert.equal(response.status, 403);
+  response = await upload(displayUrl, smaller, { "Content-Type": "image/jpeg", "If-Match": sourceEtag });
+  assert.equal(response.status, 200);
+
+  response = await fetchPhoto(displayUrl);
+  assert.equal(response.headers.get("Content-Type"), "image/jpeg");
+  assert.equal(response.headers.get("Cache-Control"), "private, no-cache");
+  assert.equal(response.headers.get("Content-Length"), String(smaller.length));
+  const displayEtag = response.headers.get("ETag");
+  assert.notEqual(displayEtag, sourceEtag);
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), smaller);
+  response = await fetchPhoto(displayUrl, { headers: { "If-None-Match": displayEtag } });
+  assert.equal(response.status, 304);
+  assert.equal(response.headers.get("Content-Length"), null);
+  response = await fetchPhoto(displayUrl, { method: "HEAD" });
+  assert.equal(response.headers.get("ETag"), displayEtag);
+  assert.equal((await response.arrayBuffer()).byteLength, 0);
+  response = await fetchPhoto(originalUrl);
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), original);
+  response = await fetchPhoto(displayUrl, { method: "DELETE", headers: { [ACTIVE_USER_PROFILE_HEADER]: "profile-admin" } });
+  assert.equal(response.status, 405);
+
+  // Replacing the wall must invalidate the old derivative, including stale uploads.
+  const replacement = new Uint8Array([...original, 3]);
+  await upload(originalUrl, replacement);
+  response = await fetchPhoto(displayUrl, { headers: { "If-None-Match": displayEtag } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), replacement);
+  response = await upload(displayUrl, smaller, { "Content-Type": "image/jpeg", "If-Match": sourceEtag });
+  assert.equal(response.status, 412);
+  await fetchPhoto(originalUrl, { method: "DELETE", headers: { [ACTIVE_USER_PROFILE_HEADER]: "profile-admin" } });
+  response = await fetchPhoto(displayUrl);
   assert.equal(response.status, 307);
 });
 

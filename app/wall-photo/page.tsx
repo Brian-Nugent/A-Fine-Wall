@@ -6,7 +6,9 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   DEFAULT_WALL_PHOTO,
   WALL_PHOTO_ENDPOINT,
+  WALL_DISPLAY_PHOTO_ENDPOINT,
 } from "../climbs/wall-photo";
+import { createDisplayPhoto } from "./display-photo";
 import {
   ACTIVE_USER_PROFILE_HEADER,
   isAdminUser,
@@ -79,6 +81,7 @@ export default function WallPhotoPage() {
     setError("");
     setIsSaving(true);
     try {
+      const displayPhoto = await createDisplayPhoto(selectedFile).catch(() => null);
       const response = await fetch(WALL_PHOTO_ENDPOINT, {
         method: "POST",
         headers: {
@@ -93,6 +96,20 @@ export default function WallPhotoPage() {
 
       if (!response.ok) {
         throw new Error(result?.error || "The wall photo could not be uploaded.");
+      }
+
+      const sourceEtag = response.headers.get("ETag");
+      if (displayPhoto && sourceEtag) {
+        // An optimization failure still leaves a usable full-resolution wall.
+        await fetch(WALL_DISPLAY_PHOTO_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": displayPhoto.type,
+            "If-Match": sourceEtag,
+            [ACTIVE_USER_PROFILE_HEADER]: profile.id,
+          },
+          body: displayPhoto,
+        }).catch(() => null);
       }
 
       window.location.assign("/wall-holds?from=photo");

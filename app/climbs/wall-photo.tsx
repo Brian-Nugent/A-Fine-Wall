@@ -7,6 +7,7 @@ import type { HoldGeometry } from "./hold-geometry";
 import { outlinePoints } from "./hold-outlines";
 
 export const WALL_PHOTO_ENDPOINT = "/api/wall-photo";
+export const WALL_DISPLAY_PHOTO_ENDPOINT = `${WALL_PHOTO_ENDPOINT}?view=display`;
 export const DEFAULT_WALL_PHOTO = "/wall-prototype.png";
 
 type WallPhotoProps = Omit<
@@ -15,11 +16,12 @@ type WallPhotoProps = Omit<
 > & {
   alt: string;
   highlightedHolds?: readonly HoldGeometry[];
+  original?: boolean;
 };
 
-export default function WallPhoto({ alt, highlightedHolds = [], ...props }: WallPhotoProps) {
-  const [src, setSrc] = useState(WALL_PHOTO_ENDPOINT);
-  const clipId = `hold-highlights-${useId()}`;
+export default function WallPhoto({ alt, highlightedHolds = [], original = false, className = "", ...props }: WallPhotoProps) {
+  const [src, setSrc] = useState(original ? WALL_PHOTO_ENDPOINT : WALL_DISPLAY_PHOTO_ENDPOINT);
+  const maskId = `hold-highlights-${useId()}`;
   const outlinedHolds = highlightedHolds.filter(hold => hold.outline);
 
   return (
@@ -27,6 +29,7 @@ export default function WallPhoto({ alt, highlightedHolds = [], ...props }: Wall
       <img
         {...props}
         alt={alt}
+        className={`${className}${outlinedHolds.length ? " wall-photo--masked" : ""}`.trim()}
         onError={() => {
           if (src !== DEFAULT_WALL_PHOTO) setSrc(DEFAULT_WALL_PHOTO);
         }}
@@ -36,14 +39,15 @@ export default function WallPhoto({ alt, highlightedHolds = [], ...props }: Wall
         <svg aria-hidden="true" focusable="false" className="wall-hold-highlights"
           viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs>
-            <clipPath id={clipId} clipPathUnits="userSpaceOnUse">
+            <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"
+              style={{ maskType: "luminance" }}>
+              <rect width="100" height="100" fill="white" />
               {outlinedHolds.map((hold, index) => (
-                <polygon key={index} points={outlinePoints(hold.outline!)} />
+                <polygon key={index} points={outlinePoints(hold.outline!)} fill="black" />
               ))}
-            </clipPath>
+            </mask>
           </defs>
-          <image href={src} x="0" y="0" width="100" height="100"
-            preserveAspectRatio="none" clipPath={`url(#${clipId})`} />
+          <rect width="100" height="100" fill="black" fillOpacity="0.4" mask={`url(#${maskId})`} />
         </svg>
       ) : null}
     </>

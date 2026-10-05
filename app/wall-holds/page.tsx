@@ -600,6 +600,7 @@ export default function WallHoldsPage() {
       <figure className="wall-map set-wall wall-holds-map" ref={wallMap}>
         <WallPhoto
           alt="Climbing wall ready for preset hold spots"
+          original
           className="wall-photo"
           draggable="false"
           height="1448"

@@ -5,6 +5,13 @@ export const WALL_PHOTO_PATH = "/api/wall-photo";
 export const MAX_WALL_PHOTO_BYTES = 20 * 1024 * 1024;
 
 const WALL_PHOTO_KEY = "wall/current";
+const MAX_DISPLAY_PHOTO_BYTES = 2 * 1024 * 1024;
+
+// Associate each derivative with its source, so a new wall can never use an
+// older wall's display photo, even if uploads overlap or optimization fails.
+export function wallDisplayPhotoKey(sourceEtag: string) {
+  return `wall/display/${encodeURIComponent(sourceEtag)}`;
+}
 const supportedImageTypes = new Set([
   "image/jpeg",
   "image/png",
@@ -12,7 +19,7 @@ const supportedImageTypes = new Set([
 ]);
 
 type WallPhotoObject = {
-  body: ReadableStream<Uint8Array>;
+  body?: ReadableStream<Uint8Array>;
   size?: number;
   httpEtag?: string;
   httpMetadata?: { contentType?: string };
@@ -21,11 +28,12 @@ type WallPhotoObject = {
 
 export type WallPhotoBucket = {
   get(key: string): Promise<WallPhotoObject | null>;
+  head(key: string): Promise<Omit<WallPhotoObject, "body"> | null>;
   put(
     key: string,
     value: ArrayBuffer,
     options: { httpMetadata: { contentType: string } },
-  ): Promise<unknown>;
+  ): Promise<{ httpEtag?: string } | null>;
   delete(key: string): Promise<void>;
 };
 
@@ -76,8 +84,17 @@ export async function handleWallPhotoRequest(
   }
 
   try {
+    const display = new URL(request.url).searchParams.get("view") === "display";
     if (request.method === "GET" || request.method === "HEAD") {
-      const object = await bucket.get(WALL_PHOTO_KEY);
+      let object: WallPhotoObject | null;
+      const read = (key: string) => request.method === "HEAD" ? bucket.head(key) : bucket.get(key);
+      if (display) {
+        const source = await bucket.head(WALL_PHOTO_KEY);
+        object = source?.httpEtag ? await read(wallDisplayPhotoKey(source.httpEtag)) : null;
+        if (!object && source) object = await read(WALL_PHOTO_KEY);
+      } else {
+        object = await read(WALL_PHOTO_KEY);
+      }
       if (!object) {
         return new Response(null, {
           status: 404,
@@ -112,7 +129,7 @@ export async function handleWallPhotoRequest(
         return new Response(null, { status: 304, headers });
       }
 
-      return new Response(request.method === "HEAD" ? null : object.body, {
+      return new Response(object.body ?? null, {
         status: 200,
         headers,
       });
@@ -158,17 +175,34 @@ export async function handleWallPhotoRequest(
         return jsonError("This file is not a valid JPG, PNG, or WebP image.", 415);
       }
 
-      await bucket.put(WALL_PHOTO_KEY, bytes, {
+      let key = WALL_PHOTO_KEY;
+      if (display) {
+        if (bytes.byteLength > MAX_DISPLAY_PHOTO_BYTES) {
+          return jsonError("The display photo must be 2 MB or smaller.", 413);
+        }
+        const source = await bucket.head(WALL_PHOTO_KEY);
+        if (!source?.httpEtag || request.headers.get("If-Match") !== source.httpEtag) {
+          return jsonError("The wall photo changed. Please upload it again.", 412);
+        }
+        key = wallDisplayPhotoKey(source.httpEtag);
+      }
+      const uploaded = await bucket.put(key, bytes, {
         httpMetadata: { contentType },
       });
 
       return Response.json(
         { ok: true },
-        { headers: { "Cache-Control": "no-store" } },
+        { headers: {
+          "Cache-Control": "no-store",
+          ...(uploaded?.httpEtag ? { ETag: uploaded.httpEtag } : {}),
+        } },
       );
     }
 
     if (request.method === "DELETE") {
+      if (display) {
+        return new Response(null, { status: 405, headers: { Allow: "GET, HEAD, POST" } });
+      }
       if (!writeRequestIsSameOrigin(request)) {
         return jsonError("Cross-origin changes are not allowed.", 403);
       }

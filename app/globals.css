@@ -1088,6 +1088,10 @@ select:focus-visible {
   filter: brightness(0.6);
 }
 
+.wall-map--route .wall-photo--masked {
+  filter: none;
+}
+
 .wall-hold-highlights {
   position: absolute;
   z-index: 1;

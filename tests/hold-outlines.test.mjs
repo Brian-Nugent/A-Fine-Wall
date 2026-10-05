@@ -78,28 +78,34 @@ test("keeps small hold outlines thin and increases thickness linearly to twice t
   }
 });
 
-test("restores the original photo only inside selected hold boundaries", () => {
+test("dims outside selected hold boundaries without rendering a second photo", () => {
   const html = renderToStaticMarkup(createElement(WallPhoto, {
     alt: "Wall", className: "wall-photo", highlightedHolds: [hold],
   }));
-  const clipId = html.match(/<clipPath id="([^"]+)"/)?.[1];
-  assert.ok(clipId);
-  assert.ok(html.includes(`clip-path="url(#${clipId})"`));
+  const maskId = html.match(/<mask id="([^"]+)"/)?.[1];
+  assert.ok(maskId);
+  assert.ok(html.includes(`mask="url(#${maskId})"`));
   assert.match(html, /class="wall-hold-highlights"/);
-  assert.match(html, /clipPathUnits="userSpaceOnUse"/);
+  assert.match(html, /maskUnits="userSpaceOnUse"/);
   assert.match(html, /points="10,20 20,20 15,30"/);
-  assert.match(html, /<image href="\/api\/wall-photo" x="0" y="0" width="100" height="100" preserveAspectRatio="none"/);
+  assert.match(html, /class="wall-photo wall-photo--masked"/);
+  assert.match(html, /fill="black" fill-opacity="0.4"/);
+  assert.equal((html.match(/<img\b/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /<image\b/);
+  assert.match(html, /src="\/api\/wall-photo\?view=display"/);
   assert.match(html, /<svg aria-hidden="true" focusable="false"/);
   const plain = renderToStaticMarkup(createElement(WallPhoto, { alt: "Wall" }));
-  assert.doesNotMatch(plain, /wall-hold-highlights|<clipPath/);
+  assert.doesNotMatch(plain, /wall-hold-highlights|<mask|wall-photo--masked/);
+  const original = renderToStaticMarkup(createElement(WallPhoto, { alt: "Wall", original: true }));
+  assert.match(original, /src="\/api\/wall-photo"/);
 });
 
-test("each wall photo has its own clipping region", () => {
+test("each wall photo has its own highlight mask", () => {
   const html = renderToStaticMarkup(createElement("div", {},
     createElement(WallPhoto, { alt: "First wall", highlightedHolds: [hold] }),
     createElement(WallPhoto, { alt: "Second wall", highlightedHolds: [hold] }),
   ));
-  const ids = [...html.matchAll(/<clipPath id="([^"]+)"/g)].map(match => match[1]);
+  const ids = [...html.matchAll(/<mask id="([^"]+)"/g)].map(match => match[1]);
   assert.equal(ids.length, 2);
   assert.notEqual(ids[0], ids[1]);
 });
