@@ -34,6 +34,8 @@ import {
 import { useActiveUser } from "../user-profile-provider";
 import { canManageClimb, isAdminUser } from "../user-access";
 import WallPhoto from "../climbs/wall-photo";
+import HoldOutlines from "../climbs/hold-outlines";
+import { findHoldAtPoint } from "../climbs/hold-geometry";
 
 type DraftHold = {
   holdId: string;
@@ -231,24 +233,8 @@ export default function SetClimbPage() {
     const bounds = event.currentTarget.getBoundingClientRect();
     const clientX = event.clientX - bounds.left;
     const clientY = event.clientY - bounds.top;
-    const nearest = wallHolds
-      .map((hold) => {
-        const holdX = (hold.x / 100) * bounds.width;
-        const holdY = (hold.y / 100) * bounds.height;
-        return {
-          hold,
-          distance: Math.hypot(clientX - holdX, clientY - holdY),
-          targetRadius: Math.max(
-            22,
-            (hold.size / 200) * bounds.width + 8,
-          ),
-        };
-      })
-      .sort((a, b) => a.distance - b.distance)[0];
-
-    if (nearest && nearest.distance <= nearest.targetRadius) {
-      cycleHold(nearest.hold.id);
-    }
+    const nearest = findHoldAtPoint(wallHolds, clientX, clientY, bounds.width, bounds.height);
+    if (nearest) cycleHold(nearest.id);
   }
 
   const startCount = selectedHolds.filter(
@@ -306,6 +292,7 @@ export default function SetClimbPage() {
               x: hold.x,
               y: hold.y,
               size: hold.size,
+              ...(hold.outline ? { outline: hold.outline } : {}),
               role: selection.role,
             }]
           : [];
@@ -463,6 +450,7 @@ export default function SetClimbPage() {
               tabIndex={-1}
               type="button"
             />
+            <HoldOutlines holds={wallHolds.map(hold => ({ ...hold, role: selectedHolds.find(item => item.holdId === hold.id)?.role ?? "available" }))} />
             {wallHolds.map((hold) => {
               const selection = selectedHolds.find(
                 (item) => item.holdId === hold.id,
@@ -481,7 +469,7 @@ export default function SetClimbPage() {
                 <button
                   aria-label={accessibleLabel}
                   aria-pressed={Boolean(selection)}
-                  className={`hold-choice hold-choice--${selection?.role || "available"}`}
+                  className={`hold-choice hold-choice--${selection?.role || "available"}${hold.outline ? " hold-choice--outlined" : ""}`}
                   key={hold.id}
                   onClick={() => cycleHold(hold.id)}
                   style={{

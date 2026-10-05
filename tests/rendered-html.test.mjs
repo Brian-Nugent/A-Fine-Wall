@@ -2716,6 +2716,48 @@ test("persists preset wall spots and keeps their stable ids", async () => {
   assert.equal(response.headers.get("allow"), "GET, PUT");
 });
 
+test("persists hold outlines and uses the canonical boundaries when saving and reloading climbs", async () => {
+  const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  database.seedProfile({ id: "outline-admin", name: "Admin", createdAt: 1 });
+  const environment = createEnvironment({ DB: database });
+  const request = (path, method = "GET", body) => worker.fetch(new Request(`http://localhost${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  }), environment, createContext());
+  const holds = [
+    { id: "outline-start", x: 15, y: 20, size: 10, outline: [{ x: 10, y: 15 }, { x: 20, y: 15 }, { x: 15, y: 25 }] },
+    { id: "outline-finish", x: 45, y: 60, size: 10, outline: [{ x: 40, y: 55 }, { x: 50, y: 55 }, { x: 45, y: 65 }] },
+  ];
+  let response = await request("/api/wall-holds", "PUT", { holds, expectedUpdatedAt: 0, profileId: "outline-admin" });
+  assert.equal(response.status, 200);
+  const wall = await response.json();
+  assert.deepEqual(wall.holds, holds);
+  assert.deepEqual((await (await request("/api/wall-holds")).json()).holds, holds);
+
+  for (const outline of [[], holds[0].outline.slice(0, 2), [{ x: -1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 3 }]]) {
+    response = await request("/api/wall-holds", "PUT", {
+      holds: [{ ...holds[0], outline }], expectedUpdatedAt: wall.updatedAt, profileId: "outline-admin",
+    });
+    assert.equal(response.status, 400);
+  }
+  response = await request("/api/climbs", "POST", {
+    climb: { id: "outline-climb", name: "Outline test", grade: "V3", setter: "Admin", createdAt: 1,
+      holds: holds.map((hold, index) => ({ holdId: hold.id, x: 0, y: 0, size: 1, role: index === 0 ? "start" : "finish" })) },
+    expectedWallUpdatedAt: wall.updatedAt, profileId: "outline-admin",
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual((await response.json()).climb.holds.map(hold => hold.outline), holds.map(hold => hold.outline));
+
+  const changed = holds.map(hold => ({ ...hold, outline: hold.outline.map(point => ({ x: point.x + 1, y: point.y })) }));
+  response = await request("/api/wall-holds", "PUT", { holds: changed, expectedUpdatedAt: wall.updatedAt, profileId: "outline-admin" });
+  assert.equal(response.status, 200);
+  const latest = (await (await request("/api/climbs/outline-climb")).json()).climb;
+  assert.equal(latest.outdated, false);
+  assert.deepEqual(latest.holds.map(hold => hold.outline), changed.map(hold => hold.outline));
+});
+
 test("creates and reloads password-free user profiles", async () => {
   const worker = await loadWorker();
   const database = createMemoryAppDatabase();

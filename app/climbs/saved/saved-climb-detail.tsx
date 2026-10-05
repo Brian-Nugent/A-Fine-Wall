@@ -32,6 +32,7 @@ import {
   type WallHold,
 } from "../wall-holds";
 import WallPhoto from "../wall-photo";
+import HoldOutlines from "../hold-outlines";
 import ClimbPhotoNavigation from "../climb-photo-navigation";
 import ClimbActivityPanel from "../climb-activity-panel";
 import { ClimbActivityProvider, ClimbDetailGrade } from "../climb-activity-context";
@@ -799,7 +800,8 @@ export default function SavedClimbDetail({
               width="1086"
               height="1448"
             />
-            {resolvedHolds.map((hold, index) => (
+            <HoldOutlines holds={resolvedHolds} />
+            {resolvedHolds.map((hold, index) => hold.outline ? null : (
               <span
                 aria-hidden="true"
                 className={`hold-marker hold-marker--${hold.role}`}
@@ -818,11 +820,11 @@ export default function SavedClimbDetail({
               onNavigate={navigateToClimb}
             />
             <figcaption className="sr-only">
-              {climb.name} uses {startCount} green-circled start{" "}
-              {startCount === 1 ? "hold" : "holds"}, {handCount} blue-circled
+              {climb.name} uses {startCount} green-outlined start{" "}
+              {startCount === 1 ? "hold" : "holds"}, {handCount} blue-outlined
               climbing {handCount === 1 ? "hold" : "holds"}, {footCount}{" "}
-              yellow-circled {footCount === 1 ? "foothold" : "footholds"}, and{" "}
-              {finishCount} red-circled finish{" "}
+              yellow-outlined {footCount === 1 ? "foothold" : "footholds"}, and{" "}
+              {finishCount} red-outlined finish{" "}
               {finishCount === 1 ? "hold" : "holds"}.
             </figcaption>
           </figure>

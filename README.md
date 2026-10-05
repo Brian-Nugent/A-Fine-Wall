@@ -279,6 +279,20 @@ Worker deployment. Disabling it on a later production deployment makes the
 test link unavailable. Use `npm run deploy:preview` for phone testing;
 `npm run deploy:cloudflare` and `deploy:cloudflare:built` target production.
 
+## Hold outlines
+
+Wall Setup supports tracing hold boundaries: choose **Add Hold**, tap around the
+edge in order, then **Finish outline** and **Save Wall**. Pinch to zoom for small
+footholds. Select a hold to move or resize it, or use **Redraw outline** to replace
+its boundary while preserving its ID and the climbs that use it.
+
+Outlines use percentage coordinates and appear in setting, hold filters, and
+climb details. Existing circle-based hold maps remain readable. The October test
+photo's 432 traced holds are saved in `data/wall-layouts/2026-10-test-wall.json`.
+After deploying outline support, `node scripts/import-preview-holds.mjs` can load
+that map into an empty test wall. It checks the test bindings and photo hash and
+refuses to overwrite an existing map. It is never run by deployment commands.
+
 ## Repository Map
 
 | Path | Contents |

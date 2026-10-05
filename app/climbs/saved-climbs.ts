@@ -1,3 +1,5 @@
+import { isHoldOutline, type HoldPoint } from "./hold-geometry";
+
 export const SAVED_CLIMBS_KEY = "a-fine-wall:saved-climbs:v1";
 export const CLIMB_GRADES = Array.from(
   { length: 18 },
@@ -24,6 +26,7 @@ export type SavedHold = {
   x: number;
   y: number;
   size: number;
+  outline?: HoldPoint[];
   role: SavedHoldRole;
 };
 
@@ -102,6 +105,7 @@ function isSavedHold(value: unknown): value is SavedHold {
     isFiniteNumber(hold.size) &&
     hold.size > 0 &&
     hold.size <= 20 &&
+    (hold.outline === undefined || isHoldOutline(hold.outline)) &&
     (hold.role === "start" ||
       hold.role === "hand" ||
       hold.role === "foot" ||

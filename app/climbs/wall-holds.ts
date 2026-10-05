@@ -1,3 +1,5 @@
+import { isHoldOutline, type HoldPoint } from "./hold-geometry";
+
 export const WALL_HOLDS_ENDPOINT = "/api/wall-holds";
 
 export const DEFAULT_WALL_HOLD_SIZE = 7;
@@ -11,6 +13,7 @@ export type WallHold = {
   x: number;
   y: number;
   size: number;
+  outline?: HoldPoint[];
 };
 
 export type WallHoldMap = {
@@ -33,6 +36,7 @@ type SavedHoldCoordinates = {
   x: number;
   y: number;
   size: number;
+  outline?: HoldPoint[];
 };
 
 type HoldLinkedClimb = {
@@ -63,22 +67,24 @@ function isWallHold(value: unknown): value is WallHold {
     hold.y <= 100 &&
     isFiniteNumber(hold.size) &&
     hold.size > 0 &&
-    hold.size <= MAX_WALL_HOLD_SIZE
+    hold.size <= MAX_WALL_HOLD_SIZE &&
+    (hold.outline === undefined || isHoldOutline(hold.outline))
   );
 }
 
 function roundPosition(value: number) {
-  return Number(value.toFixed(2));
+  return Number(value.toFixed(3));
 }
 
 export function wallHoldSizeFromHorizontalDrag(
   startSize: number,
   horizontalPixels: number,
   wallWidth: number,
+  minimumSize = MIN_WALL_HOLD_SIZE,
 ) {
   const safeStart = Math.min(
     MAX_WALL_HOLD_SIZE,
-    Math.max(MIN_WALL_HOLD_SIZE, startSize),
+    Math.max(minimumSize, startSize),
   );
   if (
     !Number.isFinite(horizontalPixels) ||
@@ -92,7 +98,7 @@ export function wallHoldSizeFromHorizontalDrag(
   return roundPosition(
     Math.min(
       MAX_WALL_HOLD_SIZE,
-      Math.max(MIN_WALL_HOLD_SIZE, safeStart + sizeChange),
+      Math.max(minimumSize, safeStart + sizeChange),
     ),
   );
 }
@@ -125,6 +131,7 @@ function normalizeWallHold(hold: WallHold): WallHold {
     x: roundPosition(hold.x),
     y: roundPosition(hold.y),
     size: roundPosition(hold.size),
+    ...(hold.outline ? { outline: hold.outline.map(point => ({ x: roundPosition(point.x), y: roundPosition(point.y) })) } : {}),
   };
 }
 
@@ -242,12 +249,15 @@ export function resolveSavedHold<T extends SavedHoldCoordinates>(
   const currentSpot = wallHolds.find((spot) => spot.id === hold.holdId);
   if (!currentSpot) return hold;
 
-  return {
+  const resolved = {
     ...hold,
     x: currentSpot.x,
     y: currentSpot.y,
     size: currentSpot.size,
+    outline: currentSpot.outline,
   };
+  if (!resolved.outline) delete resolved.outline;
+  return resolved;
 }
 
 export function climbUsesMissingWallHold(

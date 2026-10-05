@@ -9,6 +9,8 @@ import {
   isSameUserName,
 } from "../app/user-access";
 
+import { isHoldOutline, type HoldPoint } from "../app/climbs/hold-geometry";
+
 const WALL_HOLDS_PATH = "/api/wall-holds";
 const CLIMBS_PATH = "/api/climbs";
 const PROFILES_PATH = "/api/profiles";
@@ -16,8 +18,8 @@ const SENDS_PATH = "/api/sends";
 const WALL_CONFIGURATION_ID = 1;
 const MAX_PROFILE_BODY_BYTES = 4 * 1024;
 const MAX_SEND_BODY_BYTES = 4 * 1024;
-const MAX_WALL_HOLDS_BODY_BYTES = 256 * 1024;
-const MAX_CLIMB_BODY_BYTES = 128 * 1024;
+const MAX_WALL_HOLDS_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_CLIMB_BODY_BYTES = 512 * 1024;
 const MAX_WALL_HOLDS = 1_000;
 const MAX_CLIMB_HOLDS = 200;
 const MAX_LEGACY_HOLD_MATCH_DISTANCE = 3;
@@ -32,6 +34,7 @@ type WallHold = {
   x: number;
   y: number;
   size: number;
+  outline?: HoldPoint[];
 };
 
 type ClimbHold = {
@@ -39,6 +42,7 @@ type ClimbHold = {
   x: number;
   y: number;
   size: number;
+  outline?: HoldPoint[];
   role: "start" | "hand" | "foot" | "finish";
 };
 
@@ -209,18 +213,20 @@ function parseProfileBody(value: unknown) {
 
 function parseWallHold(value: unknown): WallHold | null {
   if (!isPlainObject(value)) return null;
-  if (!hasOnlyKeys(value, ["id", "x", "y", "size"])) return null;
+  if (!hasOnlyKeys(value, ["id", "x", "y", "size", "outline"])) return null;
   if (
     typeof value.id !== "string" ||
     !recordIdPattern.test(value.id) ||
     !isCoordinate(value.x) ||
     !isCoordinate(value.y) ||
-    !isSize(value.size)
+    !isSize(value.size) ||
+    (value.outline !== undefined && !isHoldOutline(value.outline))
   ) {
     return null;
   }
 
-  return { id: value.id, x: value.x, y: value.y, size: value.size };
+  return { id: value.id, x: value.x, y: value.y, size: value.size,
+    ...(value.outline === undefined ? {} : { outline: value.outline as HoldPoint[] }) };
 }
 
 function parseWallHoldsBody(value: unknown): WallHold[] {
@@ -269,13 +275,14 @@ function parseWallHoldsWriteBody(value: unknown) {
 
 function parseClimbHold(value: unknown): ClimbHold | null {
   if (!isPlainObject(value)) return null;
-  if (!hasOnlyKeys(value, ["holdId", "x", "y", "size", "role"])) return null;
+  if (!hasOnlyKeys(value, ["holdId", "x", "y", "size", "role", "outline"])) return null;
   if (
     (value.holdId !== undefined &&
       (typeof value.holdId !== "string" || !recordIdPattern.test(value.holdId))) ||
     !isCoordinate(value.x) ||
     !isCoordinate(value.y) ||
     !isSize(value.size) ||
+    (value.outline !== undefined && !isHoldOutline(value.outline)) ||
     typeof value.role !== "string" ||
     !holdRoles.has(value.role)
   ) {
@@ -288,6 +295,7 @@ function parseClimbHold(value: unknown): ClimbHold | null {
     y: value.y,
     size: value.size,
     role: value.role as ClimbHold["role"],
+    ...(value.outline === undefined ? {} : { outline: value.outline as HoldPoint[] }),
   };
 }
 
@@ -865,7 +873,7 @@ function resolveClimbHolds(
       }
 
       usedIds.add(current.id);
-      return { ...hold, x: current.x, y: current.y, size: current.size };
+      return { ...hold, x: current.x, y: current.y, size: current.size, outline: current.outline };
     }
 
     const matches = wallHolds
@@ -896,6 +904,7 @@ function resolveClimbHolds(
       x: match.wallHold.x,
       y: match.wallHold.y,
       size: match.wallHold.size,
+      outline: match.wallHold.outline,
     };
   });
 }
@@ -926,7 +935,7 @@ function resolveClimbForRead(
     holds: climb.holds.map((hold) => {
       const current = hold.holdId ? wallHoldsById.get(hold.holdId) : undefined;
       return current
-        ? { ...hold, x: current.x, y: current.y, size: current.size }
+        ? { ...hold, x: current.x, y: current.y, size: current.size, outline: current.outline }
         : hold;
     }),
   };

@@ -22,6 +22,11 @@ import {
   type AttributedSavedClimb,
 } from "../climbs/saved-climbs";
 import WallPhoto from "../climbs/wall-photo";
+import HoldOutlines from "../climbs/hold-outlines";
+import {
+  findHoldAtPoint, isHoldOutline, MAX_OUTLINE_POINTS, moveHoldTo, resizeHoldTo, outlineHitStyle,
+  withHoldOutline, type HoldPoint,
+} from "../climbs/hold-geometry";
 import { isAdminUser } from "../user-access";
 import { useActiveUser } from "../user-profile-provider";
 import {
@@ -52,6 +57,7 @@ type HoldResize = {
   pointerId: number;
   startClientX: number;
   startSize: number;
+  minimumSize: number;
 };
 
 const keyboardDirections: Partial<
@@ -65,11 +71,6 @@ const keyboardDirections: Partial<
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
-}
-
-function clampHoldCoordinate(value: number, size: number) {
-  const radius = size / 2;
-  return clamp(value, radius, 100 - radius);
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -123,6 +124,8 @@ export default function WallHoldsPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [hasConflict, setHasConflict] = useState(false);
   const [error, setError] = useState("");
+  const [draftOutline, setDraftOutline] = useState<HoldPoint[] | null>(null);
+  const [redrawingId, setRedrawingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -150,7 +153,7 @@ export default function WallHoldsPage() {
   }, [isAdmin]);
 
   useEffect(() => {
-    if (!hasChanges) return;
+    if (!hasChanges && draftOutline === null) return;
 
     function warnBeforeLeaving(event: BeforeUnloadEvent) {
       if (allowNavigation.current) return;
@@ -160,7 +163,7 @@ export default function WallHoldsPage() {
 
     window.addEventListener("beforeunload", warnBeforeLeaving);
     return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
-  }, [hasChanges]);
+  }, [hasChanges, draftOutline]);
 
   const selectedHold = useMemo(
     () => holds.find((hold) => hold.id === selectedHoldId) ?? null,
@@ -204,42 +207,46 @@ export default function WallHoldsPage() {
     const bounds = event.currentTarget.getBoundingClientRect();
     const clientX = event.clientX - bounds.left;
     const clientY = event.clientY - bounds.top;
-    const nearest = holds
-      .map((hold) => {
-        const holdX = (hold.x / 100) * bounds.width;
-        const holdY = (hold.y / 100) * bounds.height;
-        return {
-          hold,
-          distance: Math.hypot(clientX - holdX, clientY - holdY),
-          targetRadius: Math.max(
-            22,
-            (hold.size / 200) * bounds.width + 8,
-          ),
-        };
-      })
-      .sort((a, b) => a.distance - b.distance)[0];
-
-    if (nearest && nearest.distance <= nearest.targetRadius) {
-      setSelectedHoldId(nearest.hold.id);
+    const point = { x: clamp(clientX / bounds.width * 100, 0, 100), y: clamp(clientY / bounds.height * 100, 0, 100) };
+    if (draftOutline !== null) {
+      if (draftOutline.length < MAX_OUTLINE_POINTS) setDraftOutline([...draftOutline, point]);
+      else setError(`Use up to ${MAX_OUTLINE_POINTS} points per outline.`);
+      return;
+    }
+    const nearest = findHoldAtPoint(holds, clientX, clientY, bounds.width, bounds.height);
+    if (nearest) {
+      setSelectedHoldId(nearest.id);
       setError("");
       return;
     }
-
-    const draft = createWallHold();
-    const x = (clientX / bounds.width) * 100;
-    const y = (clientY / bounds.height) * 100;
-    const hold = {
-      ...draft,
-      x: Number(clampHoldCoordinate(x, draft.size).toFixed(2)),
-      y: Number(clampHoldCoordinate(y, draft.size).toFixed(2)),
-    };
-
-    appendHold(hold);
+    setSelectedHoldId(null);
+    setRedrawingId(null);
+    setDraftOutline([point]);
   }
 
   function addCenteredHold() {
     if (isLoading || loadFailed || isSaving) return;
-    appendHold(createWallHold());
+    setSelectedHoldId(null);
+    setRedrawingId(null);
+    setDraftOutline([]);
+    setError("");
+  }
+
+  function finishOutline() {
+    if (!isHoldOutline(draftOutline)) {
+      setError("Tap at least three points around the edge of the hold.");
+      return;
+    }
+    const existing = holds.find(hold => hold.id === redrawingId);
+    const outlined = withHoldOutline(existing ?? createWallHold(), draftOutline);
+    if (existing) {
+      setHolds(current => current.map(hold => hold.id === existing.id ? outlined : hold));
+      setHasChanges(true);
+      setSelectedHoldId(existing.id);
+      setError("");
+    } else appendHold(outlined);
+    setDraftOutline(null);
+    setRedrawingId(null);
   }
 
   function beginDrag(
@@ -250,6 +257,7 @@ export default function WallHoldsPage() {
       isLoading ||
       loadFailed ||
       isSaving ||
+      draftOutline !== null ||
       activeResize.current !== null ||
       (event.pointerType === "mouse" && event.button !== 0)
     ) {
@@ -293,15 +301,7 @@ export default function WallHoldsPage() {
     setHolds((current) =>
       current.map((hold) =>
         hold.id === drag.holdId
-          ? {
-              ...hold,
-              x: Number(
-                clampHoldCoordinate(drag.startX + deltaX, hold.size).toFixed(2),
-              ),
-              y: Number(
-                clampHoldCoordinate(drag.startY + deltaY, hold.size).toFixed(2),
-              ),
-            }
+          ? moveHoldTo(hold, drag.startX + deltaX, drag.startY + deltaY)
           : hold,
       ),
     );
@@ -325,30 +325,16 @@ export default function WallHoldsPage() {
     hold: WallHold,
   ) {
     const direction = keyboardDirections[event.key];
-    if (!direction || isSaving) return;
+    if (!direction || isSaving || draftOutline !== null) return;
 
     event.preventDefault();
     event.stopPropagation();
-    const step = event.shiftKey ? 2 : 0.5;
+    const step = event.shiftKey ? 2 : hold.outline ? 0.1 : 0.5;
     setSelectedHoldId(hold.id);
     setHolds((current) =>
       current.map((item) =>
         item.id === hold.id
-          ? {
-              ...item,
-              x: Number(
-                clampHoldCoordinate(
-                  item.x + direction[0] * step,
-                  item.size,
-                ).toFixed(2),
-              ),
-              y: Number(
-                clampHoldCoordinate(
-                  item.y + direction[1] * step,
-                  item.size,
-                ).toFixed(2),
-              ),
-            }
+          ? moveHoldTo(item, item.x + direction[0] * step, item.y + direction[1] * step)
           : item,
       ),
     );
@@ -361,12 +347,7 @@ export default function WallHoldsPage() {
     setHolds((current) =>
       current.map((hold) =>
         hold.id === holdId
-          ? {
-              ...hold,
-              size,
-              x: Number(clampHoldCoordinate(hold.x, size).toFixed(2)),
-              y: Number(clampHoldCoordinate(hold.y, size).toFixed(2)),
-            }
+          ? resizeHoldTo(hold, size)
           : hold,
       ),
     );
@@ -396,6 +377,7 @@ export default function WallHoldsPage() {
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startSize: hold.size,
+      minimumSize: hold.outline ? 0.1 : MIN_WALL_HOLD_SIZE,
     };
     setSelectedHoldId(hold.id);
     setError("");
@@ -414,6 +396,7 @@ export default function WallHoldsPage() {
         resize.startSize,
         event.clientX - resize.startClientX,
         bounds.width,
+        resize.minimumSize,
       ),
     );
   }
@@ -437,13 +420,15 @@ export default function WallHoldsPage() {
     if (isSaving) return;
 
     let nextSize: number | null = null;
-    if (event.key === "Home") nextSize = MIN_WALL_HOLD_SIZE;
+    const minimumSize = hold.outline ? 0.1 : MIN_WALL_HOLD_SIZE;
+    const step = event.shiftKey ? 1 : hold.outline ? 0.1 : 0.5;
+    if (event.key === "Home") nextSize = minimumSize;
     if (event.key === "End") nextSize = MAX_WALL_HOLD_SIZE;
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
-      nextSize = hold.size - (event.shiftKey ? 1 : 0.5);
+      nextSize = hold.size - step;
     }
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
-      nextSize = hold.size + (event.shiftKey ? 1 : 0.5);
+      nextSize = hold.size + step;
     }
     if (nextSize === null) return;
 
@@ -451,7 +436,7 @@ export default function WallHoldsPage() {
     event.stopPropagation();
     resizeHold(
       hold.id,
-      clamp(nextSize, MIN_WALL_HOLD_SIZE, MAX_WALL_HOLD_SIZE),
+      clamp(nextSize, minimumSize, MAX_WALL_HOLD_SIZE),
     );
   }
 
@@ -473,7 +458,7 @@ export default function WallHoldsPage() {
   }
 
   function confirmNavigation(event: ReactMouseEvent<HTMLAnchorElement>) {
-    if (hasChanges) {
+    if (hasChanges || draftOutline !== null) {
       if (!window.confirm("Discard your unsaved hold spot changes?")) {
         event.preventDefault();
         return;
@@ -483,7 +468,7 @@ export default function WallHoldsPage() {
   }
 
   async function saveHoldMap() {
-    if (!profile || !isAdminUser(profile) || isLoading || loadFailed || isSaving) {
+    if (!profile || !isAdminUser(profile) || isLoading || loadFailed || isSaving || draftOutline !== null) {
       return;
     }
     if (
@@ -589,9 +574,8 @@ export default function WallHoldsPage() {
       <section className="set-intro wall-holds-intro" aria-labelledby="wall-holds-heading">
         <h1 id="wall-holds-heading">Mark every hold</h1>
         <p>
-          {holds.length > 0
-            ? "Your saved spots carried over. Drag any circle that no longer lines up, then tap newly added holds."
-            : "Tap each hold on the photo to add a preset circle. You can drag and resize each circle for a precise fit."}
+          Trace each hold by tapping around its edge, then finish the outline.
+          Pinch to zoom for small footholds. Tap an existing hold to adjust it.
         </p>
       </section>
 
@@ -629,6 +613,10 @@ export default function WallHoldsPage() {
           tabIndex={-1}
           type="button"
         />
+        <HoldOutlines holds={holds} setup selectedId={selectedHoldId} draft={draftOutline ?? undefined} />
+        {draftOutline?.map((point, index) => (
+          <span className="outline-draft-point" key={index} style={{ left: `${point.x}%`, top: `${point.y}%` }} />
+        ))}
         {holds.map((hold, index) => {
           const selected = hold.id === selectedHoldId;
           return (
@@ -636,8 +624,8 @@ export default function WallHoldsPage() {
               <button
                 aria-label={`Preset hold ${index + 1}. ${selected ? "Selected; drag or use arrow keys to reposition. Hold Shift for larger keyboard steps." : "Tap to select, or focus it and use arrow keys to reposition."}`}
                 aria-pressed={selected}
-                className={`wall-hold-spot${selected ? " wall-hold-spot--selected" : ""}`}
-                disabled={isSaving}
+                className={`wall-hold-spot${selected && draftOutline === null ? " wall-hold-spot--selected" : ""}`}
+                disabled={isSaving || draftOutline !== null}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (event.detail === 0) setSelectedHoldId(hold.id);
@@ -657,20 +645,21 @@ export default function WallHoldsPage() {
                   left: `${hold.x}%`,
                   top: `${hold.y}%`,
                   "--hold-size": hold.size,
+                  ...(hold.outline ? outlineHitStyle(hold.outline) : {}),
                 } as CSSProperties}
                 type="button"
               >
-                <span aria-hidden="true" className="wall-hold-ring" />
+                {hold.outline ? null : <span aria-hidden="true" className="wall-hold-ring" />}
               </button>
-              {selected ? (
+              {selected && draftOutline === null ? (
                 <span
                   aria-disabled={isSaving ? "true" : undefined}
                   aria-label={`Resize preset hold ${index + 1}`}
                   aria-orientation="horizontal"
                   aria-valuemax={MAX_WALL_HOLD_SIZE}
-                  aria-valuemin={MIN_WALL_HOLD_SIZE}
+                  aria-valuemin={hold.outline ? 0.1 : MIN_WALL_HOLD_SIZE}
                   aria-valuenow={hold.size}
-                  aria-valuetext={`${hold.size}% circle diameter`}
+                  aria-valuetext={`${hold.size}% hold width`}
                   className="wall-hold-resize-handle"
                   onClick={(event) => event.stopPropagation()}
                   onKeyDown={(event) => resizeHoldWithKeyboard(event, hold)}
@@ -705,6 +694,16 @@ export default function WallHoldsPage() {
       </figure>
 
       <section className="wall-hold-editor-controls" aria-label="Selected hold controls">
+        {draftOutline !== null ? (
+          <div className="outline-trace-controls">
+            <p role="status">{redrawingId ? "Redrawing hold" : "New hold"}: {draftOutline.length} points. Tap around the edge in order.</p>
+            <div className="wall-hold-control-actions">
+              <button className="secondary-button" type="button" disabled={draftOutline.length === 0} onClick={() => setDraftOutline(current => current?.slice(0, -1) ?? [])}>Undo point</button>
+              <button className="secondary-button" type="button" onClick={() => { setDraftOutline(null); setRedrawingId(null); setError(""); }}>Cancel</button>
+              <button className="compact-primary-button" type="button" disabled={draftOutline.length < 3} onClick={finishOutline}>Finish outline</button>
+            </div>
+          </div>
+        ) : <>
         <div className="wall-hold-control-heading">
           <strong>{selectedHold ? "Selected hold" : "Hold controls"}</strong>
           <div className="wall-hold-control-actions">
@@ -716,6 +715,11 @@ export default function WallHoldsPage() {
             >
               Add Hold
             </button>
+            {selectedHold ? (
+              <button className="wall-hold-add-button" disabled={isSaving} type="button" onClick={() => { setRedrawingId(selectedHold.id); setDraftOutline([]); setError(""); }}>
+                Redraw outline
+              </button>
+            ) : null}
             {selectedHold ? (
               <button
                 className="wall-hold-remove-button"
@@ -730,14 +734,15 @@ export default function WallHoldsPage() {
         </div>
         {selectedHold ? (
           <p className="wall-hold-control-help">
-            Drag the dot on the circle&apos;s right edge to resize it. Focus the
-            dot and use arrow keys for precise sizing.
+            Drag the selected hold to move it, or its right-hand dot to resize it.
+            Use Redraw outline to trace a new boundary. Arrow keys make precise adjustments.
           </p>
         ) : (
           <p className="wall-hold-control-help">
-            Tap a circle to select it. Drag a selected circle to reposition it.
+            Tap a hold to select it, or Add Hold to trace a new outline.
           </p>
         )}
+        </>}
       </section>
 
       {(error || hasConflict) && !loadFailed ? (
@@ -762,7 +767,7 @@ export default function WallHoldsPage() {
         </div>
         <button
           className="compact-primary-button wall-holds-save-button"
-          disabled={isLoading || loadFailed || isSaving}
+          disabled={isLoading || loadFailed || isSaving || draftOutline !== null}
           onClick={saveHoldMap}
           type="button"
         >

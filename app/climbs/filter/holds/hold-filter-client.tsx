@@ -14,6 +14,8 @@ import {
 } from "../../climb-filters";
 import { loadWallHoldMap, type WallHold } from "../../wall-holds";
 import WallPhoto from "../../wall-photo";
+import HoldOutlines from "../../hold-outlines";
+import { findHoldAtPoint } from "../../hold-geometry";
 import { isAdminUser } from "../../../user-access";
 import { useActiveUser } from "../../../user-profile-provider";
 
@@ -72,24 +74,8 @@ export default function HoldFilterClient({
     const bounds = event.currentTarget.getBoundingClientRect();
     const clientX = event.clientX - bounds.left;
     const clientY = event.clientY - bounds.top;
-    const nearest = wallHolds
-      .map((hold) => {
-        const holdX = (hold.x / 100) * bounds.width;
-        const holdY = (hold.y / 100) * bounds.height;
-        return {
-          hold,
-          distance: Math.hypot(clientX - holdX, clientY - holdY),
-          targetRadius: Math.max(
-            22,
-            (hold.size / 200) * bounds.width + 8,
-          ),
-        };
-      })
-      .sort((left, right) => left.distance - right.distance)[0];
-
-    if (nearest && nearest.distance <= nearest.targetRadius) {
-      toggleHold(nearest.hold.id);
-    }
+    const nearest = findHoldAtPoint(wallHolds, clientX, clientY, bounds.width, bounds.height);
+    if (nearest) toggleHold(nearest.id);
   }
 
   return (
@@ -160,6 +146,7 @@ export default function HoldFilterClient({
           tabIndex={-1}
           type="button"
         />
+        <HoldOutlines holds={wallHolds.map(hold => ({ ...hold, role: selectedHoldIds.includes(hold.id) ? "hand" : "available" }))} />
         {wallHolds.map((hold, index) => {
           const isSelected = selectedHoldIds.includes(hold.id);
           return (
@@ -170,7 +157,7 @@ export default function HoldFilterClient({
                   : `Hold ${index + 1} of ${wallHolds.length}. Activate to require it in matching climbs.`
               }
               aria-pressed={isSelected}
-              className={`hold-choice hold-choice--${isSelected ? "hand" : "available"}`}
+              className={`hold-choice hold-choice--${isSelected ? "hand" : "available"}${hold.outline ? " hold-choice--outlined" : ""}`}
               key={hold.id}
               onClick={() => toggleHold(hold.id)}
               style={{
@@ -184,7 +171,7 @@ export default function HoldFilterClient({
         })}
         <figcaption className="sr-only">
           Preset hold spots on A Fine Wall. {selectedHoldIds.length} of{" "}
-          {wallHolds.length} holds selected. Selected holds have blue circles.
+          {wallHolds.length} holds selected. Selected holds have blue outlines.
         </figcaption>
       </figure>
 
