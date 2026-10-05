@@ -10,6 +10,7 @@ import {
 } from "../app/user-access";
 
 import { isHoldOutline, type HoldPoint } from "../app/climbs/hold-geometry";
+import { parseUserLogin } from "../app/user-profile";
 
 const WALL_HOLDS_PATH = "/api/wall-holds";
 const CLIMBS_PATH = "/api/climbs";
@@ -206,9 +207,9 @@ function parseProfileBody(value: unknown) {
     throw new ApiError("Send a valid name.", 400);
   }
 
-  const name = normalizeProfileName(value.name);
-  if (!name) throw new ApiError("Send a valid name.", 400);
-  return name;
+  const login = parseUserLogin(value.name);
+  if (!login) throw new ApiError("Send a valid name.", 400);
+  return login;
 }
 
 function parseWallHold(value: unknown): WallHold | null {
@@ -1035,7 +1036,7 @@ async function handleProfiles(request: Request, db: D1Database) {
   }
 
   requireSameOrigin(request);
-  const name = parseProfileBody(
+  const { name, softMode } = parseProfileBody(
     await readLimitedJson(request, MAX_PROFILE_BODY_BYTES),
   );
   const candidate: Profile = {
@@ -1054,7 +1055,11 @@ async function handleProfiles(request: Request, db: D1Database) {
     )
     .bind(candidate.id, candidate.name, candidate.createdAt, candidate.name)
     .first<ProfileRow>();
-  if (inserted) return json({ profile: rowToProfile(inserted) }, 201);
+  const sessionProfile = (row: ProfileRow) => ({
+    ...rowToProfile(row),
+    ...(softMode ? { softMode: true } : {}),
+  });
+  if (inserted) return json({ profile: sessionProfile(inserted) }, 201);
 
   const existingProfile = await db
     .prepare(
@@ -1068,7 +1073,7 @@ async function handleProfiles(request: Request, db: D1Database) {
   if (!existingProfile) {
     throw new ApiError("The user profile could not be created.", 500);
   }
-  return json({ profile: rowToProfile(existingProfile) });
+  return json({ profile: sessionProfile(existingProfile) });
 }
 
 function referenceFromRow(row: {

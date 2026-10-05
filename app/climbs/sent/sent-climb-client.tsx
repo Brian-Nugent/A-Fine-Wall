@@ -212,7 +212,7 @@ export default function SentClimbClient({
             <GradeBadge
               className="detail-grade"
               grade={climb.grade}
-              revealed={existingRating !== null}
+              revealed={profile?.softMode === true || existingRating !== null}
             />
           </div>
 

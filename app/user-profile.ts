@@ -1,12 +1,15 @@
 export const USER_PROFILE_KEY = "a-fine-wall:user-profile:v1";
 export const USER_PROFILE_COOKIE_KEY = "a-fine-wall-user-profile-v1";
 export const MAX_USER_NAME_LENGTH = 50;
+export const MAX_USER_LOGIN_LENGTH = MAX_USER_NAME_LENGTH + "soft ".length;
 
 const profileIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
 export type UserProfile = {
   id: string;
   name: string;
+  // A preference for this browser session, never part of the shared identity.
+  softMode?: boolean;
 };
 
 type StorageReader = {
@@ -27,6 +30,19 @@ export function normalizeUserName(value: unknown): string | null {
     name.length <= MAX_USER_NAME_LENGTH
     ? name
     : null;
+}
+
+export function parseUserLogin(value: unknown): { name: string; softMode: boolean } | null {
+  if (typeof value !== "string" || hasUnsafeNameCharacter(value)) return null;
+  const input = value.trim().replace(/\s+/g, " ");
+  const softMode = /^soft(?: |$)/i.test(input);
+  const name = normalizeUserName(softMode ? input.slice(5) : input);
+  return name ? { name, softMode } : null;
+}
+
+/** Refresh shared identity details without losing this session's grade preference. */
+export function refreshUserProfile(profile: UserProfile, session: UserProfile): UserProfile {
+  return { id: profile.id, name: profile.name, ...(session.softMode === true ? { softMode: true } : {}) };
 }
 
 function hasUnsafeNameCharacter(value: string) {
@@ -58,7 +74,7 @@ export function parseUserProfile(raw: string | null): UserProfile | null {
     const name = normalizeUserName(profile.name);
     if (!isProfileId(profile.id) || !name) return null;
 
-    return { id: profile.id, name };
+    return { id: profile.id, name, ...(profile.softMode === true ? { softMode: true } : {}) };
   } catch {
     return null;
   }

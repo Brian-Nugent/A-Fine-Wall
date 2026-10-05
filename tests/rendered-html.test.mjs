@@ -3003,6 +3003,55 @@ test("creates and reloads password-free user profiles", async () => {
   assert.equal(response.headers.get("allow"), "GET, POST");
 });
 
+test("soft login reuses the canonical profile and send history without storing the mode in the database", async () => {
+  const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  const environment = createEnvironment({ DB: database });
+  const fetchData = (path, options) => worker.fetch(new Request(`http://localhost${path}`, options), environment, createContext());
+  const login = name => fetchData("/api/profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+    body: JSON.stringify({ name }),
+  });
+  const sheafy = { id: "profile-sheafy", name: "Sheafy", createdAt: 1 };
+  database.seedProfile(sheafy);
+  database.seedClimb({
+    id: "soft-mode-route", name: "Existing route", grade: "V5", setter: "Sheafy", createdAt: 1,
+    holds: [{ x: 20, y: 80, size: 7, role: "start" }, { x: 70, y: 10, size: 7, role: "finish" }],
+  });
+  database.seedSend({ climbKind: "saved", climbId: "soft-mode-route", profileId: sheafy.id, rating: 4, grade: "V5", sentAt: 2, updatedAt: 2 });
+  const existingSend = database.sendFor("saved", "soft-mode-route", sheafy.id);
+  for (const name of ["soft Sheafy", "  SoFt   sHEAFY  "]) {
+    const response = await login(name);
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).profile, { ...sheafy, softMode: true });
+  }
+  let response = await fetchData(`/api/sends?profileId=${sheafy.id}`);
+  const activity = (await response.json()).activities.find(item => item.climbId === "soft-mode-route");
+  assert.equal(activity.userRating, 4);
+  assert.equal(database.sendCount(), 1);
+  assert.deepEqual(database.sendFor("saved", "soft-mode-route", sheafy.id), existingSend);
+  response = await fetchData(`/api/profiles/${sheafy.id}`);
+  assert.deepEqual((await response.json()).profile, sheafy);
+  response = await login("sheafy");
+  assert.deepEqual((await response.json()).profile, sheafy);
+  response = await fetchData("/api/profiles");
+  assert.deepEqual((await response.json()).profiles, [sheafy]);
+
+  response = await login("soft New Climber");
+  assert.equal(response.status, 201);
+  const newSession = (await response.json()).profile;
+  assert.equal(newSession.name, "New Climber");
+  assert.equal(newSession.softMode, true);
+  response = await login("New Climber");
+  const normalSession = (await response.json()).profile;
+  assert.equal(normalSession.id, newSession.id);
+  assert.equal(normalSession.softMode, undefined);
+  for (const name of ["soft", "soft ", "soft You", `soft ${"x".repeat(51)}`]) {
+    assert.equal((await login(name)).status, 400);
+  }
+});
+
 test("logs sends, updates ratings, and calculates per-user averages", async () => {
   const worker = await loadWorker();
   const database = createMemoryAppDatabase();

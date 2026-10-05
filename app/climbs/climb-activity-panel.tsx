@@ -11,7 +11,7 @@ export default function ClimbActivityPanel({
   filters: ClimbFilters;
   reference: ClimbReference;
 }) {
-  const { status, activity, logbookEntries, hasSent } = useClimbActivity();
+  const { status, activity, logbookEntries, gradesVisible } = useClimbActivity();
   const sentHref = buildFilteredHref("/climbs/sent", filters, {
     kind: reference.climbKind,
     id: reference.climbId,
@@ -82,7 +82,7 @@ export default function ClimbActivityPanel({
                       </span>
                     ))}
                   </span>
-                  {hasSent ? (
+                  {gradesVisible ? (
                     <span className="climb-logbook-grade">
                       <span className="sr-only">
                         {entry.grade

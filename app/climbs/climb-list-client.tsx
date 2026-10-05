@@ -49,6 +49,7 @@ function ClimbRow({
   href: string;
   onOpen(): void;
 }) {
+  const { profile } = useActiveUser();
   let ratingLabel = "Rating loading";
   let ratingContent = (
     <>
@@ -113,7 +114,7 @@ function ClimbRow({
         <span className="climb-row-meta">
           <GradeBadge
             grade={climb.grade}
-            revealed={activityStatus === "ready" && activity?.userRating != null}
+            revealed={profile?.softMode === true || (activityStatus === "ready" && activity?.userRating != null)}
           />
           <span aria-hidden="true">&rarr;</span>
         </span>
@@ -340,7 +341,10 @@ export default function ClimbListClient({
       >
         <div className="section-heading">
           <div className="section-heading-copy">
-            <h1 id="climbs-heading">Climbs</h1>
+            <div className="climbs-title-line">
+              <h1 id="climbs-heading">Climbs</h1>
+              {profile?.softMode ? <span className="soft-mode-label">soft mode enabled</span> : null}
+            </div>
             <button
               aria-label={`Change user. Current user: ${profile?.name ?? "not selected"}`}
               className="user-switch-button"

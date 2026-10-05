@@ -33,7 +33,7 @@ const emptyState: ActivityState = {
   logbookEntries: [],
 };
 
-const ClimbActivityContext = createContext({ ...emptyState, hasSent: false });
+const ClimbActivityContext = createContext({ ...emptyState, hasSent: false, gradesVisible: false });
 
 // The header and logbook share one request and the same reveal decision.
 export function ClimbActivityProvider({
@@ -95,7 +95,7 @@ export function ClimbActivityProvider({
     currentState.status === "ready" && currentState.activity?.userRating != null;
 
   return (
-    <ClimbActivityContext.Provider value={{ ...currentState, hasSent }}>
+    <ClimbActivityContext.Provider value={{ ...currentState, hasSent, gradesVisible: profile?.softMode === true || hasSent }}>
       {children}
     </ClimbActivityContext.Provider>
   );
@@ -112,6 +112,6 @@ export function ClimbDetailGrade({
   grade: string;
   className?: string;
 }) {
-  const { hasSent } = useClimbActivity();
-  return <GradeBadge grade={grade} revealed={hasSent} className={className} />;
+  const { gradesVisible } = useClimbActivity();
+  return <GradeBadge grade={grade} revealed={gradesVisible} className={className} />;
 }

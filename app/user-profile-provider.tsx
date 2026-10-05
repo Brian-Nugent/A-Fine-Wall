@@ -12,9 +12,11 @@ import {
 import { createUserProfile, loadUserProfile } from "./user-api";
 import {
   MAX_USER_NAME_LENGTH,
+  MAX_USER_LOGIN_LENGTH,
   USER_PROFILE_COOKIE_KEY,
   USER_PROFILE_KEY,
-  normalizeUserName,
+  parseUserLogin,
+  refreshUserProfile,
   persistUserProfile,
   readUserProfile,
   removeUserProfile,
@@ -63,7 +65,7 @@ export default function UserProfileProvider({
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const activeProfileId = useRef<string | null>(initialProfile?.id ?? null);
+  const activeProfile = useRef<UserProfile | null>(initialProfile);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -84,15 +86,17 @@ export default function UserProfileProvider({
 
     queueMicrotask(() => {
       if (!isActive) return;
-      activeProfileId.current = savedProfile?.id ?? null;
+      activeProfile.current = savedProfile;
       setProfile(savedProfile);
       setStatus("ready");
     });
 
     if (savedProfile) {
-      loadUserProfile(savedProfile.id, controller.signal)
+      const sessionProfile = savedProfile;
+      loadUserProfile(sessionProfile.id, controller.signal)
         .then((currentProfile) => {
-          if (!isActive || activeProfileId.current !== savedProfile?.id) return;
+          // A same-user mode change is also a new login: ignore older refreshes.
+          if (!isActive || activeProfile.current !== sessionProfile) return;
           if (!currentProfile) {
             try {
               removeUserProfile(window.localStorage);
@@ -100,23 +104,26 @@ export default function UserProfileProvider({
               // The in-memory profile can still be replaced below.
             }
             syncUserProfileCookie(null);
-            activeProfileId.current = null;
+            activeProfile.current = null;
             setProfile(null);
             return;
           }
 
+          const refreshedProfile = refreshUserProfile(currentProfile, sessionProfile);
+          activeProfile.current = refreshedProfile;
           setProfile((current) =>
-            current?.id === currentProfile.id &&
-            current.name === currentProfile.name
+            current?.id === refreshedProfile.id &&
+            current.name === refreshedProfile.name &&
+            current.softMode === refreshedProfile.softMode
               ? current
-              : currentProfile,
+              : refreshedProfile,
           );
           try {
-            persistUserProfile(window.localStorage, currentProfile);
+            persistUserProfile(window.localStorage, refreshedProfile);
           } catch {
             // The current session can continue without browser persistence.
           }
-          syncUserProfileCookie(currentProfile);
+          syncUserProfileCookie(refreshedProfile);
         })
         .catch((loadError: unknown) => {
           if (loadError instanceof DOMException && loadError.name === "AbortError") {
@@ -135,7 +142,7 @@ export default function UserProfileProvider({
         nextProfile = null;
       }
       syncUserProfileCookie(nextProfile);
-      activeProfileId.current = nextProfile?.id ?? null;
+      activeProfile.current = nextProfile;
       setProfile(nextProfile);
       setIsEditing(false);
     }
@@ -158,7 +165,7 @@ export default function UserProfileProvider({
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
-    setName(profile?.name ?? "");
+    setName(profile ? `${profile.softMode ? "soft " : ""}${profile.name}` : "");
     setError("");
     setIsEditing(true);
   }
@@ -179,8 +186,7 @@ export default function UserProfileProvider({
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedName = normalizeUserName(name);
-    if (!normalizedName) {
+    if (!parseUserLogin(name)) {
       setError(`Enter a name using ${MAX_USER_NAME_LENGTH} characters or fewer.`);
       return;
     }
@@ -188,8 +194,8 @@ export default function UserProfileProvider({
     setIsSaving(true);
     setError("");
     try {
-      const nextProfile = await createUserProfile(normalizedName);
-      activeProfileId.current = nextProfile.id;
+      const nextProfile = await createUserProfile(name);
+      activeProfile.current = nextProfile;
       try {
         persistUserProfile(window.localStorage, nextProfile);
       } catch {
@@ -223,7 +229,7 @@ export default function UserProfileProvider({
             <input
               autoComplete="name"
               id="user-name-input"
-              maxLength={MAX_USER_NAME_LENGTH}
+              maxLength={MAX_USER_LOGIN_LENGTH}
               onChange={(event) => setName(event.target.value)}
               placeholder="Your name"
               ref={inputRef}

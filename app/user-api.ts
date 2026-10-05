@@ -11,7 +11,9 @@ function parseProfile(profile: unknown): UserProfile | null {
 
   const record = profile as Record<string, unknown>;
   const name = normalizeUserName(record.name);
-  return isProfileId(record.id) && name ? { id: record.id, name } : null;
+  return isProfileId(record.id) && name
+    ? { id: record.id, name, ...(record.softMode === true ? { softMode: true } : {}) }
+    : null;
 }
 
 function parseProfilePayload(value: unknown): UserProfile | null {

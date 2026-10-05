@@ -13,7 +13,10 @@ The app runs at
 - Use the left and right arrows on the wall photo to browse climbs in the
   current search and filter order.
 - See green (V0–V4), yellow (V5–V7), or red (V8+) grade ovals before sending.
-  Exact climb and logbook grades appear only after the active user logs a send.
+  Exact climb and logbook grades appear after the active user logs a send, or
+  immediately when the user signs in with `soft NAME` (for example, `soft Sheafy`).
+  Soft mode uses the same NAME profile and send history, persists on that browser,
+  and shows `soft mode enabled` beside Climbs. Sign in without `soft ` to turn it off.
 - Log a send with a proposed grade and rating.
 - View consensus grades and community ratings from send entries.
 - Per-climb logbook with each climber's grade and stars.
