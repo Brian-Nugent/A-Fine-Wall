@@ -625,10 +625,9 @@ async function ensureClimbSendGradeColumn(db: D1Database) {
   }
 }
 
-const schemaInitializationByDatabase = new WeakMap<
-  D1Database,
-  Promise<void>
->();
+// Workers I/O belongs to the request that started it. Cache only completion,
+// never an I/O promise that a different (or canceled) request must resume.
+const initializedDatabases = new WeakSet<D1Database>();
 
 async function initializeSchema(db: D1Database) {
   await db.batch([
@@ -696,18 +695,13 @@ async function initializeSchema(db: D1Database) {
   await ensureClimbSendGradeColumn(db);
 }
 
-function ensureSchema(db: D1Database) {
-  const existingInitialization = schemaInitializationByDatabase.get(db);
-  if (existingInitialization) return existingInitialization;
+async function ensureSchema(db: D1Database) {
+  if (initializedDatabases.has(db)) return;
 
-  const initialization = initializeSchema(db);
-  schemaInitializationByDatabase.set(db, initialization);
-  void initialization.catch(() => {
-    if (schemaInitializationByDatabase.get(db) === initialization) {
-      schemaInitializationByDatabase.delete(db);
-    }
-  });
-  return initialization;
+  // Concurrent cold requests initialize independently. CREATE IF NOT EXISTS
+  // and the column checks above are already safe when initialization overlaps.
+  await initializeSchema(db);
+  initializedDatabases.add(db);
 }
 
 function rowToProfile(row: ProfileRow): Profile {
