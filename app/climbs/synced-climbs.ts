@@ -80,7 +80,7 @@ export async function loadSyncedClimbs(
           climb,
           wallMap.updatedAt,
           climb.profileId,
-          signal,
+          { signal },
         ),
       ),
     );

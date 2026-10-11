@@ -59,6 +59,7 @@ const holdRoleActions: Record<SavedHoldRole, string> = {
 
 const MAX_LEGACY_HOLD_MATCH_DISTANCE = 3;
 const MIN_LEGACY_HOLD_MATCH_GAP = 0.75;
+const ratings = [1, 2, 3, 4, 5] as const;
 
 function restoreDraftHolds(
   climb: SavedClimb,
@@ -130,6 +131,9 @@ export default function SetClimbPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [grade, setGrade] = useState("");
+  const [logSend, setLogSend] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [ratingError, setRatingError] = useState("");
   const [nameError, setNameError] = useState("");
   const [gradeError, setGradeError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -137,6 +141,7 @@ export default function SetClimbPage() {
   const [isSaving, setIsSaving] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const gradeSelectRef = useRef<HTMLSelectElement>(null);
+  const firstRatingRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -253,20 +258,27 @@ export default function SetClimbPage() {
 
   async function saveClimb(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSaving) return;
     setSaveError("");
     setHasSaveConflict(false);
 
     const trimmedName = name.trim();
     const nextNameError = trimmedName ? "" : "Please enter a name.";
     const nextGradeError = grade ? "" : "Please select a grade.";
+    const nextRatingError = !editingClimb && logSend && rating === 0
+      ? "Choose a star rating to log your send."
+      : "";
     setNameError(nextNameError);
     setGradeError(nextGradeError);
+    setRatingError(nextRatingError);
 
-    if (nextNameError || nextGradeError) {
+    if (nextNameError || nextGradeError || nextRatingError) {
       if (nextNameError) {
         nameInputRef.current?.focus();
-      } else {
+      } else if (nextGradeError) {
         gradeSelectRef.current?.focus();
+      } else {
+        firstRatingRef.current?.focus();
       }
       return;
     }
@@ -307,7 +319,9 @@ export default function SetClimbPage() {
     try {
       const savedClimb = editingClimb
         ? await updateClimbInApp(climb, wallRevision, profile.id)
-        : await saveClimbToApp(climb, wallRevision, profile.id);
+        : await saveClimbToApp(climb, wallRevision, profile.id, {
+            sendRating: logSend ? rating : undefined,
+          });
       try {
         persistSavedClimb(window.localStorage, {
           ...savedClimb,
@@ -547,6 +561,7 @@ export default function SetClimbPage() {
               aria-describedby={nameError ? "climb-name-error" : undefined}
               aria-invalid={nameError ? "true" : undefined}
               autoComplete="off"
+              disabled={isSaving}
               id="climb-name-input"
               maxLength={50}
               onChange={(event) => {
@@ -567,6 +582,7 @@ export default function SetClimbPage() {
 
             <label htmlFor="climb-description-input">Description (optional)</label>
             <textarea
+              disabled={isSaving}
               id="climb-description-input"
               maxLength={MAX_CLIMB_DESCRIPTION_LENGTH}
               rows={4}
@@ -580,6 +596,7 @@ export default function SetClimbPage() {
               aria-describedby={gradeError ? "climb-grade-error" : undefined}
               aria-invalid={gradeError ? "true" : undefined}
               id="climb-grade-select"
+              disabled={isSaving}
               onChange={(event) => {
                 setGrade(event.target.value);
                 if (gradeError) setGradeError("");
@@ -601,6 +618,77 @@ export default function SetClimbPage() {
               </p>
             ) : null}
 
+            {!editingClimb ? (
+              <div className="climb-send-option">
+                <label className="climb-send-toggle" htmlFor="climb-log-send">
+                  <span>Log my send</span>
+                  <input
+                    aria-describedby="climb-log-send-description"
+                    checked={logSend}
+                    className="climb-send-switch"
+                    disabled={isSaving}
+                    id="climb-log-send"
+                    onChange={(event) => {
+                      setLogSend(event.target.checked);
+                      setRatingError("");
+                    }}
+                    role="switch"
+                    type="checkbox"
+                  />
+                </label>
+                <p className="climb-send-description" id="climb-log-send-description">
+                  Add this climb to your logbook when you save.
+                </p>
+
+                {logSend ? (
+                  <>
+                    <fieldset
+                      aria-describedby={ratingError ? "climb-rating-error" : undefined}
+                      className="climb-send-rating"
+                      disabled={isSaving}
+                    >
+                      <legend>How many stars would you give this climb?</legend>
+                      <div className="star-rating-options">
+                        {ratings.map((value) => (
+                          <span className="star-rating-choice" key={value}>
+                            <input
+                              aria-label={`${value} ${value === 1 ? "star" : "stars"}`}
+                              checked={rating === value}
+                              className="star-radio-input"
+                              id={`climb-send-rating-${value}`}
+                              name="rating"
+                              onChange={() => {
+                                setRating(value);
+                                setRatingError("");
+                              }}
+                              ref={value === 1 ? firstRatingRef : undefined}
+                              required
+                              type="radio"
+                              value={value}
+                            />
+                            <label
+                              className={`star-rating-label${value <= rating ? " star-rating-label--filled" : ""}`}
+                              htmlFor={`climb-send-rating-${value}`}
+                            >
+                              <span aria-hidden="true">&#9733;</span>
+                            </label>
+                          </span>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <p className="selected-rating" aria-live="polite">
+                      {rating > 0 ? `${rating} out of 5 stars` : "Choose your rating"}
+                    </p>
+                    {ratingError ? (
+                      <p className="form-error" id="climb-rating-error" role="alert">
+                        {ratingError}
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             {saveError ? (
               <div className="form-error climb-save-error" role="alert">
                 <p>{saveError}</p>
@@ -619,6 +707,7 @@ export default function SetClimbPage() {
             <div className="form-actions">
               <button
                 className="secondary-button"
+                disabled={isSaving}
                 onClick={() => setStep("holds")}
                 type="button"
               >
@@ -629,7 +718,9 @@ export default function SetClimbPage() {
                   ? "Saving..."
                   : editingClimb
                     ? "Save Changes"
-                    : "Save Climb"}
+                    : logSend
+                      ? "Save Climb & Log Send"
+                      : "Save Climb"}
               </button>
             </div>
           </form>

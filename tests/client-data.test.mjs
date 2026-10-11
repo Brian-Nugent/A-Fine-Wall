@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadClimb, loadClimbs } from "../app/climbs/climb-api.ts";
+import { loadClimb, loadClimbs, saveClimb } from "../app/climbs/climb-api.ts";
 import { SAVED_CLIMBS_KEY } from "../app/climbs/saved-climbs.ts";
 import { loadSyncedClimbs } from "../app/climbs/synced-climbs.ts";
 
@@ -68,6 +68,30 @@ async function withFetch(mockFetch, callback) {
 function requestPath(input) {
   return new URL(String(input), "https://example.test").pathname;
 }
+
+test("climb creation sends optional stars and the setter grade in one request", async () => {
+  const requests = [];
+  await withFetch(async (url, options) => {
+    requests.push({ url, ...options, payload: JSON.parse(options.body) });
+    return Response.json({ climb: sharedClimb }, { status: 201 });
+  }, async () => {
+    const controller = new AbortController();
+    await saveClimb(sharedClimb, 123, "profile-admin", {
+      sendRating: 4,
+      signal: controller.signal,
+    });
+    await saveClimb(sharedClimb, 123, "profile-admin");
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].url, "/api/climbs");
+    assert.equal(requests[0].method, "POST");
+    assert.equal(requests[0].signal, controller.signal);
+    assert.equal(requests[0].payload.sendRating, 4);
+    assert.equal(requests[0].payload.climb.grade, sharedClimb.setterGrade);
+    assert.equal(requests[0].payload.profileId, "profile-admin");
+    assert.equal(requests[0].payload.expectedWallUpdatedAt, 123);
+    assert.equal(Object.hasOwn(requests[1].payload, "sendRating"), false);
+  });
+});
 
 test("validates successful climb API payloads at runtime", async () => {
   await withFetch(

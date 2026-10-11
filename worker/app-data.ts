@@ -459,7 +459,7 @@ function parseRockoApprovalBody(value: unknown) {
 function parseClimbWriteBody(value: unknown) {
   if (
     !isPlainObject(value) ||
-    !hasOnlyKeys(value, ["climb", "expectedWallUpdatedAt", "profileId"]) ||
+    !hasOnlyKeys(value, ["climb", "expectedWallUpdatedAt", "profileId", "sendRating"]) ||
     typeof value.expectedWallUpdatedAt !== "number" ||
     !Number.isSafeInteger(value.expectedWallUpdatedAt) ||
     value.expectedWallUpdatedAt < 0
@@ -474,10 +474,22 @@ function parseClimbWriteBody(value: unknown) {
     throw new ApiError("Choose your user name before saving.", 400);
   }
 
+  const climb = parseClimbBody(value.climb);
+  const initialSend = value.sendRating === undefined
+    ? null
+    : parseSendWriteBody({
+        climbKind: "saved",
+        climbId: climb.id,
+        profileId: value.profileId,
+        grade: climb.grade,
+        rating: value.sendRating,
+      });
+
   return {
-    climb: parseClimbBody(value.climb),
+    climb,
     expectedWallUpdatedAt: value.expectedWallUpdatedAt,
     profileId: value.profileId,
+    initialSend,
   };
 }
 
@@ -1165,6 +1177,47 @@ function logbookEntryFromRow(row: ClimbLogbookRow) {
   return { profileName, grade: row.grade, rating: row.rating };
 }
 
+function prepareSendUpsert(
+  db: D1Database,
+  send: ReturnType<typeof parseSendWriteBody>,
+  profileId: string,
+) {
+  const now = Date.now();
+  const upsert = send.climbKind === "demo"
+    ? db.prepare(
+        `INSERT INTO climb_sends
+           (climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (climb_kind, climb_id, profile_id)
+         DO UPDATE SET grade = excluded.grade,
+                       rating = excluded.rating,
+                       updated_at = excluded.updated_at
+         RETURNING climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at`,
+      )
+    : db.prepare(
+        `INSERT INTO climb_sends
+           (climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM climbs WHERE id = ?)
+         ON CONFLICT (climb_kind, climb_id, profile_id)
+         DO UPDATE SET grade = excluded.grade,
+                       rating = excluded.rating,
+                       updated_at = excluded.updated_at
+         RETURNING climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at`,
+      );
+
+  return upsert.bind(
+    send.climbKind,
+    send.climbId,
+    profileId,
+    send.grade,
+    send.rating,
+    now,
+    now,
+    ...(send.climbKind === "saved" ? [send.climbId] : []),
+  );
+}
+
 async function handleSends(request: Request, db: D1Database) {
   if (request.method === "GET") {
     const searchParams = new URL(request.url).searchParams;
@@ -1310,41 +1363,8 @@ async function handleSends(request: Request, db: D1Database) {
       throw new ApiError("Choose your user name again before saving.", 400);
     }
 
-    const now = Date.now();
-    const upsert =
-      send.climbKind === "demo"
-        ? db.prepare(
-            `INSERT INTO climb_sends
-               (climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (climb_kind, climb_id, profile_id)
-             DO UPDATE SET grade = excluded.grade,
-                           rating = excluded.rating,
-                           updated_at = excluded.updated_at
-             RETURNING climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at`,
-          )
-        : db.prepare(
-            `INSERT INTO climb_sends
-               (climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at)
-             SELECT ?, ?, ?, ?, ?, ?, ?
-             WHERE EXISTS (SELECT 1 FROM climbs WHERE id = ?)
-             ON CONFLICT (climb_kind, climb_id, profile_id)
-             DO UPDATE SET grade = excluded.grade,
-                           rating = excluded.rating,
-                           updated_at = excluded.updated_at
-             RETURNING climb_kind, climb_id, profile_id, grade, rating, sent_at, updated_at`,
-          );
-    const values = [
-      send.climbKind,
-      send.climbId,
-      profile.id,
-      send.grade,
-      send.rating,
-      now,
-      now,
-      ...(send.climbKind === "saved" ? [send.climbId] : []),
-    ];
-    const saved = await upsert.bind(...values).first<ClimbSendRow>();
+    const saved = await prepareSendUpsert(db, send, profile.id)
+      .first<ClimbSendRow>();
     if (!saved) {
       const wasDeleted = await db
         .prepare("SELECT id FROM deleted_climbs WHERE id = ?")
@@ -1457,7 +1477,7 @@ async function handleClimbs(request: Request, db: D1Database) {
 
   if (request.method === "POST") {
     requireSameOrigin(request);
-    const { climb: parsedClimb, expectedWallUpdatedAt, profileId } =
+    const { climb: parsedClimb, expectedWallUpdatedAt, profileId, initialSend } =
       parseClimbWriteBody(
         await readLimitedJson(request, MAX_CLIMB_BODY_BYTES),
       );
@@ -1474,7 +1494,7 @@ async function handleClimbs(request: Request, db: D1Database) {
       .first<ClimbRow>();
     if (existing) {
       const existingClimb = rowToClimb(existing);
-      if (!isMatchingLegacyClimb(existingClimb, parsedClimb)) {
+      if (initialSend || !isMatchingLegacyClimb(existingClimb, parsedClimb)) {
         throw new ApiError("A climb with this id already exists.", 409);
       }
 
@@ -1544,7 +1564,7 @@ async function handleClimbs(request: Request, db: D1Database) {
     };
 
     try {
-      const inserted = await db
+      const insertClimb = db
         .prepare(
           `INSERT INTO climbs (id, name, grade, setter, created_at, holds_json, description)
            SELECT ?, ?, ?, ?, ?, ?, ?
@@ -1567,8 +1587,14 @@ async function handleClimbs(request: Request, db: D1Database) {
           WALL_CONFIGURATION_ID,
           expectedWallUpdatedAt,
           climb.id,
-        )
-        .first<{ id: string }>();
+        );
+      // D1 batches are transactional: a failed send rolls back its new climb.
+      const inserted = initialSend
+        ? (await db.batch<{ id: string }>([
+            insertClimb,
+            prepareSendUpsert(db, initialSend, profile.id),
+          ]))[0].results[0]
+        : await insertClimb.first<{ id: string }>();
       if (!inserted) {
         const deletedDuringSave = await db
           .prepare("SELECT id FROM deleted_climbs WHERE id = ?")

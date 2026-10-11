@@ -1,0 +1,2 @@
+# Wrangler compares generated runtime headers using LF line endings.
+worker-configuration.d.ts text eol=lf

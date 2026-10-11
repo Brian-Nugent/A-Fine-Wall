@@ -68,7 +68,7 @@ export async function saveClimb(
   climb: SavedClimb,
   expectedWallUpdatedAt: number,
   profileId: string,
-  signal?: AbortSignal,
+  options: { signal?: AbortSignal; sendRating?: number } = {},
 ) {
   const climbPayload = {
     id: climb.id,
@@ -86,8 +86,9 @@ export async function saveClimb(
       climb: climbPayload,
       expectedWallUpdatedAt,
       profileId,
+      sendRating: options.sendRating,
     }),
-    signal,
+    signal: options.signal,
   });
   const payload: unknown = await response.json().catch(() => null);
 
