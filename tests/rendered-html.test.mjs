@@ -2049,7 +2049,7 @@ test("uses photo arrow controls for in-place climb navigation", async () => {
   );
 });
 
-test("limits the climb options menu to the setter and Admin", async () => {
+test("limits edit and delete options to the setter and Admin", async () => {
   const source = await readFile(
     new URL("../app/climbs/saved/saved-climb-detail.tsx", import.meta.url),
     "utf8",

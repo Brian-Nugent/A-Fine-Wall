@@ -1025,12 +1025,30 @@ select:focus-visible {
   align-items: center;
 }
 
+.detail-name-and-setter {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.8rem;
+}
+
+.detail-name-and-setter h1 {
+  max-width: 100%;
+}
+
+.detail-title .climb-setter {
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
 .detail-status-tags {
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.4rem;
+  margin-left: auto;
 }
 
 .detail-title h1 {
@@ -1359,6 +1377,13 @@ select:focus-visible {
   background: #ffffff;
   box-shadow: 0 0.75rem 2rem rgba(15, 23, 42, 0.15);
   flex-direction: column;
+}
+
+.climb-options-popover--lists {
+  width: min(22rem, calc(100vw - 2.5rem));
+  max-height: calc(100dvh - 6rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .climb-option {
@@ -1918,9 +1943,8 @@ select:focus-visible {
 .list-actions { display: flex; gap: 1.25rem; align-items: center; margin-top: 0.6rem; }
 .list-delete-confirm { background: #fff5f5; border-radius: 0.5rem; padding: 0.8rem; margin-top: 0.8rem; }
 .list-delete-confirm p { margin: 0; overflow-wrap: anywhere; }
-.save-to-list { margin: -0.4rem 1.25rem 0.8rem; }
-.save-list-toggle { min-height: 2.75rem; padding-inline: 0; }
-.save-list-panel { border: 1px solid #dedede; border-radius: 0.75rem; padding: 1rem; margin-bottom: 1rem; }
+.save-list-panel { padding: 0.5rem; }
+.save-list-back { min-height: 2.75rem; padding-inline: 0; margin-bottom: 0.5rem; }
 .save-list-panel h2 { font-size: 1rem; margin: 0 0 0.7rem; }
 .list-membership { display: flex; align-items: center; gap: 0.7rem; min-height: 2.75rem; cursor: pointer; overflow-wrap: anywhere; }
 .list-membership input { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); flex-shrink: 0; }

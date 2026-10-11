@@ -181,6 +181,8 @@ function DetailShell({
 
 function ClimbOptions({
   canChangeApproval,
+  canManage,
+  climbId,
   editHref,
   isApproving,
   isDeleting,
@@ -190,6 +192,8 @@ function ClimbOptions({
   rockoApproved,
 }: {
   canChangeApproval: boolean;
+  canManage: boolean;
+  climbId: string;
   editHref: string;
   isApproving: boolean;
   isDeleting: boolean;
@@ -199,8 +203,10 @@ function ClimbOptions({
   rockoApproved: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [showLists, setShowLists] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const saveListButtonRef = useRef<HTMLButtonElement>(null);
   const popoverId = useId();
 
   useEffect(() => {
@@ -245,49 +251,79 @@ function ClimbOptions({
         aria-label="Climb options"
         className="climb-options-button"
         disabled={isApproving || isDeleting || isNavigating}
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={() => {
+          setShowLists(false);
+          setIsOpen((current) => !current);
+        }}
         ref={buttonRef}
         type="button"
       >
         <span aria-hidden="true">&#8942;</span>
       </button>
       {isOpen ? (
-        <div className="climb-options-popover" id={popoverId}>
-          {canChangeApproval ? (
-            <button
-              className="climb-option"
-              disabled={isApproving || isDeleting || isNavigating}
-              onClick={() => {
-                setIsOpen(false);
-                onChangeApproval(!rockoApproved);
+        <div
+          className={`climb-options-popover${showLists ? " climb-options-popover--lists" : ""}`}
+          id={popoverId}
+        >
+          {showLists ? (
+            <SaveToList
+              climbId={climbId}
+              onBack={() => {
+                setShowLists(false);
+                requestAnimationFrame(() => saveListButtonRef.current?.focus());
               }}
-              type="button"
-            >
-              {approvalActionLabel}
-            </button>
-          ) : null}
-          <a
-            aria-disabled={isNavigating ? "true" : undefined}
-            className="climb-option"
-            href={editHref}
-            onClick={(event) => {
-              if (isNavigating) event.preventDefault();
-            }}
-            tabIndex={isNavigating ? -1 : undefined}
-          >
-            Edit climb
-          </a>
-          <button
-            className="climb-option climb-option--delete"
-            disabled={isApproving || isDeleting || isNavigating}
-            onClick={() => {
-              setIsOpen(false);
-              onDelete();
-            }}
-            type="button"
-          >
-            {isDeleting ? "Deleting…" : "Delete climb"}
-          </button>
+            />
+          ) : (
+            <>
+              <button
+                className="climb-option"
+                onClick={() => setShowLists(true)}
+                ref={saveListButtonRef}
+                type="button"
+              >
+                Save to list
+              </button>
+              {canChangeApproval ? (
+                <button
+                  className="climb-option"
+                  disabled={isApproving || isDeleting || isNavigating}
+                  onClick={() => {
+                    setIsOpen(false);
+                    onChangeApproval(!rockoApproved);
+                  }}
+                  type="button"
+                >
+                  {approvalActionLabel}
+                </button>
+              ) : null}
+              {canManage ? (
+                <>
+                  <a
+                    aria-disabled={isNavigating ? "true" : undefined}
+                    className="climb-option"
+                    href={editHref}
+                    onClick={(event) => {
+                      if (isNavigating) event.preventDefault();
+                    }}
+                    tabIndex={isNavigating ? -1 : undefined}
+                  >
+                    Edit climb
+                  </a>
+                  <button
+                    className="climb-option climb-option--delete"
+                    disabled={isApproving || isDeleting || isNavigating}
+                    onClick={() => {
+                      setIsOpen(false);
+                      onDelete();
+                    }}
+                    type="button"
+                  >
+                    {isDeleting ? "Deleting…" : "Delete climb"}
+                  </button>
+                </>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
     </div>
@@ -739,33 +775,35 @@ export default function SavedClimbDetail({
     <DetailShell
       backHref={backHref}
       endAction={
-        canManage ? (
-          <ClimbOptions
-            canChangeApproval={canChangeApproval}
-            editHref={editHref}
-            isApproving={isApproving}
-            isDeleting={isDeleting}
-            isNavigating={isNavigating}
-            key={climb.id}
-            onChangeApproval={(rockoApproved) =>
-              handleSetRockoApproval(climb, rockoApproved)
-            }
-            onDelete={() => handleDeleteClimb(climb)}
-            rockoApproved={Boolean(climb.rockoApproved)}
-          />
-        ) : undefined
+        <ClimbOptions
+          canChangeApproval={canChangeApproval}
+          canManage={canManage}
+          climbId={climb.id}
+          editHref={editHref}
+          isApproving={isApproving}
+          isDeleting={isDeleting}
+          isNavigating={isNavigating}
+          key={climb.id}
+          onChangeApproval={(rockoApproved) =>
+            handleSetRockoApproval(climb, rockoApproved)
+          }
+          onDelete={() => handleDeleteClimb(climb)}
+          rockoApproved={Boolean(climb.rockoApproved)}
+        />
       }
     >
       <ClimbActivityProvider reference={{ climbKind: "saved", climbId: climb.id }}>
         <section aria-labelledby="climb-name">
           <div className="detail-title">
             <div className="detail-title-line">
-              <h1 id="climb-name">{climb.name}</h1>
+              <div className="detail-name-and-setter">
+                <h1 id="climb-name">{climb.name}</h1>
+                <p className="climb-setter">Set by {climb.setter}</p>
+              </div>
               <ClimbDetailGrade className="detail-grade" grade={climb.grade} />
             </div>
             {climb.description ? <p className="climb-description">{climb.description}</p> : null}
             <div className="detail-meta-line">
-              <p>Set by {climb.setter}</p>
               <div className="detail-status-tags">
                 {climb.outdated ? (
                   <span className="outdated-tag">Outdated</span>
@@ -779,8 +817,6 @@ export default function SavedClimbDetail({
               </div>
             </div>
           </div>
-
-          <SaveToList key={`${profile?.id}:${climb.id}`} climbId={climb.id} />
 
           {climb.outdated ? (
             <div className="climb-outdated-notice" role="status">
