@@ -1,6 +1,6 @@
 import type { UserProfile } from "./user-profile";
 
-export const ADMIN_USER_NAME = "Admin";
+const ADMIN_USER_NAMES = ["Admin", "Spud_fiend"] as const;
 export const ACTIVE_USER_PROFILE_HEADER = "X-A-Fine-Wall-Profile-Id";
 
 function userNameKey(value: unknown) {
@@ -15,7 +15,7 @@ export function isSameUserName(left: unknown, right: unknown) {
 }
 
 export function isAdminUserName(value: unknown) {
-  return isSameUserName(value, ADMIN_USER_NAME);
+  return ADMIN_USER_NAMES.some((name) => isSameUserName(value, name));
 }
 
 export function isAdminUser(

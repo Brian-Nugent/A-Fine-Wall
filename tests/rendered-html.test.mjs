@@ -761,17 +761,23 @@ test("restores returning users without a branded loading screen", async () => {
   );
 });
 
-test("recognizes Admin and climb owners without case sensitivity", () => {
+test("recognizes both administrators and climb owners without case sensitivity", () => {
   assert.equal(isAdminUserName("Admin"), true);
   assert.equal(isAdminUserName("admin"), true);
   assert.equal(isAdminUserName("aDmIn"), true);
+  assert.equal(isAdminUserName("Spud_fiend"), true);
+  assert.equal(isAdminUserName(" sPuD_fIeNd "), true);
+  assert.equal(isAdminUserName("Spud_fiend2"), false);
+  assert.equal(isAdminUserName("Spud fiend"), false);
   assert.equal(isAdminUserName("Administrator"), false);
   assert.equal(isAdminUser(null), false);
   assert.equal(isAdminUser({ name: "ADMIN" }), true);
+  assert.equal(isAdminUser({ name: "SPUD_FIEND" }), true);
   assert.equal(isSameUserName(" Sheafy ", "sHEAFY"), true);
   assert.equal(canManageClimb({ name: "Sheafy" }, "sHEAFY"), true);
   assert.equal(canManageClimb({ name: "Alex" }, "Sheafy"), false);
   assert.equal(canManageClimb({ name: "admin" }, "Sheafy"), true);
+  assert.equal(canManageClimb({ name: "Spud_fiend" }, "Sheafy"), true);
 });
 
 test("guards every wall setup entry point with the Admin rule", async () => {
@@ -2409,13 +2415,19 @@ test("returns not found for an unknown climb", async () => {
   assert.equal(response.status, 404);
 });
 
-test("uploads, serves, and resets the shared wall photo", async () => {
+for (const adminName of ["aDmIn", "sPuD_fIeNd"]) {
+  test(`uploads, serves, and resets the shared wall photo as ${adminName}`, () =>
+    verifyWallPhotoAccess(adminName),
+  );
+}
+
+async function verifyWallPhotoAccess(adminName) {
   const worker = await loadWorker();
   const bucket = createMemoryWallPhotoBucket();
   const database = createMemoryAppDatabase();
   database.seedProfile({
     id: "profile-admin",
-    name: "aDmIn",
+    name: adminName,
     createdAt: 1,
   });
   database.seedProfile({
@@ -2545,7 +2557,7 @@ test("uploads, serves, and resets the shared wall photo", async () => {
     new Request("http://localhost/api/wall-photo"),
   );
   assert.equal(response.status, 307);
-});
+}
 
 test("serves smaller display photos only for their matching original and preserves the original", async () => {
   const worker = await loadWorker();
@@ -3860,13 +3872,19 @@ test("lists every sender with their current grade and star rating", async () => 
   assert.equal("logbookEntries" in (await response.json()), false);
 });
 
-test("stores climbs by preset hold id and resolves them from shared data", async () => {
+for (const adminName of ["aDmIn", "sPuD_fIeNd"]) {
+  test(`stores and manages shared climbs as ${adminName}`, () =>
+    verifySharedClimbAccess(adminName),
+  );
+}
+
+async function verifySharedClimbAccess(adminName) {
   const worker = await loadWorker();
   const database = createMemoryAppDatabase();
   const adminProfileId = "profile-admin";
   database.seedProfile({
     id: adminProfileId,
-    name: "aDmIn",
+    name: adminName,
     createdAt: 1,
   });
   const environment = createEnvironment({ DB: database });
@@ -4720,7 +4738,7 @@ test("stores climbs by preset hold id and resolves them from shared data", async
     createContext(),
   );
   assert.equal(response.status, 503);
-});
+}
 
 test("includes the wall, app icon, and social preview image assets", async () => {
   for (const relativePath of [

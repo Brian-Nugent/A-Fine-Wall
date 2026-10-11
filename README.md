@@ -162,7 +162,8 @@ name, the API creates or returns the canonical case-insensitive profile, and
 the browser remembers its ID. This is an identity-selection model, not strong
 credential authentication.
 
-Admin status is based on the canonical profile name `Admin`. The Worker
+Admin status is based on the canonical profile names `Admin` and `Spud_fiend`,
+matched without case sensitivity. The Worker
 enforces setter and Admin checks against D1, but there is no signed session
 proving ownership of a profile ID. Do not treat a profile ID, the profile
 cookie, or the Admin name as secure identity for a public or multi-tenant
