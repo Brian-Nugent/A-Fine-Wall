@@ -63,7 +63,7 @@ test("shows the saved polygons in the correct role colors without adding circles
   assert.match(html, /hold-outline--start/);
   assert.match(html, /points="10,20 20,20 15,30"/);
   assert.match(html, /vector-effect="non-scaling-stroke"/);
-  assert.equal((html.match(/<polygon/g) ?? []).length, 1);
+  assert.equal((html.match(/<polygon class="hold-outline /g) ?? []).length, 1);
   assert.doesNotMatch(html, /<circle|<ellipse/);
 });
 

@@ -2352,6 +2352,10 @@ select:focus-visible {
   fill: rgb(255 255 255 / 3%);
 }
 
+.hold-outline--buffered {
+  stroke-width: var(--hold-outline-buffered-width);
+}
+
 .hold-outlines--setup .hold-outline--selected,
 .hold-outlines--setup .hold-outline--draft {
   color: #ffd400;
