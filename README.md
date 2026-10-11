@@ -296,6 +296,14 @@ After deploying outline support, `node scripts/import-preview-holds.mjs` can loa
 that map into an empty test wall. It checks the test bindings and photo hash and
 refuses to overwrite an existing map. It is never run by deployment commands.
 
+The replacement live wall was traced from scratch from `P1022501.JPG` on October
+10, 2026. Its 634 outlines are saved in `data/wall-layouts/2026-10-live-wall.json`.
+The old live climbs and hold map were backed up and cleared for this wall reset;
+profiles were retained. `node scripts/import-live-holds.mjs` initializes only an
+empty production wall, checks the production bindings and exact photo hash, and
+verifies the saved map. It does not delete data and is never run by deployment.
+Test and production maps belong to different photos and must not be interchanged.
+
 ## Repository Map
 
 | Path | Contents |

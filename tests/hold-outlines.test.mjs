@@ -138,3 +138,30 @@ test("the traced test-wall map has unique IDs and a valid boundary on every hold
     assert.ok(hold.size > 0 && hold.size <= 20, hold.id);
   }
 });
+
+test("the replacement live-wall map contains fresh, valid outlines for the exact new photo", async () => {
+  const layout = JSON.parse(await readFile(new URL("../data/wall-layouts/2026-10-live-wall.json", import.meta.url), "utf8"));
+  const preview = JSON.parse(await readFile(new URL("../data/wall-layouts/2026-10-test-wall.json", import.meta.url), "utf8"));
+  assert.equal(layout.photoSha256, "06dad8b15752f23f2344a1e214bc4b84e1869974c517aaf47252c93fe6de4c96");
+  assert.equal(layout.holds.length, 634);
+  assert.equal(new Set(layout.holds.map(hold => hold.id)).size, layout.holds.length);
+  const previewIds = new Set(preview.holds.map(hold => hold.id));
+  const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  for (const hold of layout.holds) {
+    assert.equal(previewIds.has(hold.id), false, hold.id);
+    assert.equal(isHoldOutline(hold.outline), true, hold.id);
+    assert.ok(hold.size > 0 && hold.size <= 20, hold.id);
+    const bounds = outlineBounds(hold.outline);
+    assert.ok(Math.abs(hold.x - (bounds.left + bounds.right) / 2) <= 0.001, hold.id);
+    assert.ok(Math.abs(hold.y - (bounds.top + bounds.bottom) / 2) <= 0.001, hold.id);
+    for (let i = 0; i < hold.outline.length; i++) {
+      for (let j = i + 2; j < hold.outline.length; j++) {
+        if (i === 0 && j === hold.outline.length - 1) continue;
+        const a = hold.outline[i], b = hold.outline[(i + 1) % hold.outline.length];
+        const c = hold.outline[j], d = hold.outline[(j + 1) % hold.outline.length];
+        assert.equal(cross(a, b, c) * cross(a, b, d) < 0 && cross(c, d, a) * cross(c, d, b) < 0,
+          false, `${hold.id} has crossing edges`);
+      }
+    }
+  }
+});
