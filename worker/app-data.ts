@@ -1,3 +1,5 @@
+import { isClimbDescription } from "../app/climbs/climb-description";
+import { normalizeListName, type ClimbList } from "../app/lists/climb-lists";
 import {
   isClimbKind,
   isDemoClimbId,
@@ -50,6 +52,7 @@ type ClimbHold = {
 type Climb = {
   id: string;
   name: string;
+  description?: string;
   grade: string;
   setter: string;
   createdAt: number;
@@ -85,6 +88,7 @@ type WallConfigurationRow = {
 type ClimbRow = {
   id: string;
   name: string;
+  description: string;
   grade: string;
   setter: string;
   created_at: number;
@@ -330,10 +334,16 @@ function parseClimbHolds(value: unknown): ClimbHold[] {
   return holds;
 }
 
+function parseDescription(value: unknown) {
+  if (value === undefined) return undefined;
+  if (!isClimbDescription(value)) throw new ApiError("Descriptions must be text of at most 2,000 characters.", 400);
+  return value.trim();
+}
+
 function parseClimbBody(value: unknown): Climb {
   if (
     !isPlainObject(value) ||
-    !hasOnlyKeys(value, ["id", "name", "grade", "setter", "createdAt", "holds"])
+    !hasOnlyKeys(value, ["id", "name", "description", "grade", "setter", "createdAt", "holds"])
   ) {
     throw new ApiError("Send valid climb details.", 400);
   }
@@ -359,6 +369,7 @@ function parseClimbBody(value: unknown): Climb {
   }
 
   const holds = parseClimbHolds(value.holds);
+  const description = parseDescription(value.description);
 
   return {
     id,
@@ -368,6 +379,7 @@ function parseClimbBody(value: unknown): Climb {
     createdAt,
     holds,
     rockoApproved: false,
+    ...(description ? { description } : {}),
   };
 }
 
@@ -380,6 +392,7 @@ function parseClimbUpdateBody(value: unknown) {
       "holds",
       "expectedWallUpdatedAt",
       "profileId",
+      "description",
     ])
   ) {
     throw new ApiError("Send valid climb changes.", 400);
@@ -403,6 +416,7 @@ function parseClimbUpdateBody(value: unknown) {
   return {
     name,
     grade: value.grade,
+    description: parseDescription(value.description),
     holds: parseClimbHolds(value.holds),
     expectedWallUpdatedAt: value.expectedWallUpdatedAt,
     profileId: value.profileId,
@@ -653,9 +667,24 @@ async function initializeSchema(db: D1Database) {
         setter TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         holds_json TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
         rocko_approved INTEGER NOT NULL DEFAULT 0
       )
     `),
+    db.prepare(`CREATE TABLE IF NOT EXISTS climb_lists (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS climb_list_entries (
+      list_id TEXT NOT NULL REFERENCES climb_lists(id) ON DELETE CASCADE,
+      climb_id TEXT NOT NULL REFERENCES climbs(id) ON DELETE CASCADE,
+      added_at INTEGER NOT NULL,
+      PRIMARY KEY (list_id, climb_id)
+    )`),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_climb_lists_profile_id ON climb_lists(profile_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_climb_list_entries_climb_id ON climb_list_entries(climb_id)"),
     db.prepare(`
       CREATE TABLE IF NOT EXISTS deleted_climbs (
         id TEXT PRIMARY KEY,
@@ -693,6 +722,15 @@ async function initializeSchema(db: D1Database) {
   ]);
   await ensureClimbApprovalColumn(db);
   await ensureClimbSendGradeColumn(db);
+  const columns = await db.prepare("PRAGMA table_info(climbs)").all<TableInfoRow>();
+  if (!columns.results.some(column => column.name === "description")) {
+    try {
+      await db.prepare("ALTER TABLE climbs ADD COLUMN description TEXT NOT NULL DEFAULT ''").run();
+    } catch (error) {
+      const recheck = await db.prepare("PRAGMA table_info(climbs)").all<TableInfoRow>();
+      if (!recheck.results.some(column => column.name === "description")) throw error;
+    }
+  }
 }
 
 async function ensureSchema(db: D1Database) {
@@ -775,6 +813,7 @@ function rowToClimb(row: ClimbRow): Climb {
         id: row.id,
         name: row.name,
         grade: row.grade,
+        description: row.description,
         setter: row.setter,
         createdAt: row.created_at,
         holds,
@@ -1399,7 +1438,7 @@ async function handleClimbs(request: Request, db: D1Database) {
     const [result, wallConfiguration, consensusGrades] = await Promise.all([
       db
         .prepare(
-          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs ORDER BY created_at DESC, id ASC",
+          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description FROM climbs ORDER BY created_at DESC, id ASC",
         )
         .all<ClimbRow>(),
       loadWallConfiguration(db),
@@ -1429,7 +1468,7 @@ async function handleClimbs(request: Request, db: D1Database) {
     const setter = profile.name;
     const existing = await db
       .prepare(
-        "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs WHERE id = ?",
+        "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description FROM climbs WHERE id = ?",
       )
       .bind(parsedClimb.id)
       .first<ClimbRow>();
@@ -1466,7 +1505,7 @@ async function handleClimbs(request: Request, db: D1Database) {
         .run();
       const claimed = await db
         .prepare(
-          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs WHERE id = ?",
+          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description FROM climbs WHERE id = ?",
         )
         .bind(parsedClimb.id)
         .first<ClimbRow>();
@@ -1507,8 +1546,8 @@ async function handleClimbs(request: Request, db: D1Database) {
     try {
       const inserted = await db
         .prepare(
-          `INSERT INTO climbs (id, name, grade, setter, created_at, holds_json)
-           SELECT ?, ?, ?, ?, ?, ?
+          `INSERT INTO climbs (id, name, grade, setter, created_at, holds_json, description)
+           SELECT ?, ?, ?, ?, ?, ?, ?
            WHERE EXISTS (
              SELECT 1 FROM wall_configuration WHERE id = ? AND updated_at = ?
            )
@@ -1524,6 +1563,7 @@ async function handleClimbs(request: Request, db: D1Database) {
           climb.setter,
           climb.createdAt,
           JSON.stringify(climb.holds),
+          climb.description ?? "",
           WALL_CONFIGURATION_ID,
           expectedWallUpdatedAt,
           climb.id,
@@ -1606,7 +1646,7 @@ async function handleRockoApproval(
       `UPDATE climbs
        SET rocko_approved = ?
        WHERE id = ?
-       RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved`,
+       RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved, description`,
     )
     .bind(rockoApproved ? 1 : 0, id)
     .first<ClimbRow>();
@@ -1661,7 +1701,7 @@ async function handleClimbDetail(
 
   const row = await db
     .prepare(
-      "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved FROM climbs WHERE id = ?",
+      "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description FROM climbs WHERE id = ?",
     )
     .bind(id)
     .first<ClimbRow>();
@@ -1726,17 +1766,18 @@ async function handleClimbDetail(
     const updated = await db
       .prepare(
         `UPDATE climbs
-         SET name = ?, grade = ?, holds_json = ?
+         SET name = ?, grade = ?, holds_json = ?, description = COALESCE(?, description)
          WHERE id = ?
            AND EXISTS (
              SELECT 1 FROM wall_configuration WHERE id = ? AND updated_at = ?
            )
-         RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved`,
+         RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved, description`,
       )
       .bind(
         changes.name,
         changes.grade,
         JSON.stringify(holds),
+        changes.description ?? null,
         id,
         WALL_CONFIGURATION_ID,
         changes.expectedWallUpdatedAt,
@@ -1775,12 +1816,92 @@ async function handleClimbDetail(
   });
 }
 
+type ClimbListRow = { id: string; name: string; created_at: number };
+
+async function readClimbLists(db: D1Database, profileId: string): Promise<ClimbList[]> {
+  const [lists, entries] = await Promise.all([
+    db.prepare("SELECT id, name, created_at FROM climb_lists WHERE profile_id = ? ORDER BY created_at DESC, id ASC")
+      .bind(profileId).all<ClimbListRow>(),
+    db.prepare(`SELECT entries.list_id, entries.climb_id FROM climb_list_entries AS entries
+      JOIN climb_lists AS lists ON lists.id = entries.list_id
+      WHERE lists.profile_id = ? ORDER BY entries.added_at, entries.climb_id`)
+      .bind(profileId).all<{ list_id: string; climb_id: string }>(),
+  ]);
+  const membership = new Map<string, string[]>();
+  for (const entry of entries.results) {
+    const ids = membership.get(entry.list_id) ?? [];
+    ids.push(entry.climb_id);
+    membership.set(entry.list_id, ids);
+  }
+  return lists.results.map(list => ({
+    id: list.id, name: list.name, createdAt: list.created_at,
+    climbIds: membership.get(list.id) ?? [],
+  }));
+}
+
+async function handleClimbLists(request: Request, db: D1Database, listId?: string, climbId?: string) {
+  const methods = climbId ? ["PUT", "DELETE"] : listId ? ["PATCH", "DELETE"] : ["GET", "POST"];
+  if (!methods.includes(request.method)) return methodNotAllowed(methods);
+  if (request.method !== "GET") requireSameOrigin(request);
+  const requestedProfileId = new URL(request.url).searchParams.get("profileId");
+  if (!requestedProfileId || !recordIdPattern.test(requestedProfileId)) {
+    throw new ApiError("Choose your user name before using lists.", 400);
+  }
+  const profile = await loadCanonicalProfile(db, requestedProfileId);
+  if (!profile) throw new ApiError("User profile not found.", 404);
+  if (listId) {
+    if (!recordIdPattern.test(listId)) throw new ApiError("List not found.", 404);
+    const owned = await db.prepare("SELECT id FROM climb_lists WHERE id = ? AND profile_id = ?")
+      .bind(listId, profile.id).first();
+    if (!owned) throw new ApiError("List not found.", 404);
+  }
+
+  if (climbId) {
+    if (!recordIdPattern.test(climbId)) throw new ApiError("Climb not found.", 404);
+    if (request.method === "PUT") {
+      const climb = await db.prepare("SELECT id FROM climbs WHERE id = ?").bind(climbId).first();
+      if (!climb) throw new ApiError("This climb is no longer available.", 404);
+      // INSERT SELECT also handles a climb or list deleted after the checks above.
+      await db.prepare(`INSERT OR IGNORE INTO climb_list_entries (list_id, climb_id, added_at)
+        SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM climbs WHERE id = ?)
+        AND EXISTS (SELECT 1 FROM climb_lists WHERE id = ? AND profile_id = ?)`)
+        .bind(listId, climbId, Date.now(), climbId, listId, profile.id).run();
+    } else {
+      await db.prepare("DELETE FROM climb_list_entries WHERE list_id = ? AND climb_id = ?")
+        .bind(listId, climbId).run();
+    }
+  } else if (request.method === "POST" || request.method === "PATCH") {
+    const body = await readLimitedJson(request, 4096);
+    if (!isPlainObject(body) || !hasOnlyKeys(body, ["name"])) {
+      throw new ApiError("Enter a list name.", 400);
+    }
+    const name = normalizeListName(body.name);
+    if (!name) throw new ApiError("List names must be between 1 and 80 characters.", 400);
+    if (listId) {
+      await db.prepare("UPDATE climb_lists SET name = ? WHERE id = ? AND profile_id = ?")
+        .bind(name, listId, profile.id).run();
+    } else {
+      const id = crypto.randomUUID();
+      const createdAt = Date.now();
+      const inserted = await db.prepare(`INSERT INTO climb_lists (id, profile_id, name, created_at)
+        SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM climb_lists WHERE profile_id = ?) < 100 RETURNING id`)
+        .bind(id, profile.id, name, createdAt, profile.id).first();
+      if (!inserted) throw new ApiError("You can save up to 100 lists. Delete a list before creating another.", 400);
+      return json({ list: { id, name, createdAt, climbIds: [] }, lists: await readClimbLists(db, profile.id) }, 201);
+    }
+  } else if (request.method === "DELETE") {
+    await db.prepare("DELETE FROM climb_lists WHERE id = ? AND profile_id = ?").bind(listId, profile.id).run();
+  }
+  return json({ lists: await readClimbLists(db, profile.id) });
+}
+
 export function isAppDataPath(pathname: string) {
   return (
     pathname === WALL_HOLDS_PATH ||
     pathname === CLIMBS_PATH ||
     pathname === PROFILES_PATH ||
     pathname === SENDS_PATH ||
+    /^\/api\/lists(?:\/[^/]+(?:\/climbs\/[^/]+)?)?$/.test(pathname) ||
     /^\/api\/climbs\/[^/]+\/rocko-approval$/.test(pathname) ||
     /^\/api\/climbs\/[^/]+$/.test(pathname) ||
     /^\/api\/profiles\/[^/]+$/.test(pathname)
@@ -1800,6 +1921,8 @@ export async function handleAppDataRequest(
     if (pathname === PROFILES_PATH) return await handleProfiles(request, db);
     if (pathname === CLIMBS_PATH) return await handleClimbs(request, db);
     if (pathname === SENDS_PATH) return await handleSends(request, db);
+    const listMatch = /^\/api\/lists(?:\/([^/]+)(?:\/climbs\/([^/]+))?)?$/.exec(pathname);
+    if (listMatch) return await handleClimbLists(request, db, listMatch[1], listMatch[2]);
 
     const profileMatch = /^\/api\/profiles\/([^/]+)$/.exec(pathname);
     if (profileMatch) {

@@ -32,6 +32,8 @@ import { loadClimbActivities } from "./send-api";
 import { loadSyncedClimbs } from "./synced-climbs";
 import { useActiveUser } from "../user-profile-provider";
 import { isAdminUser } from "../user-access";
+import { useClimbLists } from "../lists/use-climb-lists";
+import { DEFAULT_CLIMB_FILTERS } from "./climb-filters";
 
 function ClimbRow({
   activity,
@@ -129,6 +131,10 @@ export default function ClimbListClient({
   initialFilters: ClimbFilters;
 }) {
   const { profile, changeUser } = useActiveUser();
+  const lists = useClimbLists(profile?.id, Boolean(initialFilters.listId));
+  const selectedList = lists.lists.find(list => list.id === initialFilters.listId);
+  const listUnavailable = Boolean(initialFilters.listId && (lists.error || (lists.ready && !selectedList)));
+  const clearFiltersHref = buildFilteredHref("/climbs", { ...DEFAULT_CLIMB_FILTERS, listId: initialFilters.listId });
   const [savedClimbs, setSavedClimbs] = useState<SavedClimb[]>([]);
   const [loadStatus, setLoadStatus] = useState<"loading" | "ready">(
     "loading",
@@ -214,7 +220,7 @@ export default function ClimbListClient({
   const needsActivityData = requiresClimbActivity(initialFilters);
   const activityOptionsUnavailable =
     needsActivityData && activityStatus === "error";
-  const allClimbs = [
+  const availableClimbs = [
     ...savedClimbs.map((climb) => ({
       activity:
         activitiesByClimb.get(
@@ -258,6 +264,9 @@ export default function ClimbListClient({
       setter: climb.setter,
     })),
   ];
+  const allClimbs = initialFilters.listId
+    ? availableClimbs.filter(entry => entry.reference.climbKind === "saved" && selectedList?.climbIds.includes(entry.id))
+    : availableClimbs;
   const filteredClimbs = selectVisibleClimbs(allClimbs, initialFilters);
   const normalizedSearchQuery = searchQuery.trim();
   const hasSearchQuery = normalizedSearchQuery.length > 0;
@@ -278,6 +287,7 @@ export default function ClimbListClient({
   const activeFilterCount = activeClimbFilterCount(initialFilters);
   const hasFilterConstraints = hasClimbFilterConstraints(initialFilters);
   const isLoadingClimbs =
+    Boolean(initialFilters.listId && !lists.ready && !lists.error) ||
     loadStatus === "loading" ||
     (needsActivityData && activityStatus === "loading");
   const listState = getClimbListState({
@@ -324,6 +334,7 @@ export default function ClimbListClient({
           A Fine Wall
         </a>
         <div className="list-header-actions">
+          <a className="wall-photo-link" href="/lists">My Lists</a>
           {isAdminUser(profile) ? (
             <a className="wall-photo-link" href="/wall-photo">
               Wall Setup
@@ -369,7 +380,7 @@ export default function ClimbListClient({
                 <a
                   aria-label="Clear all filters"
                   className="filter-clear-link"
-                  href="/climbs"
+                  href={clearFiltersHref}
                   title="Clear all filters"
                 >
                   <span aria-hidden="true">&times;</span>
@@ -392,6 +403,9 @@ export default function ClimbListClient({
             </div>
           </div>
         </div>
+
+        {initialFilters.listId ? <div className="active-list-heading"><strong>{selectedList?.name ?? "Saved list"}</strong><a href="/lists">My Lists</a><a href="/climbs">All Climbs</a></div> : null}
+        {listUnavailable ? <div className="climb-sync-notice" role="alert">{lists.error || "This list is not available for your current user."} {lists.error ? <button className="text-button" onClick={lists.reload} type="button">Retry</button> : null}</div> : null}
 
         <div aria-label="Search climbs" className="climb-search" role="search">
           <label className="sr-only" htmlFor="climb-search-input">
@@ -438,7 +452,7 @@ export default function ClimbListClient({
           </div>
         ) : null}
 
-        {!isLoadingClimbs && !activityOptionsUnavailable && visibleClimbs > 0 ? (
+        {!listUnavailable && !isLoadingClimbs && !activityOptionsUnavailable && visibleClimbs > 0 ? (
           <ul className="climb-list">
             {searchedClimbs.map((entry) => (
               <ClimbRow
@@ -453,7 +467,7 @@ export default function ClimbListClient({
           </ul>
         ) : null}
 
-        {activityOptionsUnavailable ? null : listState === "loading" ? (
+        {listUnavailable || activityOptionsUnavailable ? null : listState === "loading" ? (
           <div className="climb-filter-loading" role="status">
             Loading climbs&hellip;
           </div>
@@ -473,10 +487,10 @@ export default function ClimbListClient({
           </div>
         ) : listState === "empty" ? (
           <div className="climb-filter-empty">
-            <h2>No climbs yet</h2>
-            <p>Set the first climb on this wall to get started.</p>
-            <a className="primary-button" href="/set-climb">
-              Set Climb
+            <h2>{initialFilters.listId ? "No climbs in this list yet" : "No climbs yet"}</h2>
+            <p>{initialFilters.listId ? "Open a climb and choose “Save to list” to add it here." : "Set the first climb on this wall to get started."}</p>
+            <a className="primary-button" href={initialFilters.listId ? "/climbs" : "/set-climb"}>
+              {initialFilters.listId ? "Browse Climbs" : "Set Climb"}
             </a>
           </div>
         ) : listState === "filtered-empty" && hasSearchQuery ? (
@@ -498,7 +512,7 @@ export default function ClimbListClient({
         ) : listState === "filtered-empty" ? (
           <div className="climb-filter-empty">
             <h2>No climbs match these filters</h2>
-            <a className="secondary-button" href="/climbs">
+            <a className="secondary-button" href={clearFiltersHref}>
               Clear Filters
             </a>
           </div>

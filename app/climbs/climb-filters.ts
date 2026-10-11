@@ -14,6 +14,7 @@ const holdIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 export type ClimbOrder = "newest" | "ascents" | "grade";
 
 export type ClimbFilters = {
+  listId?: string;
   colors: GradeBand[];
   authors: string[];
   holdIds: string[];
@@ -173,6 +174,7 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
     minStars: normalizeStars(filters.minStars),
     rockoApprovedOnly: filters.rockoApprovedOnly === true,
     order: normalizeOrder(filters.order),
+    ...(filters.listId && holdIdPattern.test(filters.listId) ? { listId: filters.listId } : {}),
   };
 }
 
@@ -206,12 +208,14 @@ export function parseClimbFilters(
     minStars: readStars(valuesFor(source, "stars")),
     rockoApprovedOnly: valuesFor(source, "rocko")[0] === "approved",
     order: normalizeOrder(valuesFor(source, "order")[0]),
+    listId: valuesFor(source, "list")[0],
   });
 }
 
 export function createClimbFilterSearchParams(filters: ClimbFilters) {
   const normalized = normalizeClimbFilters(filters);
   const searchParams = new URLSearchParams();
+  if (normalized.listId) searchParams.set("list", normalized.listId);
 
   normalized.colors.forEach((color) => searchParams.append("color", color));
   normalized.authors.forEach((author) => searchParams.append("author", author));

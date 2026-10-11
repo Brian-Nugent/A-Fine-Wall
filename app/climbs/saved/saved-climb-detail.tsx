@@ -34,6 +34,8 @@ import {
 import WallPhoto from "../wall-photo";
 import HoldOutlines from "../hold-outlines";
 import ClimbPhotoNavigation from "../climb-photo-navigation";
+import SaveToList from "../../lists/save-to-list";
+import { loadClimbLists } from "../../lists/list-api";
 import ClimbActivityPanel from "../climb-activity-panel";
 import { ClimbActivityProvider, ClimbDetailGrade } from "../climb-activity-context";
 import {
@@ -451,8 +453,9 @@ export default function SavedClimbDetail({
       ? loadClimbActivities(profile.id, controller.signal)
       : Promise.resolve([]);
 
-    Promise.all([syncedClimbsRequest, activitiesRequest])
-      .then(([syncedClimbs, activities]) => {
+    const listsRequest = filters.listId ? loadClimbLists(profile.id, controller.signal) : Promise.resolve([]);
+    Promise.all([syncedClimbsRequest, activitiesRequest, listsRequest])
+      .then(([syncedClimbs, activities, lists]) => {
         if (!isActive) return;
 
         const activitiesByClimb = new Map(
@@ -462,7 +465,7 @@ export default function SavedClimbDetail({
           ]),
         );
         const visibleClimbs = selectVisibleClimbs(
-          syncedClimbs.climbs.map((item) => ({
+          syncedClimbs.climbs.filter(item => !filters.listId || lists.find(list => list.id === filters.listId)?.climbIds.includes(item.id)).map((item) => ({
             ...item,
             activity:
               activitiesByClimb.get(
@@ -760,6 +763,7 @@ export default function SavedClimbDetail({
               <h1 id="climb-name">{climb.name}</h1>
               <ClimbDetailGrade className="detail-grade" grade={climb.grade} />
             </div>
+            {climb.description ? <p className="climb-description">{climb.description}</p> : null}
             <div className="detail-meta-line">
               <p>Set by {climb.setter}</p>
               <div className="detail-status-tags">
@@ -775,6 +779,8 @@ export default function SavedClimbDetail({
               </div>
             </div>
           </div>
+
+          <SaveToList key={`${profile?.id}:${climb.id}`} climbId={climb.id} />
 
           {climb.outdated ? (
             <div className="climb-outdated-notice" role="status">

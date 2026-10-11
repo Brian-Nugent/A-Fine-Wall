@@ -19,6 +19,7 @@ import {
   parseClimbFilters,
 } from "../climbs/climb-filters";
 import { clearSessionClimbNavigationSnapshot } from "../climbs/climb-navigation-snapshot";
+import { MAX_CLIMB_DESCRIPTION_LENGTH } from "../climbs/climb-description";
 import {
   CLIMB_GRADES,
   nextSavedHoldRole,
@@ -127,6 +128,7 @@ export default function SetClimbPage() {
   >("loading");
   const [selectedHolds, setSelectedHolds] = useState<DraftHold[]>([]);
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [grade, setGrade] = useState("");
   const [nameError, setNameError] = useState("");
   const [gradeError, setGradeError] = useState("");
@@ -196,6 +198,7 @@ export default function SetClimbPage() {
         setEditingClimb(savedClimb);
         setSelectedHolds(restoredHolds);
         setName(savedClimb.name);
+        setDescription(savedClimb.description ?? "");
         setGrade(savedClimb.setterGrade ?? savedClimb.grade);
         setEditLoadStatus("ready");
       } catch (error) {
@@ -280,6 +283,7 @@ export default function SetClimbPage() {
     const climb: SavedClimb = {
       id: editingClimb?.id ?? makeClimbId(),
       name: trimmedName,
+      description: description.trim(),
       grade,
       setter: editingClimb?.setter ?? profile.name,
       profileId: editingClimb?.profileId ?? profile.id,
@@ -560,6 +564,16 @@ export default function SetClimbPage() {
                 {nameError}
               </p>
             ) : null}
+
+            <label htmlFor="climb-description-input">Description (optional)</label>
+            <textarea
+              id="climb-description-input"
+              maxLength={MAX_CLIMB_DESCRIPTION_LENGTH}
+              rows={4}
+              placeholder="Share beta, rules, or the story behind this climb."
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
 
             <label htmlFor="climb-grade-select">Grade</label>
             <select

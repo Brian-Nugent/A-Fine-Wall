@@ -22,6 +22,7 @@ import {
 import { climbs } from "../data";
 import { loadClimbActivities } from "../send-api";
 import { loadSyncedClimbs } from "../synced-climbs";
+import { useClimbLists } from "../../lists/use-climb-lists";
 
 type AvailableClimb = {
   climb: FilterableClimb;
@@ -46,6 +47,8 @@ export default function FilterOptionsClient({
   initialFilters: ClimbFilters;
 }) {
   const { profile } = useActiveUser();
+  const lists = useClimbLists(profile?.id, Boolean(initialFilters.listId));
+  const selectedList = lists.lists.find(list => list.id === initialFilters.listId);
   const [colors, setColors] = useState(initialFilters.colors);
   const [authors, setAuthors] = useState(initialFilters.authors);
   const [holdIds, setHoldIds] = useState(initialFilters.holdIds);
@@ -112,6 +115,7 @@ export default function FilterOptionsClient({
 
   const currentFilters = useMemo<ClimbFilters>(
     () => ({
+      ...(initialFilters.listId ? { listId: initialFilters.listId } : {}),
       colors,
       authors,
       holdIds,
@@ -122,6 +126,7 @@ export default function FilterOptionsClient({
       order,
     }),
     [
+      initialFilters.listId,
       authors,
       colors,
       hideSent,
@@ -140,6 +145,7 @@ export default function FilterOptionsClient({
   );
   const matchingCount = availableClimbs.filter(
     (entry) =>
+      (!initialFilters.listId || selectedList?.climbIds.some(id => entry.key === `saved:${id}`)) &&
       matchesClimbFilters(entry.climb, currentFilters) &&
       matchesClimbActivityFilters(
         activitiesByClimb.get(entry.key) ?? null,
@@ -150,9 +156,11 @@ export default function FilterOptionsClient({
   const needsActivityData =
     hideSent || minStars > 0 || order === "ascents";
   const matchCountUnavailable =
-    climbLoadFailed || (needsActivityData && activityLoadFailed);
+    climbLoadFailed || (needsActivityData && activityLoadFailed) ||
+    Boolean(initialFilters.listId && (lists.error || (lists.ready && !selectedList)));
   const isMatchCountLoading =
-    isLoadingMatches || !profile || loadedProfileId !== profile.id;
+    isLoadingMatches || !profile || loadedProfileId !== profile.id ||
+    Boolean(initialFilters.listId && !lists.ready && !lists.error);
   const applyButtonState = isMatchCountLoading
     ? "loading"
     : matchCountUnavailable

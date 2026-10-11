@@ -1901,8 +1901,44 @@ select:focus-visible {
   font-weight: 700;
 }
 
+.climb-form textarea { resize: vertical; font-family: inherit; line-height: 1.5; }
+.detail-title .climb-description { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.6rem 0; color: var(--ink); line-height: 1.5; font-size: 0.95rem; }
+.lists-intro, .lists-empty { color: #656565; line-height: 1.6; margin: 1rem 0; }
+.lists-content { padding: 1.75rem 1.25rem; }
+.lists-content h1 { margin: 0 0 0.65rem; font-size: 2rem; font-weight: 700; letter-spacing: -0.045em; }
+.list-name-form { margin: 1rem 0; }
+.list-inline-form { display: flex; gap: 0.65rem; align-items: stretch; }
+.list-inline-form input { flex: 1; min-width: 0; }
+.list-inline-form button { flex-shrink: 0; }
+.personal-lists { list-style: none; padding: 0; margin: 1.5rem 0; }
+.personal-lists > li { border-top: 1px solid #dedede; padding: 1rem 0; }
+.personal-list-link { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0; text-decoration: none; color: var(--ink); }
+.personal-list-link strong { overflow-wrap: anywhere; min-width: 0; }
+.personal-list-link span { color: #656565; flex-shrink: 0; }
+.list-actions { display: flex; gap: 1.25rem; align-items: center; margin-top: 0.6rem; }
+.list-delete-confirm { background: #fff5f5; border-radius: 0.5rem; padding: 0.8rem; margin-top: 0.8rem; }
+.list-delete-confirm p { margin: 0; overflow-wrap: anywhere; }
+.save-to-list { margin: -0.4rem 1.25rem 0.8rem; }
+.save-list-toggle { min-height: 2.75rem; padding-inline: 0; }
+.save-list-panel { border: 1px solid #dedede; border-radius: 0.75rem; padding: 1rem; margin-bottom: 1rem; }
+.save-list-panel h2 { font-size: 1rem; margin: 0 0 0.7rem; }
+.list-membership { display: flex; align-items: center; gap: 0.7rem; min-height: 2.75rem; cursor: pointer; overflow-wrap: anywhere; }
+.list-membership input { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); flex-shrink: 0; }
+.list-membership span { min-width: 0; }
+.manage-lists-link { display: inline-block; margin-top: 0.5rem; color: var(--ink); font-size: 0.85rem; }
+.active-list-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; margin: 0.6rem 1.25rem 1rem; }
+.active-list-heading strong { flex: 1; overflow-wrap: anywhere; min-width: 0; }
+.active-list-heading a { color: var(--ink); font-size: 0.85rem; }
+@media (max-width: 480px) {
+  .list-header { flex-wrap: wrap; gap: 0.8rem; }
+  .list-header-actions { margin-left: auto; }
+  .list-inline-form { flex-wrap: wrap; }
+  .list-inline-form input { flex-basis: 10rem; }
+}
+
 .climb-form input,
-.climb-form select {
+.climb-form select,
+.climb-form textarea {
   width: 100%;
   min-height: 3.5rem;
   padding: 0.8rem 0.95rem;

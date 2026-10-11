@@ -230,8 +230,8 @@ function createMemoryAppDatabase() {
         if (normalized === "pragma table_info(climbs)") {
           return {
             results: climbsHaveRockoApproval
-              ? [{ name: "rocko_approved" }]
-              : [],
+              ? [{ name: "rocko_approved" }, { name: "description" }]
+              : [{ name: "description" }],
           };
         }
         if (normalized === "pragma table_info(climb_sends)") {
@@ -430,8 +430,8 @@ function createMemoryAppDatabase() {
         ) {
           if (
             !wallConfiguration ||
-            wallConfiguration.updated_at !== values[7] ||
-            deletedClimbs.has(values[8])
+            wallConfiguration.updated_at !== values[8] ||
+            deletedClimbs.has(values[9])
           ) {
             return null;
           }
@@ -446,6 +446,7 @@ function createMemoryAppDatabase() {
             created_at: values[4],
             holds_json: values[5],
             rocko_approved: 0,
+            description: values[6],
           });
           return { id: values[0] };
         }
@@ -465,26 +466,27 @@ function createMemoryAppDatabase() {
         if (
           normalized.startsWith("update climbs set name = ?") &&
           normalized.endsWith(
-            "returning id, name, grade, setter, created_at, holds_json, rocko_approved",
+            "returning id, name, grade, setter, created_at, holds_json, rocko_approved, description",
           )
         ) {
-          const climb = savedClimbs.get(values[3]);
+          const climb = savedClimbs.get(values[4]);
           if (
             !climb ||
             !wallConfiguration ||
-            wallConfiguration.updated_at !== values[5]
+            wallConfiguration.updated_at !== values[6]
           ) {
             return null;
           }
           climb.name = values[0];
           climb.grade = values[1];
           climb.holds_json = values[2];
+          climb.description = values[3] ?? climb.description ?? "";
           return climb;
         }
         if (
           normalized.startsWith("update climbs set rocko_approved = ?") &&
           normalized.endsWith(
-            "returning id, name, grade, setter, created_at, holds_json, rocko_approved",
+            "returning id, name, grade, setter, created_at, holds_json, rocko_approved, description",
           )
         ) {
           const climb = savedClimbs.get(values[1]);
@@ -4980,7 +4982,7 @@ test("adds nullable send grades without rewriting legacy sends", async () => {
     notNull: false,
     autoincrement: false,
   });
-  assert.equal(journal.entries.at(-1)?.tag, "0007_previous_peter_quill");
+  assert.equal(journal.entries.find(entry => entry.idx === 7)?.tag, "0007_previous_peter_quill");
   assert.match(schemaSource, /grade:\s*text\("grade"\)/);
   assert.match(workerSource, /PRAGMA table_info\(climb_sends\)/);
   assert.match(workerSource, /ALTER TABLE climb_sends ADD COLUMN grade TEXT/);

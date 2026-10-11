@@ -73,6 +73,7 @@ export async function saveClimb(
   const climbPayload = {
     id: climb.id,
     name: climb.name,
+    description: climb.description,
     grade: climb.setterGrade ?? climb.grade,
     setter: climb.setter,
     createdAt: climb.createdAt,
@@ -116,6 +117,7 @@ export async function updateClimb(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: climb.name,
+        description: climb.description,
         grade: climb.setterGrade ?? climb.grade,
         holds: climb.holds,
         expectedWallUpdatedAt,

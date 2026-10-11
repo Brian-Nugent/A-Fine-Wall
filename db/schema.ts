@@ -33,6 +33,7 @@ export const climbs = sqliteTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
+    description: text("description").notNull().default(""),
     grade: text("grade").notNull(),
     setter: text("setter").notNull(),
     createdAt: integer("created_at").notNull(),
@@ -48,6 +49,22 @@ export const deletedClimbs = sqliteTable("deleted_climbs", {
   id: text("id").primaryKey(),
   deletedAt: integer("deleted_at").notNull(),
 });
+
+export const climbLists = sqliteTable("climb_lists", {
+  id: text("id").primaryKey(),
+  profileId: text("profile_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_climb_lists_profile_id").on(table.profileId)]);
+
+export const climbListEntries = sqliteTable("climb_list_entries", {
+  listId: text("list_id").notNull().references(() => climbLists.id, { onDelete: "cascade" }),
+  climbId: text("climb_id").notNull().references(() => climbs.id, { onDelete: "cascade" }),
+  addedAt: integer("added_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.listId, table.climbId] }),
+  index("idx_climb_list_entries_climb_id").on(table.climbId),
+]);
 
 export const climbSends = sqliteTable(
   "climb_sends",

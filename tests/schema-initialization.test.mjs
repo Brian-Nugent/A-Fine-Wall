@@ -11,7 +11,7 @@ function databaseWithInitialization(batch) {
         bind() { return this; },
         async all() {
           return { results: sql.startsWith("PRAGMA")
-            ? [{ name: "rocko_approved" }, { name: "grade" }]
+            ? [{ name: "rocko_approved" }, { name: "grade" }, { name: "description" }]
             : [] };
         },
       };

@@ -1,4 +1,5 @@
 import { isHoldOutline, type HoldPoint } from "./hold-geometry";
+import { isClimbDescription } from "./climb-description";
 
 export const SAVED_CLIMBS_KEY = "a-fine-wall:saved-climbs:v1";
 export const CLIMB_GRADES = Array.from(
@@ -33,6 +34,7 @@ export type SavedHold = {
 export type SavedClimb = {
   id: string;
   name: string;
+  description?: string;
   grade: string;
   setterGrade?: string;
   setter: string;
@@ -123,6 +125,7 @@ export function isSavedClimb(value: unknown): value is SavedClimb {
     typeof climb.name === "string" &&
     climb.name.trim().length > 0 &&
     climb.name.length <= 50 &&
+    (climb.description === undefined || isClimbDescription(climb.description)) &&
     isClimbGrade(climb.grade) &&
     (climb.setterGrade === undefined || isClimbGrade(climb.setterGrade)) &&
     isStoredSetterName(climb.setter) &&
