@@ -1708,14 +1708,15 @@ select:focus-visible {
 .circuit-hold-number {
   --circuit-corner-radius: 0.35rem;
   /* Offset the rounded bottom-left corner so its border touches the hold. */
-  --circuit-corner-inset: calc(var(--circuit-corner-radius) * 0.2928932188);
+  --circuit-corner-inset: calc(var(--circuit-corner-radius) * 0.2928932188 * var(--circuit-number-scale, 1));
   position: absolute;
   display: grid;
   place-items: center;
   min-width: 1.4rem;
   height: 1.4rem;
   padding-inline: 0.2rem;
-  transform: translate(0, -100%);
+  transform: translate(0, -100%) scale(var(--circuit-number-scale, 1));
+  transform-origin: bottom left;
   border: 1px solid var(--hold-hand);
   border-radius: var(--circuit-corner-radius);
   background: #ffffff;
