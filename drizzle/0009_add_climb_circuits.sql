@@ -1,0 +1,1 @@
+ALTER TABLE `climbs` ADD `is_circuit` integer DEFAULT false NOT NULL;

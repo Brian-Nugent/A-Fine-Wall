@@ -62,6 +62,7 @@ export default function FilterOptionsClient({
   const [rockoApprovedOnly, setRockoApprovedOnly] = useState(
     initialFilters.rockoApprovedOnly,
   );
+  const [circuitsOnly, setCircuitsOnly] = useState(initialFilters.circuitsOnly);
   const [order, setOrder] = useState(initialFilters.order);
   const [availableClimbs, setAvailableClimbs] = useState<AvailableClimb[]>(
     climbs.map((climb) => ({ climb, key: `demo:${climb.slug}` })),
@@ -125,6 +126,7 @@ export default function FilterOptionsClient({
       showOutdated,
       minStars,
       rockoApprovedOnly,
+      circuitsOnly,
       order,
     }),
     [
@@ -136,6 +138,7 @@ export default function FilterOptionsClient({
       minStars,
       order,
       rockoApprovedOnly,
+      circuitsOnly,
       showOutdated,
     ],
   );
@@ -199,6 +202,7 @@ export default function FilterOptionsClient({
     setShowOutdated(DEFAULT_CLIMB_FILTERS.showOutdated);
     setMinStars(DEFAULT_CLIMB_FILTERS.minStars);
     setRockoApprovedOnly(DEFAULT_CLIMB_FILTERS.rockoApprovedOnly);
+    setCircuitsOnly(DEFAULT_CLIMB_FILTERS.circuitsOnly);
     setOrder(DEFAULT_CLIMB_FILTERS.order);
   }
 
@@ -338,6 +342,15 @@ export default function FilterOptionsClient({
                 className="rocko-approved-icon rocko-approved-filter-icon"
               />
             </label>
+          </div>
+          <div className="filter-toggle-choice">
+            <input
+              checked={circuitsOnly}
+              id="circuits-only-climbs"
+              onChange={(event) => setCircuitsOnly(event.target.checked)}
+              type="checkbox"
+            />
+            <label htmlFor="circuits-only-climbs">Show only circuits</label>
           </div>
         </section>
 

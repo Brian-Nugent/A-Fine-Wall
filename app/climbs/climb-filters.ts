@@ -22,6 +22,7 @@ export type ClimbFilters = {
   showOutdated: boolean;
   minStars: number;
   rockoApprovedOnly: boolean;
+  circuitsOnly: boolean;
   order: ClimbOrder;
 };
 
@@ -35,6 +36,7 @@ export type FilterableClimb = {
   activity?: FilterableClimbActivity | null;
   outdated?: boolean;
   rockoApproved?: boolean;
+  isCircuit?: boolean;
   setter: string;
   holds: readonly { holdId?: string | null }[];
 };
@@ -65,6 +67,7 @@ export const DEFAULT_CLIMB_FILTERS: Readonly<ClimbFilters> = {
   showOutdated: false,
   minStars: MIN_FILTER_STARS,
   rockoApprovedOnly: false,
+  circuitsOnly: false,
   order: "newest",
 };
 
@@ -174,6 +177,7 @@ export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
     showOutdated: filters.showOutdated === true,
     minStars: normalizeStars(filters.minStars),
     rockoApprovedOnly: filters.rockoApprovedOnly === true,
+    circuitsOnly: filters.circuitsOnly === true,
     order: normalizeOrder(filters.order),
     ...(filters.listId && holdIdPattern.test(filters.listId) ? { listId: filters.listId } : {}),
   };
@@ -208,6 +212,7 @@ export function parseClimbFilters(
     showOutdated: valuesFor(source, "outdated")[0] === "show",
     minStars: readStars(valuesFor(source, "stars")),
     rockoApprovedOnly: valuesFor(source, "rocko")[0] === "approved",
+    circuitsOnly: valuesFor(source, "circuits")[0] === "only",
     order: normalizeOrder(valuesFor(source, "order")[0]),
     listId: valuesFor(source, "list")[0],
   });
@@ -229,6 +234,7 @@ export function createClimbFilterSearchParams(filters: ClimbFilters) {
   if (normalized.rockoApprovedOnly) {
     searchParams.set("rocko", "approved");
   }
+  if (normalized.circuitsOnly) searchParams.set("circuits", "only");
   if (normalized.order !== DEFAULT_CLIMB_FILTERS.order) {
     searchParams.set("order", normalized.order);
   }
@@ -263,6 +269,7 @@ export function activeClimbFilterCount(filters: ClimbFilters) {
     Number(normalized.showOutdated) +
     Number(normalized.minStars > MIN_FILTER_STARS) +
     Number(normalized.rockoApprovedOnly) +
+    Number(normalized.circuitsOnly) +
     Number(normalized.order !== DEFAULT_CLIMB_FILTERS.order)
   );
 }
@@ -279,7 +286,8 @@ export function hasClimbFilterConstraints(filters: ClimbFilters) {
     normalized.holdIds.length > 0 ||
     normalized.hideSent ||
     normalized.minStars > MIN_FILTER_STARS ||
-    normalized.rockoApprovedOnly
+    normalized.rockoApprovedOnly ||
+    normalized.circuitsOnly
   );
 }
 
@@ -341,6 +349,7 @@ export function matchesClimbFilters(
   if (normalized.rockoApprovedOnly && climb.rockoApproved !== true) {
     return false;
   }
+  if (normalized.circuitsOnly && climb.isCircuit !== true) return false;
 
   return true;
 }

@@ -238,6 +238,7 @@ export default function ClimbListClient({
       key: `saved-${climb.id}`,
       outdated: climb.outdated === true,
       rockoApproved: climb.rockoApproved === true,
+      isCircuit: climb.isCircuit === true,
       reference: {
         climbKind: "saved",
         climbId: climb.id,
@@ -258,6 +259,7 @@ export default function ClimbListClient({
       key: `demo-${climb.slug}`,
       outdated: false,
       rockoApproved: false,
+      isCircuit: false,
       reference: {
         climbKind: "demo",
         climbId: climb.slug,

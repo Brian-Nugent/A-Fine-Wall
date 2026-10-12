@@ -1691,6 +1691,41 @@ select:focus-visible {
   pointer-events: none;
 }
 
+.climb-circuit-option {
+  margin-top: 0.5rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+}
+
+.circuit-hold-numbers {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  pointer-events: none;
+}
+
+.circuit-hold-number {
+  --circuit-corner-radius: 0.35rem;
+  /* Offset the rounded bottom-left corner so its border touches the hold. */
+  --circuit-corner-inset: calc(var(--circuit-corner-radius) * 0.2928932188);
+  position: absolute;
+  display: grid;
+  place-items: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding-inline: 0.2rem;
+  transform: translate(0, -100%);
+  border: 1px solid var(--hold-hand);
+  border-radius: var(--circuit-corner-radius);
+  background: #ffffff;
+  color: #063b8c;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 40%);
+  font-size: 0.8rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
 .hold-choice {
   position: absolute;
   z-index: 2;

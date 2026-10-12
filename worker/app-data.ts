@@ -13,6 +13,7 @@ import {
 
 import { isHoldOutline, type HoldPoint } from "../app/climbs/hold-geometry";
 import { parseUserLogin } from "../app/user-profile";
+import { hasCompleteCircuitSequence, hasValidCircuitHolds, isCircuitOrder } from "../app/climbs/climb-circuits";
 
 const WALL_HOLDS_PATH = "/api/wall-holds";
 const CLIMBS_PATH = "/api/climbs";
@@ -47,6 +48,7 @@ type ClimbHold = {
   size: number;
   outline?: HoldPoint[];
   role: "start" | "hand" | "foot" | "finish";
+  circuitOrder?: number;
 };
 
 type Climb = {
@@ -58,6 +60,7 @@ type Climb = {
   createdAt: number;
   holds: ClimbHold[];
   rockoApproved: boolean;
+  isCircuit?: boolean;
 };
 
 type ResolvedClimb = Climb & {
@@ -94,6 +97,7 @@ type ClimbRow = {
   created_at: number;
   holds_json: string;
   rocko_approved: number;
+  is_circuit: number;
 };
 
 type TableInfoRow = {
@@ -280,7 +284,7 @@ function parseWallHoldsWriteBody(value: unknown) {
 
 function parseClimbHold(value: unknown): ClimbHold | null {
   if (!isPlainObject(value)) return null;
-  if (!hasOnlyKeys(value, ["holdId", "x", "y", "size", "role", "outline"])) return null;
+  if (!hasOnlyKeys(value, ["holdId", "x", "y", "size", "role", "outline", "circuitOrder"])) return null;
   if (
     (value.holdId !== undefined &&
       (typeof value.holdId !== "string" || !recordIdPattern.test(value.holdId))) ||
@@ -288,6 +292,7 @@ function parseClimbHold(value: unknown): ClimbHold | null {
     !isCoordinate(value.y) ||
     !isSize(value.size) ||
     (value.outline !== undefined && !isHoldOutline(value.outline)) ||
+    (value.circuitOrder !== undefined && !isCircuitOrder(value.circuitOrder)) ||
     typeof value.role !== "string" ||
     !holdRoles.has(value.role)
   ) {
@@ -301,10 +306,11 @@ function parseClimbHold(value: unknown): ClimbHold | null {
     size: value.size,
     role: value.role as ClimbHold["role"],
     ...(value.outline === undefined ? {} : { outline: value.outline as HoldPoint[] }),
+    ...(value.circuitOrder === undefined ? {} : { circuitOrder: value.circuitOrder as number }),
   };
 }
 
-function parseClimbHolds(value: unknown): ClimbHold[] {
+function parseClimbHolds(value: unknown, isCircuit = false, requireCompleteCircuit = true): ClimbHold[] {
   if (
     !Array.isArray(value) ||
     value.length < 2 ||
@@ -331,6 +337,12 @@ function parseClimbHolds(value: unknown): ClimbHold[] {
     throw new ApiError("A climb needs at least one start and one finish hold.", 400);
   }
 
+  if (!hasValidCircuitHolds(holds, isCircuit)) {
+    throw new ApiError("Circuits need a unique positive number on every handhold, and only handholds can be numbered.", 400);
+  }
+  if (isCircuit && requireCompleteCircuit && !hasCompleteCircuitSequence(holds)) {
+    throw new ApiError("Circuit handhold numbers must include every number from 1 to the largest number.", 400);
+  }
   return holds;
 }
 
@@ -340,10 +352,11 @@ function parseDescription(value: unknown) {
   return value.trim();
 }
 
-function parseClimbBody(value: unknown): Climb {
+function parseClimbBody(value: unknown, requireCompleteCircuit = true): Climb {
   if (
     !isPlainObject(value) ||
-    !hasOnlyKeys(value, ["id", "name", "description", "grade", "setter", "createdAt", "holds"])
+    !hasOnlyKeys(value, ["id", "name", "description", "grade", "setter", "createdAt", "holds", "isCircuit"]) ||
+    (value.isCircuit !== undefined && typeof value.isCircuit !== "boolean")
   ) {
     throw new ApiError("Send valid climb details.", 400);
   }
@@ -368,7 +381,7 @@ function parseClimbBody(value: unknown): Climb {
     throw new ApiError("Send valid climb details.", 400);
   }
 
-  const holds = parseClimbHolds(value.holds);
+  const holds = parseClimbHolds(value.holds, value.isCircuit === true, requireCompleteCircuit);
   const description = parseDescription(value.description);
 
   return {
@@ -379,6 +392,7 @@ function parseClimbBody(value: unknown): Climb {
     createdAt,
     holds,
     rockoApproved: false,
+    ...(value.isCircuit === true ? { isCircuit: true } : {}),
     ...(description ? { description } : {}),
   };
 }
@@ -393,7 +407,9 @@ function parseClimbUpdateBody(value: unknown) {
       "expectedWallUpdatedAt",
       "profileId",
       "description",
-    ])
+      "isCircuit",
+    ]) ||
+    (value.isCircuit !== undefined && typeof value.isCircuit !== "boolean")
   ) {
     throw new ApiError("Send valid climb changes.", 400);
   }
@@ -417,7 +433,8 @@ function parseClimbUpdateBody(value: unknown) {
     name,
     grade: value.grade,
     description: parseDescription(value.description),
-    holds: parseClimbHolds(value.holds),
+    holds: parseClimbHolds(value.holds, value.isCircuit === true),
+    isCircuit: value.isCircuit === true,
     expectedWallUpdatedAt: value.expectedWallUpdatedAt,
     profileId: value.profileId,
   };
@@ -651,6 +668,19 @@ async function ensureClimbSendGradeColumn(db: D1Database) {
   }
 }
 
+async function ensureClimbCircuitColumn(db: D1Database) {
+  const hasColumn = async () => {
+    const result = await db.prepare("PRAGMA table_info(climbs)").all<TableInfoRow>();
+    return result.results.some(column => column.name === "is_circuit");
+  };
+  if (await hasColumn()) return;
+  try {
+    await db.prepare("ALTER TABLE climbs ADD COLUMN is_circuit INTEGER NOT NULL DEFAULT 0").run();
+  } catch (error) {
+    if (!(await hasColumn())) throw error;
+  }
+}
+
 // Workers I/O belongs to the request that started it. Cache only completion,
 // never an I/O promise that a different (or canceled) request must resume.
 const initializedDatabases = new WeakSet<D1Database>();
@@ -680,7 +710,8 @@ async function initializeSchema(db: D1Database) {
         created_at INTEGER NOT NULL,
         holds_json TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
-        rocko_approved INTEGER NOT NULL DEFAULT 0
+        rocko_approved INTEGER NOT NULL DEFAULT 0,
+        is_circuit INTEGER NOT NULL DEFAULT 0
       )
     `),
     db.prepare(`CREATE TABLE IF NOT EXISTS climb_lists (
@@ -733,6 +764,7 @@ async function initializeSchema(db: D1Database) {
     `).bind(WALL_CONFIGURATION_ID, "[]", 0),
   ]);
   await ensureClimbApprovalColumn(db);
+  await ensureClimbCircuitColumn(db);
   await ensureClimbSendGradeColumn(db);
   const columns = await db.prepare("PRAGMA table_info(climbs)").all<TableInfoRow>();
   if (!columns.results.some(column => column.name === "description")) {
@@ -819,8 +851,12 @@ function rowToClimb(row: ClimbRow): Climb {
     if (row.rocko_approved !== 0 && row.rocko_approved !== 1) {
       throw new Error("Invalid Rocko approval value.");
     }
+    if (row.is_circuit !== 0 && row.is_circuit !== 1) {
+      throw new Error("Invalid circuit value.");
+    }
     const holds: unknown = JSON.parse(row.holds_json);
     return {
+      // Older circuits with gaps remain readable so their setter can fix them.
       ...parseClimbBody({
         id: row.id,
         name: row.name,
@@ -829,7 +865,8 @@ function rowToClimb(row: ClimbRow): Climb {
         setter: row.setter,
         createdAt: row.created_at,
         holds,
-      }),
+        isCircuit: row.is_circuit === 1,
+      }, false),
       rockoApproved: row.rocko_approved === 1,
     };
   } catch {
@@ -1458,7 +1495,7 @@ async function handleClimbs(request: Request, db: D1Database) {
     const [result, wallConfiguration, consensusGrades] = await Promise.all([
       db
         .prepare(
-          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description FROM climbs ORDER BY created_at DESC, id ASC",
+          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description, is_circuit FROM climbs ORDER BY created_at DESC, id ASC",
         )
         .all<ClimbRow>(),
       loadWallConfiguration(db),
@@ -1488,7 +1525,7 @@ async function handleClimbs(request: Request, db: D1Database) {
     const setter = profile.name;
     const existing = await db
       .prepare(
-        "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description FROM climbs WHERE id = ?",
+        "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description, is_circuit FROM climbs WHERE id = ?",
       )
       .bind(parsedClimb.id)
       .first<ClimbRow>();
@@ -1525,7 +1562,7 @@ async function handleClimbs(request: Request, db: D1Database) {
         .run();
       const claimed = await db
         .prepare(
-          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description FROM climbs WHERE id = ?",
+          "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description, is_circuit FROM climbs WHERE id = ?",
         )
         .bind(parsedClimb.id)
         .first<ClimbRow>();
@@ -1566,8 +1603,8 @@ async function handleClimbs(request: Request, db: D1Database) {
     try {
       const insertClimb = db
         .prepare(
-          `INSERT INTO climbs (id, name, grade, setter, created_at, holds_json, description)
-           SELECT ?, ?, ?, ?, ?, ?, ?
+          `INSERT INTO climbs (id, name, grade, setter, created_at, holds_json, description, is_circuit)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?
            WHERE EXISTS (
              SELECT 1 FROM wall_configuration WHERE id = ? AND updated_at = ?
            )
@@ -1584,6 +1621,7 @@ async function handleClimbs(request: Request, db: D1Database) {
           climb.createdAt,
           JSON.stringify(climb.holds),
           climb.description ?? "",
+          climb.isCircuit ? 1 : 0,
           WALL_CONFIGURATION_ID,
           expectedWallUpdatedAt,
           climb.id,
@@ -1672,7 +1710,7 @@ async function handleRockoApproval(
       `UPDATE climbs
        SET rocko_approved = ?
        WHERE id = ?
-       RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved, description`,
+       RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved, description, is_circuit`,
     )
     .bind(rockoApproved ? 1 : 0, id)
     .first<ClimbRow>();
@@ -1727,7 +1765,7 @@ async function handleClimbDetail(
 
   const row = await db
     .prepare(
-      "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description FROM climbs WHERE id = ?",
+      "SELECT id, name, grade, setter, created_at, holds_json, rocko_approved, description, is_circuit FROM climbs WHERE id = ?",
     )
     .bind(id)
     .first<ClimbRow>();
@@ -1792,18 +1830,19 @@ async function handleClimbDetail(
     const updated = await db
       .prepare(
         `UPDATE climbs
-         SET name = ?, grade = ?, holds_json = ?, description = COALESCE(?, description)
+         SET name = ?, grade = ?, holds_json = ?, description = COALESCE(?, description), is_circuit = ?
          WHERE id = ?
            AND EXISTS (
              SELECT 1 FROM wall_configuration WHERE id = ? AND updated_at = ?
            )
-         RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved, description`,
+         RETURNING id, name, grade, setter, created_at, holds_json, rocko_approved, description, is_circuit`,
       )
       .bind(
         changes.name,
         changes.grade,
         JSON.stringify(holds),
         changes.description ?? null,
+        changes.isCircuit ? 1 : 0,
         id,
         WALL_CONFIGURATION_ID,
         changes.expectedWallUpdatedAt,

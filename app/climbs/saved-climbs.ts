@@ -1,5 +1,6 @@
 import { isHoldOutline, type HoldPoint } from "./hold-geometry";
 import { isClimbDescription } from "./climb-description";
+import { hasValidCircuitHolds, isCircuitOrder } from "./climb-circuits";
 
 export const SAVED_CLIMBS_KEY = "a-fine-wall:saved-climbs:v1";
 export const CLIMB_GRADES = Array.from(
@@ -29,6 +30,7 @@ export type SavedHold = {
   size: number;
   outline?: HoldPoint[];
   role: SavedHoldRole;
+  circuitOrder?: number;
 };
 
 export type SavedClimb = {
@@ -43,6 +45,7 @@ export type SavedClimb = {
   holds: SavedHold[];
   outdated?: boolean;
   rockoApproved?: boolean;
+  isCircuit?: boolean;
 };
 
 export type AttributedSavedClimb = SavedClimb & {
@@ -108,6 +111,7 @@ function isSavedHold(value: unknown): value is SavedHold {
     hold.size > 0 &&
     hold.size <= 20 &&
     (hold.outline === undefined || isHoldOutline(hold.outline)) &&
+    (hold.circuitOrder === undefined || isCircuitOrder(hold.circuitOrder)) &&
     (hold.role === "start" ||
       hold.role === "hand" ||
       hold.role === "foot" ||
@@ -131,6 +135,7 @@ export function isSavedClimb(value: unknown): value is SavedClimb {
     isStoredSetterName(climb.setter) &&
     (climb.profileId === undefined || isStoredProfileId(climb.profileId)) &&
     (climb.outdated === undefined || typeof climb.outdated === "boolean") &&
+    (climb.isCircuit === undefined || typeof climb.isCircuit === "boolean") &&
     (climb.rockoApproved === undefined ||
       typeof climb.rockoApproved === "boolean") &&
     isFiniteNumber(climb.createdAt) &&
@@ -141,6 +146,7 @@ export function isSavedClimb(value: unknown): value is SavedClimb {
   }
 
   if (!climb.holds.every(isSavedHold)) return false;
+  if (!hasValidCircuitHolds(climb.holds, climb.isCircuit === true)) return false;
 
   return (
     climb.holds.some((hold) => hold.role === "start") &&

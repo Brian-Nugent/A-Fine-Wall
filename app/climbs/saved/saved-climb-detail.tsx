@@ -33,6 +33,7 @@ import {
 } from "../wall-holds";
 import WallPhoto from "../wall-photo";
 import HoldOutlines from "../hold-outlines";
+import CircuitHoldNumbers from "../circuit-hold-numbers";
 import ClimbPhotoNavigation from "../climb-photo-navigation";
 import SaveToList from "../../lists/save-to-list";
 import { loadClimbLists } from "../../lists/list-api";
@@ -856,6 +857,7 @@ export default function SavedClimbDetail({
                 }}
               />
             ))}
+            <CircuitHoldNumbers holds={resolvedHolds} enabled={climb.isCircuit === true} />
             <ClimbPhotoNavigation
               hasPrevious={navigationTargets.previous !== null}
               hasNext={navigationTargets.next !== null}
@@ -869,6 +871,7 @@ export default function SavedClimbDetail({
               yellow-outlined {footCount === 1 ? "foothold" : "footholds"}, and{" "}
               {finishCount} red-outlined finish{" "}
               {finishCount === 1 ? "hold" : "holds"}.
+              {climb.isCircuit ? " Follow the numbered blue handholds in order for this circuit." : ""}
             </figcaption>
           </figure>
 

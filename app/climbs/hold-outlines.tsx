@@ -10,7 +10,7 @@ type OutlinedHold = HoldGeometry & {
 export const outlinePoints = (points: readonly HoldPoint[]) =>
   points.map(point => `${point.x},${point.y}`).join(" ");
 
-const HOLD_OUTLINE_GAP_PX = 1.5;
+export const HOLD_OUTLINE_GAP_PX = 1.5;
 
 export function holdOutlineStrokeWidth(size: number) {
   // Hold widths are percentages of the photo: small footholds stay thin,

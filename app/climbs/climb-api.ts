@@ -78,6 +78,7 @@ export async function saveClimb(
     setter: climb.setter,
     createdAt: climb.createdAt,
     holds: climb.holds,
+    isCircuit: climb.isCircuit,
   };
   const response = await fetch(CLIMBS_ENDPOINT, {
     method: "POST",
@@ -121,6 +122,7 @@ export async function updateClimb(
         description: climb.description,
         grade: climb.setterGrade ?? climb.grade,
         holds: climb.holds,
+        isCircuit: climb.isCircuit === true,
         expectedWallUpdatedAt,
         profileId,
       }),

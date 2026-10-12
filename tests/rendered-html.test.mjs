@@ -230,8 +230,8 @@ function createMemoryAppDatabase() {
         if (normalized === "pragma table_info(climbs)") {
           return {
             results: climbsHaveRockoApproval
-              ? [{ name: "rocko_approved" }, { name: "description" }]
-              : [{ name: "description" }],
+              ? [{ name: "rocko_approved" }, { name: "description" }, { name: "is_circuit" }]
+              : [{ name: "description" }, { name: "is_circuit" }],
           };
         }
         if (normalized === "pragma table_info(climb_sends)") {
@@ -430,8 +430,8 @@ function createMemoryAppDatabase() {
         ) {
           if (
             !wallConfiguration ||
-            wallConfiguration.updated_at !== values[8] ||
-            deletedClimbs.has(values[9])
+            wallConfiguration.updated_at !== values[9] ||
+            deletedClimbs.has(values[10])
           ) {
             return null;
           }
@@ -447,6 +447,7 @@ function createMemoryAppDatabase() {
             holds_json: values[5],
             rocko_approved: 0,
             description: values[6],
+            is_circuit: values[7],
           });
           return { id: values[0] };
         }
@@ -466,14 +467,14 @@ function createMemoryAppDatabase() {
         if (
           normalized.startsWith("update climbs set name = ?") &&
           normalized.endsWith(
-            "returning id, name, grade, setter, created_at, holds_json, rocko_approved, description",
+            "returning id, name, grade, setter, created_at, holds_json, rocko_approved, description, is_circuit",
           )
         ) {
-          const climb = savedClimbs.get(values[4]);
+          const climb = savedClimbs.get(values[5]);
           if (
             !climb ||
             !wallConfiguration ||
-            wallConfiguration.updated_at !== values[6]
+            wallConfiguration.updated_at !== values[7]
           ) {
             return null;
           }
@@ -481,12 +482,13 @@ function createMemoryAppDatabase() {
           climb.grade = values[1];
           climb.holds_json = values[2];
           climb.description = values[3] ?? climb.description ?? "";
+          climb.is_circuit = values[4];
           return climb;
         }
         if (
           normalized.startsWith("update climbs set rocko_approved = ?") &&
           normalized.endsWith(
-            "returning id, name, grade, setter, created_at, holds_json, rocko_approved, description",
+            "returning id, name, grade, setter, created_at, holds_json, rocko_approved, description, is_circuit",
           )
         ) {
           const climb = savedClimbs.get(values[1]);
@@ -614,6 +616,7 @@ function createMemoryAppDatabase() {
             created_at: values[4],
             holds_json: values[5],
             rocko_approved: 0,
+            is_circuit: values[7] ?? 0,
           });
           return { success: true };
         }
@@ -688,6 +691,7 @@ function createMemoryAppDatabase() {
         created_at: climb.createdAt,
         holds_json: JSON.stringify(climb.holds),
         rocko_approved: 0,
+        is_circuit: climb.isCircuit ? 1 : 0,
       });
     },
     seedProfile(profile) {
@@ -1106,6 +1110,17 @@ test("renders the gray difficulty option selected from its URL", async () => {
   assert.match(grayInput, /checked=""/);
 });
 
+test("renders the circuits-only checkbox below Rocko approval and restores its URL selection", async () => {
+  const response = await render("/climbs/filter?circuits=only");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /<label for="circuits-only-climbs">Show only circuits<\/label>/);
+  const input = html.match(/<input[^>]*id="circuits-only-climbs"[^>]*>/)?.[0] ?? "";
+  assert.match(input, /checked=""/);
+  assert.ok(html.indexOf('id="circuits-only-climbs"') > html.indexOf('id="rocko-approved-climbs"'));
+  assert.match(html, /href="\/climbs\?circuits=only"/);
+});
+
 test("normalizes, serializes, and combines climb filters", () => {
   const filters = parseClimbFilters(
     new URLSearchParams(
@@ -1120,6 +1135,7 @@ test("normalizes, serializes, and combines climb filters", () => {
     showOutdated: true,
     minStars: 4,
     rockoApprovedOnly: true,
+    circuitsOnly: false,
     order: "ascents",
   });
   assert.equal(activeClimbFilterCount(filters), 8);
@@ -1302,6 +1318,7 @@ test("normalizes, serializes, and combines climb filters", () => {
       showOutdated: false,
       minStars: 0,
       rockoApprovedOnly: false,
+      circuitsOnly: false,
       order: "newest",
     },
   );

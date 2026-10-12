@@ -36,11 +36,14 @@ import { useActiveUser } from "../user-profile-provider";
 import { canManageClimb, isAdminUser } from "../user-access";
 import WallPhoto from "../climbs/wall-photo";
 import HoldOutlines from "../climbs/hold-outlines";
+import CircuitHoldNumbers from "../climbs/circuit-hold-numbers";
+import { hasCompleteCircuitSequence, missingCircuitOrders, nextCircuitOrder, setCircuitHolds } from "../climbs/climb-circuits";
 import { findHoldAtPoint } from "../climbs/hold-geometry";
 
 type DraftHold = {
   holdId: string;
   role: SavedHoldRole;
+  circuitOrder?: number;
 };
 
 const holdRoleAccessibleLabels: Record<SavedHoldRole, string> = {
@@ -75,7 +78,7 @@ function restoreDraftHolds(
       : undefined;
     if (savedSpot && !usedIds.has(savedSpot.id)) {
       usedIds.add(savedSpot.id);
-      restored.push({ holdId: savedSpot.id, role: climbHold.role });
+      restored.push({ holdId: savedSpot.id, role: climbHold.role, circuitOrder: climbHold.circuitOrder });
       continue;
     }
 
@@ -98,7 +101,7 @@ function restoreDraftHolds(
     }
 
     usedIds.add(match.hold.id);
-    restored.push({ holdId: match.hold.id, role: climbHold.role });
+    restored.push({ holdId: match.hold.id, role: climbHold.role, circuitOrder: climbHold.circuitOrder });
   }
 
   return restored;
@@ -128,6 +131,7 @@ export default function SetClimbPage() {
     "loading" | "ready" | "error"
   >("loading");
   const [selectedHolds, setSelectedHolds] = useState<DraftHold[]>([]);
+  const [isCircuit, setIsCircuit] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [grade, setGrade] = useState("");
@@ -201,6 +205,7 @@ export default function SetClimbPage() {
         }
 
         setEditingClimb(savedClimb);
+        setIsCircuit(savedClimb.isCircuit === true);
         setSelectedHolds(restoredHolds);
         setName(savedClimb.name);
         setDescription(savedClimb.description ?? "");
@@ -225,12 +230,15 @@ export default function SetClimbPage() {
   function cycleHold(holdId: string) {
     setSelectedHolds((current) => {
       const selected = current.find((hold) => hold.holdId === holdId);
-      if (!selected) return [...current, { holdId, role: "hand" }];
+      if (!selected) return [...current, {
+        holdId, role: "hand",
+        ...(isCircuit ? { circuitOrder: nextCircuitOrder(current) } : {}),
+      }];
 
       return current.flatMap((hold) => {
         if (hold.holdId !== holdId) return [hold];
         const nextRole = nextSavedHoldRole(selected.role);
-        return nextRole ? [{ ...hold, role: nextRole }] : [];
+        return nextRole ? [{ holdId: hold.holdId, role: nextRole }] : [];
       });
     });
   }
@@ -254,7 +262,9 @@ export default function SetClimbPage() {
   const finishCount = selectedHolds.filter(
     (hold) => hold.role === "finish",
   ).length;
-  const canFinish = startCount > 0 && finishCount > 0;
+  const missingNumbers = isCircuit ? missingCircuitOrders(selectedHolds) : [];
+  const canFinish = startCount > 0 && finishCount > 0 &&
+    (!isCircuit || hasCompleteCircuitSequence(selectedHolds));
 
   async function saveClimb(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -297,6 +307,7 @@ export default function SetClimbPage() {
       name: trimmedName,
       description: description.trim(),
       grade,
+      ...(isCircuit ? { isCircuit: true } : {}),
       setter: editingClimb?.setter ?? profile.name,
       profileId: editingClimb?.profileId ?? profile.id,
       createdAt: editingClimb?.createdAt ?? Date.now(),
@@ -310,6 +321,7 @@ export default function SetClimbPage() {
               size: hold.size,
               ...(hold.outline ? { outline: hold.outline } : {}),
               role: selection.role,
+              ...(selection.circuitOrder !== undefined ? { circuitOrder: selection.circuitOrder } : {}),
             }]
           : [];
       }),
@@ -407,6 +419,27 @@ export default function SetClimbPage() {
               Tap a hold for a blue circle, again for a yellow foothold, then
               for a green start and a red finish. A fifth tap clears it.
             </p>
+            <div className="climb-circuit-option">
+              <label className="climb-send-toggle" htmlFor="climb-is-circuit">
+                <span>Set a circuit</span>
+                <input
+                  aria-describedby="climb-circuit-description"
+                  checked={isCircuit}
+                  className="climb-send-switch"
+                  id="climb-is-circuit"
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    setIsCircuit(enabled);
+                    setSelectedHolds(current => setCircuitHolds(current, enabled));
+                  }}
+                  role="switch"
+                  type="checkbox"
+                />
+              </label>
+              <p className="climb-send-description" id="climb-circuit-description">
+                Number blue handholds in the order they should be used. New handholds take the lowest available number.
+              </p>
+            </div>
             {isAdminUser(profile) ? (
               <a
                 className="change-photo-link"
@@ -481,7 +514,7 @@ export default function SetClimbPage() {
                 ? holdRoleActions[nextRole]
                 : "clear it";
               const accessibleLabel = selection
-                ? `${holdRoleAccessibleLabels[selection.role]}. Tap to ${nextAction}.`
+                ? `${holdRoleAccessibleLabels[selection.role]}${selection.circuitOrder !== undefined ? `, circuit handhold ${selection.circuitOrder}` : ""}. Tap to ${nextAction}.`
                 : `Available hold spot. Tap to ${nextAction}.`;
 
               return (
@@ -500,6 +533,10 @@ export default function SetClimbPage() {
                 />
               );
             })}
+            <CircuitHoldNumbers enabled={isCircuit} holds={selectedHolds.flatMap(selection => {
+              const hold = wallHolds.find(item => item.id === selection.holdId);
+              return hold ? [{ ...hold, ...selection }] : [];
+            })} />
             <figcaption className="sr-only">
               Preset hold spots on A Fine Wall. Choose blue climbing holds,
               optional yellow footholds, one or more green start holds, and one
@@ -508,12 +545,14 @@ export default function SetClimbPage() {
           </figure>
 
           <div className="set-toolbar">
-            <div className="selection-status" aria-live="polite">
+            <div className="selection-status" id="climb-selection-status" aria-live="polite">
               <strong>{selectedHolds.length} holds</strong>
               <span>
-                {canFinish
-                  ? `${startCount} start / ${footCount} ${footCount === 1 ? "foothold" : "footholds"} / ${finishCount} finish`
-                  : "Need a start and finish"}
+                {startCount === 0 || finishCount === 0
+                  ? "Need a start and finish"
+                  : missingNumbers.length > 0
+                    ? `Missing circuit ${missingNumbers.length === 1 ? "hold" : "holds"}: ${missingNumbers.join(", ")}`
+                    : `${startCount} start / ${footCount} ${footCount === 1 ? "foothold" : "footholds"} / ${finishCount} finish`}
               </span>
             </div>
             <div className="set-toolbar-actions">
@@ -535,6 +574,7 @@ export default function SetClimbPage() {
               </button>
               <button
                 className="compact-primary-button"
+                aria-describedby="climb-selection-status"
                 disabled={!canFinish || holdMapStatus !== "ready"}
                 onClick={() => setStep("details")}
                 type="button"
@@ -549,7 +589,7 @@ export default function SetClimbPage() {
           <h1 id="finish-heading">
             {editingClimb ? "Edit climb details" : "Name your climb"}
           </h1>
-          <p>{selectedHolds.length} holds selected</p>
+          <p>{selectedHolds.length} holds selected{isCircuit ? " · Circuit" : ""}</p>
           <p className="setter-attribution">
             Set by{" "}
             <strong>{editingClimb?.setter ?? profile?.name ?? "your user"}</strong>

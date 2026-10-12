@@ -38,6 +38,7 @@ export const climbs = sqliteTable(
     setter: text("setter").notNull(),
     createdAt: integer("created_at").notNull(),
     holdsJson: text("holds_json").notNull(),
+    isCircuit: integer("is_circuit", { mode: "boolean" }).notNull().default(false),
     rockoApproved: integer("rocko_approved", { mode: "boolean" })
       .notNull()
       .default(false),
