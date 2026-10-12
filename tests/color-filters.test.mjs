@@ -2,16 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activeClimbFilterCount,
+  adjacentClimbIds,
   buildFilteredHref,
   compareClimbsByOrder,
   filterClimbs,
   hasClimbFilterConstraints,
   parseClimbFilters,
+  requiresClimbActivity,
+  selectVisibleClimbs,
   serializeClimbFilters,
 } from "../app/climbs/climb-filters.ts";
 
 const boundaryClimbs = ["V0", "V4", "V5", "V7", "V8", "V17"].map(
-  (grade) => ({ grade, setter: "Alex", holds: [] }),
+  (grade) => ({
+    grade, setter: "Alex", holds: [],
+    activity: { averageRating: 4, ratingCount: 1, userRating: null },
+  }),
 );
 
 function filtersFor(query = "") {
@@ -39,6 +45,59 @@ test("multiple color selections can exclude the middle difficulty band", () => {
   );
   assert.equal(serializeClimbFilters(filters), "color=green&color=red");
   assert.equal(activeClimbFilterCount(filters), 1);
+});
+
+const colorClimbs = boundaryClimbs.flatMap((climb, index) => [
+  { ...climb, id: `sent-${climb.grade}`, createdAt: index, activity: climb.activity },
+  { ...climb, id: `unsent-${climb.grade}`, createdAt: index, activity: null },
+]);
+
+test("gray filters to climbs with no ascents across every setter grade", () => {
+  const filters = filtersFor("color=gray&color=gray");
+  assert.deepEqual(filters.colors, ["gray"]);
+  assert.equal(serializeClimbFilters(filters), "color=gray");
+  assert.equal(activeClimbFilterCount(filters), 1);
+  assert.deepEqual(
+    filterClimbs(colorClimbs, filters).map(climb => climb.id),
+    boundaryClimbs.map(climb => `unsent-${climb.grade}`),
+  );
+  // A send by someone else still disqualifies a climb from gray.
+  assert.ok(colorClimbs.filter(climb => climb.activity).every(climb => climb.activity.userRating === null));
+});
+
+test("gray and difficulty selections include the union of their displayed colors", () => {
+  assert.deepEqual(
+    filterClimbs(colorClimbs, filtersFor("color=gray&color=green")).map(climb => climb.id),
+    ["sent-V0", "unsent-V0", "sent-V4", "unsent-V4", "unsent-V5", "unsent-V7", "unsent-V8", "unsent-V17"],
+  );
+  assert.deepEqual(
+    filterClimbs(colorClimbs, filtersFor("color=yellow&color=red")).map(climb => climb.id),
+    ["sent-V5", "sent-V7", "sent-V8", "sent-V17"],
+  );
+  assert.deepEqual(filterClimbs(colorClimbs, filtersFor()), colorClimbs);
+});
+
+test("difficulty filtering requires global send data, including gray", () => {
+  for (const color of ["gray", "green", "yellow", "red"]) {
+    assert.equal(requiresClimbActivity(filtersFor(`color=${color}`)), true);
+  }
+  assert.equal(requiresClimbActivity(filtersFor()), false);
+});
+
+test("gray combines with other constraints and limits detail navigation to matching climbs", () => {
+  const filters = filtersFor("color=gray&author=Alex&hold=hold-a&rocko=approved");
+  const candidates = colorClimbs.map(climb => ({
+    ...climb, holds: [{ holdId: "hold-a" }], rockoApproved: true,
+  }));
+  candidates.push({ ...candidates[1], id: "other-setter", setter: "Sam" });
+  assert.deepEqual(
+    selectVisibleClimbs(candidates, filters).map(climb => climb.id),
+    ["unsent-V17", "unsent-V8", "unsent-V7", "unsent-V5", "unsent-V4", "unsent-V0"],
+  );
+  assert.deepEqual(adjacentClimbIds(candidates, "unsent-V7", filters), {
+    previousId: "unsent-V8", nextId: "unsent-V5",
+  });
+  assert.deepEqual(selectVisibleClimbs(candidates, filtersFor("color=gray&stars=1")), []);
 });
 
 test("legacy exact grade links expand to a full color band", () => {
@@ -76,15 +135,15 @@ test("unknown color values are ignored without narrowing to an exact grade", () 
 
 test("color filters round-trip while preserving all other filters", () => {
   const filters = filtersFor(
-    "color=red&color=green&author=Sam&author=Alex&hold=hold-b&hold=hold-a&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents",
+    "color=red&color=gray&color=green&author=Sam&author=Alex&hold=hold-b&hold=hold-a&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents",
   );
   const query =
-    "color=green&color=red&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents";
+    "color=green&color=red&color=gray&author=Alex&author=Sam&hold=hold-a&hold=hold-b&sent=hide&outdated=show&stars=4&rocko=approved&order=ascents";
   assert.equal(serializeClimbFilters(filters), query);
   assert.deepEqual(filtersFor(query), filters);
   assert.deepEqual(
     parseClimbFilters({
-      color: ["red", "green"],
+      color: ["red", "gray", "green"],
       author: ["Sam", "Alex"],
       hold: ["hold-b", "hold-a"],
       sent: "hide",

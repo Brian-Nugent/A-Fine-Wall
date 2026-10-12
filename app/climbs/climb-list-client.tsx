@@ -448,7 +448,7 @@ export default function ClimbListClient({
         {activityStatus === "error" ? (
           <div className="climb-rating-notice" role="status">
             {activityOptionsUnavailable
-              ? "Sent, rating, or ascent options could not be applied because climb activity could not be loaded. Refresh or clear those options."
+              ? "Difficulty, sent, rating, or ascent options could not be applied because climb activity could not be loaded. Refresh or clear those options."
               : "Ratings could not be loaded. The climb list is still available."}
           </div>
         ) : null}

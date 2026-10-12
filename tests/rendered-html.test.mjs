@@ -914,6 +914,8 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, /Green/);
   assert.match(html, /Yellow/);
   assert.match(html, /Red/);
+  assert.match(html, /Gray/);
+  assert.match(html, /No ascents/);
   assert.doesNotMatch(html, /id="minimum-grade"|id="maximum-grade"/);
   assert.match(html, /Hide climbs I have sent/);
   assert.match(html, /<h2 id="wall-status-filter-heading">Wall status<\/h2>/);
@@ -1094,6 +1096,16 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(html, />Done<\/a>/);
 });
 
+test("renders the gray difficulty option selected from its URL", async () => {
+  const response = await render("/climbs/filter?color=gray");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /aria-label="Gray No ascents"/);
+  assert.match(html, /climb-grade--gray difficulty-color-swatch/);
+  const grayInput = html.match(/<input[^>]*id="difficulty-color-gray"[^>]*>/)?.[0] ?? "";
+  assert.match(grayInput, /checked=""/);
+});
+
 test("normalizes, serializes, and combines climb filters", () => {
   const filters = parseClimbFilters(
     new URLSearchParams(
@@ -1171,7 +1183,9 @@ test("normalizes, serializes, and combines climb filters", () => {
       setter: "Alex",
       holds: [{ holdId: "hold-a" }, { holdId: "hold-b" }],
     },
-  ];
+  ].map(climb => ({
+    ...climb, activity: { averageRating: 4, ratingCount: 1, userRating: null },
+  }));
 
   const structuralFilters = {
     ...filters,
@@ -3673,9 +3687,16 @@ test("uses explicit send grades for the consensus while preserving the setter gr
   climb = await loadClimb();
   assert.equal(climb.grade, "V5");
   assert.equal(climb.setterGrade, "V4");
+  response = await fetchAppData(
+    new Request("http://localhost/api/sends?profileId=profile-alex"),
+  );
+  const consensusActivity = (await response.json()).activities.find(
+    activity => activity.climbId === climb.id,
+  );
+  assert.equal(consensusActivity.ratingCount, 3);
   assert.equal(
     matchesClimbFilters(
-      climb,
+      { ...climb, activity: consensusActivity },
       parseClimbFilters(
         new URLSearchParams("min=5&max=5&outdated=show"),
       ),
@@ -3684,7 +3705,7 @@ test("uses explicit send grades for the consensus while preserving the setter gr
   );
   assert.equal(
     matchesClimbFilters(
-      climb,
+      { ...climb, activity: consensusActivity },
       parseClimbFilters(
         new URLSearchParams("min=4&max=4&outdated=show"),
       ),

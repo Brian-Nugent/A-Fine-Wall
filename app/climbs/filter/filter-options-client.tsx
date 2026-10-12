@@ -10,11 +10,12 @@ import {
   MAX_FILTER_STARS,
   matchesClimbActivityFilters,
   matchesClimbFilters,
+  requiresClimbActivity,
   uniqueFilterAuthors,
   type ClimbFilters,
   type FilterableClimb,
 } from "../climb-filters";
-import type { GradeBand } from "../climb-grade";
+import type { ClimbColor } from "../climb-grade";
 import {
   climbActivityKey,
   type ClimbActivity,
@@ -29,10 +30,11 @@ type AvailableClimb = {
   key: string;
 };
 
-const colorOptions: Record<GradeBand, { label: string; range: string }> = {
+const colorOptions: Record<ClimbColor, { label: string; range: string }> = {
   green: { label: "Green", range: "V0–V4" },
   yellow: { label: "Yellow", range: "V5–V7" },
   red: { label: "Red", range: "V8+" },
+  gray: { label: "Gray", range: "No ascents" },
 };
 
 function isSameAuthor(left: string, right: string) {
@@ -143,18 +145,16 @@ export default function FilterOptionsClient({
   const activitiesByClimb = new Map(
     activities.map((activity) => [climbActivityKey(activity), activity]),
   );
-  const matchingCount = availableClimbs.filter(
-    (entry) =>
+  const matchingCount = availableClimbs.filter((entry) => {
+    const activity = activitiesByClimb.get(entry.key) ?? null;
+    return (
       (!initialFilters.listId || selectedList?.climbIds.some(id => entry.key === `saved:${id}`)) &&
-      matchesClimbFilters(entry.climb, currentFilters) &&
-      matchesClimbActivityFilters(
-        activitiesByClimb.get(entry.key) ?? null,
-        currentFilters,
-      ),
-  ).length;
+      matchesClimbFilters({ ...entry.climb, activity }, currentFilters) &&
+      matchesClimbActivityFilters(activity, currentFilters)
+    );
+  }).length;
   const activeFilterCount = activeClimbFilterCount(currentFilters);
-  const needsActivityData =
-    hideSent || minStars > 0 || order === "ascents";
+  const needsActivityData = requiresClimbActivity(currentFilters);
   const matchCountUnavailable =
     climbLoadFailed || (needsActivityData && activityLoadFailed) ||
     Boolean(initialFilters.listId && (lists.error || (lists.ready && !selectedList)));
@@ -183,7 +183,7 @@ export default function FilterOptionsClient({
     );
   }
 
-  function toggleColor(color: GradeBand) {
+  function toggleColor(color: ClimbColor) {
     setColors((current) =>
       current.includes(color)
         ? current.filter((item) => item !== color)

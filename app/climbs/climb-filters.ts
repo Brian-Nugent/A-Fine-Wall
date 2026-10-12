@@ -1,12 +1,12 @@
-import { getGradeBand, type GradeBand } from "./climb-grade";
+import { getClimbColor, getGradeBand, type ClimbColor } from "./climb-grade";
 
 export const MIN_FILTER_GRADE = 0;
 export const MAX_FILTER_GRADE = 17;
 export const MAX_FILTER_HOLDS = 200;
 export const MIN_FILTER_STARS = 0;
 export const MAX_FILTER_STARS = 5;
-export const FILTER_GRADE_COLORS: readonly GradeBand[] = [
-  "green", "yellow", "red",
+export const FILTER_GRADE_COLORS: readonly ClimbColor[] = [
+  "green", "yellow", "red", "gray",
 ];
 
 const holdIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
@@ -15,7 +15,7 @@ export type ClimbOrder = "newest" | "ascents" | "grade";
 
 export type ClimbFilters = {
   listId?: string;
-  colors: GradeBand[];
+  colors: ClimbColor[];
   authors: string[];
   holdIds: string[];
   hideSent: boolean;
@@ -32,6 +32,7 @@ export type FilterSearchParams = Record<
 
 export type FilterableClimb = {
   grade: string;
+  activity?: FilterableClimbActivity | null;
   outdated?: boolean;
   rockoApproved?: boolean;
   setter: string;
@@ -285,6 +286,7 @@ export function hasClimbFilterConstraints(filters: ClimbFilters) {
 export function requiresClimbActivity(filters: ClimbFilters) {
   const normalized = normalizeClimbFilters(filters);
   return (
+    normalized.colors.length > 0 ||
     normalized.hideSent ||
     normalized.minStars > MIN_FILTER_STARS ||
     normalized.order === "ascents"
@@ -309,7 +311,9 @@ export function matchesClimbFilters(
   if (
     grade === null ||
     (normalized.colors.length > 0 &&
-      !normalized.colors.includes(getGradeBand(climb.grade)))
+      !normalized.colors.includes(
+        getClimbColor(climb.grade, (climb.activity?.ratingCount ?? 0) > 0),
+      ))
   ) {
     return false;
   }
