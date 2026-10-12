@@ -112,6 +112,6 @@ export function ClimbDetailGrade({
   grade: string;
   className?: string;
 }) {
-  const { gradesVisible } = useClimbActivity();
-  return <GradeBadge grade={grade} revealed={gradesVisible} className={className} />;
+  const { activity, gradesVisible } = useClimbActivity();
+  return <GradeBadge grade={grade} hasSends={(activity?.ratingCount ?? 0) > 0} revealed={gradesVisible} className={className} />;
 }

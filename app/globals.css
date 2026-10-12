@@ -600,6 +600,11 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+.climb-grade--gray {
+  background: #d5d5d5;
+  color: #343434;
+}
+
 .climb-grade--green {
   background: #50bf78;
   color: #12351e;

@@ -15,23 +15,27 @@ const bandLabels: Record<GradeBand, string> = {
 
 export default function GradeBadge({
   grade,
+  hasSends,
   revealed,
   className = "",
 }: {
   grade: string;
+  hasSends: boolean;
   revealed: boolean;
   className?: string;
 }) {
   const band = getGradeBand(grade);
+  const color = hasSends ? band : "gray";
+  const label = hasSends ? bandLabels[band] : "No logged sends";
 
   return (
     <span
       aria-label={
         revealed
-          ? `${grade}. ${bandLabels[band]}.`
-          : `${bandLabels[band]}. Grade hidden until sent.`
+          ? `${grade}. ${label}.`
+          : `${label}. Grade hidden until sent.`
       }
-      className={`climb-grade climb-grade--${band}${className ? ` ${className}` : ""}`}
+      className={`climb-grade climb-grade--${color}${className ? ` ${className}` : ""}`}
       role="img"
     >
       {revealed ? grade : null}

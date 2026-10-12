@@ -23,6 +23,7 @@ type RatingState = {
   climbKey: string | null;
   status: "loading" | "ready" | "error";
   existingRating: number | null;
+  sendCount: number;
 };
 
 const ratings = [1, 2, 3, 4, 5] as const;
@@ -47,6 +48,7 @@ export default function SentClimbClient({
     climbKey: null,
     status: "loading",
     existingRating: null,
+    sendCount: 0,
   });
   const [grade, setGrade] = useState("");
   const [rating, setRating] = useState(0);
@@ -91,6 +93,7 @@ export default function SentClimbClient({
             climbKey,
             status: "ready",
             existingRating,
+            sendCount: activityResult.value.activity?.ratingCount ?? 0,
           });
         } else {
           setGrade("");
@@ -100,6 +103,7 @@ export default function SentClimbClient({
             climbKey,
             status: "error",
             existingRating: null,
+            sendCount: 0,
           });
         }
       },
@@ -212,6 +216,7 @@ export default function SentClimbClient({
             <GradeBadge
               className="detail-grade"
               grade={climb.grade}
+              hasSends={ratingStatus === "ready" && ratingState.sendCount > 0}
               revealed={profile?.softMode === true || existingRating !== null}
             />
           </div>

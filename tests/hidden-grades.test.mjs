@@ -4,9 +4,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import GradeBadge, { getGradeBand } from "../app/climbs/climb-grade.tsx";
 
-function renderGradeBadge(grade, revealed, className) {
+function renderGradeBadge(grade, revealed, className, hasSends = true) {
   return renderToStaticMarkup(
-    createElement(GradeBadge, { grade, revealed, className }),
+    createElement(GradeBadge, { grade, revealed, className, hasSends }),
   );
 }
 
@@ -30,7 +30,7 @@ test("grade bands include both ends of each difficulty range", () => {
   }
 });
 
-test("unsent grades render an empty oval with only accessible band information", () => {
+test("climbs sent by other users show their band while hiding the exact grade", () => {
   const grades = [
     ["V2", "Green difficulty (V0–V4)"],
     ["V6", "Yellow difficulty (V5–V7)"],
@@ -44,6 +44,30 @@ test("unsent grades render an empty oval with only accessible band information",
     assert.match(markup, /role="img"/);
     assert.doesNotMatch(markup, /\btitle=/);
     assert.doesNotMatch(markup, new RegExp(`\\b${grade}\\b`));
+  }
+});
+
+test("climbs with no logged sends stay gray in normal and soft mode", () => {
+  for (const grade of ["V0", "V4", "V5", "V7", "V8", "V17"]) {
+    for (const revealed of [false, true]) {
+      const markup = renderGradeBadge(grade, revealed, "detail-grade", false);
+      assert.match(markup, /class="climb-grade climb-grade--gray detail-grade"/);
+      assert.match(markup, /No logged sends/);
+      assert.doesNotMatch(markup, /Green difficulty|Yellow difficulty|Red difficulty/);
+      assert.equal(markup.includes(`>${grade}</span>`), revealed);
+    }
+  }
+});
+
+test("the first logged send changes gray to the grade color without revealing the viewer's grade", () => {
+  for (const [grade, color] of [["V2", "green"], ["V6", "yellow"], ["V12", "red"]]) {
+    const unsent = renderGradeBadge(grade, false, undefined, false);
+    const sentByAnotherUser = renderGradeBadge(grade, false, undefined, true);
+    assert.match(unsent, /climb-grade--gray/);
+    assert.match(sentByAnotherUser, new RegExp(`climb-grade--${color}`));
+    assert.doesNotMatch(sentByAnotherUser, new RegExp(`>${grade}<`));
+    assert.match(sentByAnotherUser, /Grade hidden until sent/);
+    assert.doesNotMatch(sentByAnotherUser, /No logged sends/);
   }
 });
 

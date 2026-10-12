@@ -81,7 +81,8 @@ test("soft mode reveals unsent detail grades immediately without marking the cli
   assert.doesNotMatch(normal, />V6</);
   const soft = renderWithProfile(softSheafy, detail);
   assert.match(soft, />V6<\/span>/);
-  assert.match(soft, /climb-grade--yellow detail-grade/);
+  assert.match(soft, /climb-grade--gray detail-grade/);
+  assert.match(soft, /No logged sends/);
   assert.doesNotMatch(soft, /Grade hidden until sent/);
   assert.match(soft, /data-has-sent="false"/);
   const signedOut = renderWithProfile(null, detail);

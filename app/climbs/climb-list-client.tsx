@@ -116,6 +116,7 @@ function ClimbRow({
         <span className="climb-row-meta">
           <GradeBadge
             grade={climb.grade}
+            hasSends={activityStatus === "ready" && (activity?.ratingCount ?? 0) > 0}
             revealed={profile?.softMode === true || (activityStatus === "ready" && activity?.userRating != null)}
           />
           <span aria-hidden="true">&rarr;</span>
