@@ -391,6 +391,15 @@ export default function FilterOptionsClient({
               />
               <span>Difficulty (Green to Red)</span>
             </label>
+            <label className="filter-radio-choice">
+              <input
+                checked={order === "stars"}
+                name="climb-order"
+                onChange={() => setOrder("stars")}
+                type="radio"
+              />
+              <span>Stars (high to low)</span>
+            </label>
           </div>
         </section>
 

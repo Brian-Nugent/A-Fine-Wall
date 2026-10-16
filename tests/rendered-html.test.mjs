@@ -940,6 +940,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
   assert.match(rockoApprovedInput, /checked=""/);
   assert.match(html, /Most ascents/);
   assert.match(html, /Difficulty \(Green to Red\)/);
+  assert.match(html, /Stars \(high to low\)/);
   assert.match(html, /Choose Holds/);
   assert.match(html, /<h2 id="order-filter-heading">Order<\/h2>/);
   assert.match(html, /role="radiogroup"/);

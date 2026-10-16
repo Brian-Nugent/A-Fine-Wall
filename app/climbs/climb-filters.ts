@@ -11,7 +11,7 @@ export const FILTER_GRADE_COLORS: readonly ClimbColor[] = [
 
 const holdIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
-export type ClimbOrder = "newest" | "ascents" | "grade";
+export type ClimbOrder = "newest" | "ascents" | "grade" | "stars";
 
 export type ClimbFilters = {
   listId?: string;
@@ -152,7 +152,7 @@ function readStars(values: readonly string[]) {
 }
 
 function normalizeOrder(value: unknown): ClimbOrder {
-  return value === "ascents" || value === "grade" ? value : "newest";
+  return value === "ascents" || value === "grade" || value === "stars" ? value : "newest";
 }
 
 export function normalizeClimbFilters(filters: ClimbFilters): ClimbFilters {
@@ -297,7 +297,8 @@ export function requiresClimbActivity(filters: ClimbFilters) {
     normalized.colors.length > 0 ||
     normalized.hideSent ||
     normalized.minStars > MIN_FILTER_STARS ||
-    normalized.order === "ascents"
+    normalized.order === "ascents" ||
+    normalized.order === "stars"
   );
 }
 
@@ -377,6 +378,13 @@ export function compareClimbsByOrder(
   filters: ClimbFilters,
 ) {
   const normalized = normalizeClimbFilters(filters);
+  if (normalized.order === "stars") {
+    const ratingDifference =
+      (right.activity?.averageRating ?? 0) -
+      (left.activity?.averageRating ?? 0);
+    if (ratingDifference !== 0) return ratingDifference;
+  }
+
   if (normalized.order === "ascents") {
     const ascentDifference =
       (right.activity?.ratingCount ?? 0) -
