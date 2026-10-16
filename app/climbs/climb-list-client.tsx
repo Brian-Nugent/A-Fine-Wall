@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -22,7 +24,7 @@ import {
   serializeClimbFilters,
   type ClimbFilters,
 } from "./climb-filters";
-import { writeSessionClimbNavigationSnapshot } from "./climb-navigation-snapshot";
+import { clearSessionClimbNavigationSnapshot, writeSessionClimbNavigationSnapshot } from "./climb-navigation-snapshot";
 import {
   getClimbListState,
   matchesClimbSearch,
@@ -34,6 +36,8 @@ import { useActiveUser } from "../user-profile-provider";
 import { isAdminUser } from "../user-access";
 import { useClimbLists } from "../lists/use-climb-lists";
 import { DEFAULT_CLIMB_FILTERS } from "./climb-filters";
+import { PULL_REFRESH_THRESHOLD } from "./pull-to-refresh-gesture";
+import { usePullToRefresh } from "./use-pull-to-refresh";
 
 function ClimbRow({
   activity,
@@ -142,6 +146,8 @@ export default function ClimbListClient({
   );
   const [sharedLoadFailed, setSharedLoadFailed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [refreshError, setRefreshError] = useState("");
+  const refreshController = useRef<AbortController | null>(null);
   const [activityState, setActivityState] = useState<{
     profileId: string | null;
     status: "loading" | "ready" | "error";
@@ -300,6 +306,43 @@ export default function ClimbListClient({
     visibleClimbs,
   });
 
+  useEffect(() => {
+    queueMicrotask(() => setRefreshError(""));
+    return () => {
+      refreshController.current?.abort();
+      refreshController.current = null;
+    };
+  }, [profile]);
+
+  const refreshClimbs = useCallback(async () => {
+    if (!profile || refreshController.current) return;
+    const controller = new AbortController();
+    refreshController.current = controller;
+    setRefreshError("");
+    try {
+      const [climbResult, activityResult] = await Promise.allSettled([
+        loadSyncedClimbs(profile, window.localStorage, controller.signal),
+        loadClimbActivities(profile.id, controller.signal),
+      ]);
+      if (controller.signal.aborted) return;
+      if (climbResult.status !== "fulfilled" || climbResult.value.sharedUnavailable || activityResult.status !== "fulfilled") {
+        throw new Error("Refresh unavailable");
+      }
+      setSavedClimbs(climbResult.value.climbs);
+      setSharedLoadFailed(false);
+      setActivityState({ profileId: profile.id, status: "ready", activities: activityResult.value });
+      clearSessionClimbNavigationSnapshot(window);
+    } catch {
+      if (!controller.signal.aborted) setRefreshError("Could not refresh climbs. Check your connection and pull down to try again.");
+    } finally {
+      if (refreshController.current === controller) refreshController.current = null;
+    }
+  }, [profile]);
+  const { pageRef, pullDistance, isRefreshing } = usePullToRefresh(
+    refreshClimbs, Boolean(profile) && !isLoadingClimbs && activityStatus !== "loading",
+  );
+  const showRefreshIndicator = isRefreshing || pullDistance > 0;
+
   function rememberClimbOrder() {
     if (!profile || isLoadingClimbs || activityOptionsUnavailable) return;
 
@@ -327,7 +370,7 @@ export default function ClimbListClient({
   }
 
   return (
-    <main className="app-page">
+    <main className="app-page climbs-page" ref={pageRef}>
       <header className="list-header">
         <a
           className="small-brand"
@@ -349,8 +392,19 @@ export default function ClimbListClient({
         </div>
       </header>
 
+      <div className="climb-refresh-indicator" style={{ height: isRefreshing ? PULL_REFRESH_THRESHOLD : pullDistance }}>
+        {showRefreshIndicator ? (
+          <div className="climb-refresh-status" role="status">
+            {isRefreshing
+              ? <span aria-hidden="true" className="climb-refresh-spinner" />
+              : <span aria-hidden="true">&darr;</span>}
+            <span>{isRefreshing ? "Refreshing climbs…" : pullDistance >= PULL_REFRESH_THRESHOLD ? "Release to refresh" : "Pull down to refresh"}</span>
+          </div>
+        ) : null}
+      </div>
+
       <section
-        aria-busy={isLoadingClimbs ? "true" : undefined}
+        aria-busy={isLoadingClimbs || isRefreshing ? "true" : undefined}
         aria-labelledby="climbs-heading"
       >
         <div className="section-heading">
@@ -446,6 +500,8 @@ export default function ClimbListClient({
             refreshed.
           </div>
         ) : null}
+
+        {refreshError ? <div className="climb-sync-notice" role="status">{refreshError}</div> : null}
 
         {activityStatus === "error" ? (
           <div className="climb-rating-notice" role="status">
