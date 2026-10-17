@@ -342,7 +342,7 @@ export default function SavedClimbDetail({
   filters: ClimbFilters;
   initialClimb?: SavedClimb;
 }) {
-  const { profile } = useActiveUser();
+  const { profile, holdColorNames } = useActiveUser();
   const [activeClimbId, setActiveClimbId] = useState(climbId);
   const [climb, setClimb] = useState<SavedClimb | null | undefined>(
     initialClimb,
@@ -865,10 +865,10 @@ export default function SavedClimbDetail({
               onNavigate={navigateToClimb}
             />
             <figcaption className="sr-only">
-              {climb.name} uses {startCount} green-outlined start{" "}
+              {climb.name} uses {startCount} {holdColorNames.start}-outlined start{" "}
               {startCount === 1 ? "hold" : "holds"}, {handCount} blue-outlined
               climbing {handCount === 1 ? "hold" : "holds"}, {footCount}{" "}
-              yellow-outlined {footCount === 1 ? "foothold" : "footholds"}, and{" "}
+              {holdColorNames.foot}-outlined {footCount === 1 ? "foothold" : "footholds"}, and{" "}
               {finishCount} red-outlined finish{" "}
               {finishCount === 1 ? "hold" : "holds"}.
               {climb.isCircuit ? " Follow the numbered blue handholds in order for this circuit." : ""}

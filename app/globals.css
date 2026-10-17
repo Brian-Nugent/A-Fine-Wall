@@ -71,6 +71,11 @@ select {
   visibility: hidden;
 }
 
+.profile-app[data-hold-palette="accessible"] {
+  --hold-start: #006400;
+  --hold-foot: #ff8800;
+}
+
 .profile-card h1 {
   margin: 0;
   font-size: clamp(2.3rem, 10vw, 4.5rem);

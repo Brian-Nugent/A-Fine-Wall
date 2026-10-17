@@ -1820,8 +1820,7 @@ test("renders the climb setter with the wall and selectable holds", async () => 
     new URL("../app/set-climb/page.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(source, /foot: "Yellow foothold"/);
-  assert.match(source, /foot: "make it a yellow foothold"/);
+  assert.match(html, /optional yellow footholds, one or more green start holds/);
   assert.match(source, /isAdminUser\(profile\)/);
   assert.match(source, /canManageClimb\(profile, savedClimb\.setter\)/);
   assert.match(source, /placeholder="e\.g\. 85 Degrees"/);

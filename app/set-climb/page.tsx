@@ -46,20 +46,6 @@ type DraftHold = {
   circuitOrder?: number;
 };
 
-const holdRoleAccessibleLabels: Record<SavedHoldRole, string> = {
-  hand: "Blue climbing hold",
-  foot: "Yellow foothold",
-  start: "Green start hold",
-  finish: "Red finish hold",
-};
-
-const holdRoleActions: Record<SavedHoldRole, string> = {
-  hand: "add it as a blue climbing hold",
-  foot: "make it a yellow foothold",
-  start: "make it a green start",
-  finish: "make it a red finish",
-};
-
 const MAX_LEGACY_HOLD_MATCH_DISTANCE = 3;
 const MIN_LEGACY_HOLD_MATCH_GAP = 0.75;
 const ratings = [1, 2, 3, 4, 5] as const;
@@ -116,7 +102,20 @@ function makeClimbId() {
 }
 
 export default function SetClimbPage() {
-  const { profile } = useActiveUser();
+  const { profile, holdColorNames } = useActiveUser();
+  const footholdArticle = holdColorNames.foot === "orange" ? "an" : "a";
+  const holdRoleAccessibleLabels: Record<SavedHoldRole, string> = {
+    hand: "Blue climbing hold",
+    foot: `${holdColorNames.foot.replace(/^./, first => first.toUpperCase())} foothold`,
+    start: `${holdColorNames.start.replace(/^./, first => first.toUpperCase())} start hold`,
+    finish: "Red finish hold",
+  };
+  const holdRoleActions: Record<SavedHoldRole, string> = {
+    hand: "add it as a blue climbing hold",
+    foot: `make it ${footholdArticle} ${holdColorNames.foot} foothold`,
+    start: `make it a ${holdColorNames.start} start`,
+    finish: "make it a red finish",
+  };
   const [editId, setEditId] = useState<string | null>(null);
   const [editingClimb, setEditingClimb] = useState<SavedClimb | null>(null);
   const [editLoadStatus, setEditLoadStatus] = useState<
@@ -416,8 +415,7 @@ export default function SetClimbPage() {
               {editingClimb ? "Edit the holds" : "Choose your holds"}
             </h1>
             <p>
-              Tap a hold for a blue circle, again for a yellow foothold, then
-              for a green start and a red finish. A fifth tap clears it.
+              {`Tap a hold for a blue circle, again for ${footholdArticle} ${holdColorNames.foot} foothold, then for a ${holdColorNames.start} start and a red finish. A fifth tap clears it.`}
             </p>
             <div className="climb-circuit-option">
               <label className="climb-send-toggle" htmlFor="climb-is-circuit">
@@ -538,9 +536,7 @@ export default function SetClimbPage() {
               return hold ? [{ ...hold, ...selection }] : [];
             })} />
             <figcaption className="sr-only">
-              Preset hold spots on A Fine Wall. Choose blue climbing holds,
-              optional yellow footholds, one or more green start holds, and one
-              or more red finish holds.
+              {`Preset hold spots on A Fine Wall. Choose blue climbing holds, optional ${holdColorNames.foot} footholds, one or more ${holdColorNames.start} start holds, and one or more red finish holds.`}
             </figcaption>
           </figure>
 

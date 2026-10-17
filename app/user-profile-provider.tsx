@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createUserProfile, loadUserProfile } from "./user-api";
+import { isSameUserName } from "./user-access";
 import {
   MAX_USER_NAME_LENGTH,
   MAX_USER_LOGIN_LENGTH,
@@ -27,6 +28,7 @@ import {
 
 type UserProfileContextValue = {
   profile: UserProfile | null;
+  holdColorNames: { start: string; foot: string };
   changeUser(): void;
 };
 
@@ -262,14 +264,18 @@ export default function UserProfileProvider({
       </main>
     ) : null;
   const isGateOpen = status === "loading" || gate !== null;
+  const accessibleHoldColors = isSameUserName(profile?.name, "Tony Pep");
 
   return (
     <UserProfileContext.Provider
-      value={{ profile, changeUser }}
+      value={{ profile, changeUser, holdColorNames: accessibleHoldColors
+        ? { start: "dark green", foot: "orange" }
+        : { start: "green", foot: "yellow" } }}
     >
       <div
         aria-hidden={isGateOpen ? "true" : undefined}
         className="profile-app"
+        data-hold-palette={accessibleHoldColors ? "accessible" : undefined}
         inert={isGateOpen ? true : undefined}
       >
         {children}
