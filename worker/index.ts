@@ -47,7 +47,7 @@ const worker: ExportedHandler<Env> = {
         status: 307,
         headers: {
           "Cache-Control": "no-store",
-          Location: "/wall-prototype.png",
+          Location: "/wall-default.webp",
         },
       });
     }
