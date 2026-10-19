@@ -765,6 +765,33 @@ test("restores returning users without a branded loading screen", async () => {
   );
 });
 
+test("renders the dark theme before hydration only for a dark login", async () => {
+  const profile = { id: "profile-theme-test", name: "Theme Tester" };
+  const cookieFor = (value) => `${USER_PROFILE_COOKIE_KEY}=${serializeUserProfileCookie(value)}`;
+  const themeColor = (html) =>
+    html.match(/<meta[^>]*name="theme-color"[^>]*>/g)?.map((tag) => tag.match(/content="([^"]+)"/)?.[1]);
+
+  const darkHtml = await (await render("/climbs", { cookie: cookieFor({ ...profile, darkMode: true }) })).text();
+  assert.match(darkHtml, /<html[^>]*data-theme="dark"/);
+  assert.deepEqual(themeColor(darkHtml), ["#121212"]);
+
+  for (const cookie of [cookieFor(profile), undefined, "a-fine-wall-theme=dark"]) {
+    const lightHtml = await (await render("/climbs", cookie ? { cookie } : {})).text();
+    assert.match(lightHtml, /<html[^>]*data-theme="light"/);
+    assert.deepEqual(themeColor(lightHtml), ["#ffffff"]);
+    assert.doesNotMatch(lightHtml, /theme-choice/);
+  }
+});
+
+test("styles only the dark login theme and never follows the device setting", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const dark = css.match(/:root\[data-theme="dark"\]\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.ok([...dark.matchAll(/--[\w-]+:/g)].length > 10);
+  assert.match(dark, /color-scheme:\s*dark/);
+  assert.match(css, /:root\s*\{\s*color-scheme:\s*light;/);
+  assert.doesNotMatch(css, /prefers-color-scheme/);
+});
+
 test("recognizes both administrators and climb owners without case sensitivity", () => {
   assert.equal(isAdminUserName("Admin"), true);
   assert.equal(isAdminUserName("admin"), true);
@@ -1051,7 +1078,7 @@ test("renders the climb filter controls and applies URL filters", async () => {
     "";
   assert.match(filterToolbarRule, /position:\s*relative/);
   assert.match(filterToolbarRule, /bottom:\s*auto/);
-  assert.match(filterToolbarRule, /background:\s*#ffffff/);
+  assert.match(filterToolbarRule, /background:\s*var\(--page\)/);
   assert.match(filterToolbarRule, /-webkit-backdrop-filter:\s*none/);
   assert.match(filterToolbarRule, /backdrop-filter:\s*none/);
   const filterPageRule =
@@ -2436,9 +2463,9 @@ test("logs a send with a grade selector before the star rating", async () => {
   assert.match(climbNameRule, /font-size:\s*clamp\(2rem,\s*8vw,\s*2\.75rem\)/);
   assert.match(climbNameRule, /overflow-wrap:\s*anywhere/);
   assert.match(removeButtonRule, /width:\s*100%/);
-  assert.match(removeButtonRule, /border-color:\s*#b42331/i);
-  assert.match(removeButtonRule, /background:\s*#ffffff/i);
-  assert.match(removeButtonRule, /color:\s*#b42331/i);
+  assert.match(removeButtonRule, /border-color:\s*var\(--danger\)/);
+  assert.match(removeButtonRule, /background:\s*var\(--page\)/);
+  assert.match(removeButtonRule, /(?:^|\n)\s*color:\s*var\(--danger\)/);
 });
 
 test("returns not found for an unknown climb", async () => {
@@ -3093,6 +3120,36 @@ test("soft login reuses the canonical profile and send history without storing t
   assert.equal(normalSession.id, newSession.id);
   assert.equal(normalSession.softMode, undefined);
   for (const name of ["soft", "soft ", "soft You", `soft ${"x".repeat(51)}`]) {
+    assert.equal((await login(name)).status, 400);
+  }
+});
+
+test("dark login reuses the canonical profile, combines with soft mode, and stays out of the database", async () => {
+  const worker = await loadWorker();
+  const database = createMemoryAppDatabase();
+  const environment = createEnvironment({ DB: database });
+  const login = name => worker.fetch(new Request("http://localhost/api/profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+    body: JSON.stringify({ name }),
+  }), environment, createContext());
+  const sheafy = { id: "profile-sheafy", name: "Sheafy", createdAt: 1 };
+  database.seedProfile(sheafy);
+
+  for (const name of ["dark Sheafy", "  DaRk   sHEAFY  "]) {
+    const response = await login(name);
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).profile, { ...sheafy, darkMode: true });
+  }
+  for (const name of ["soft dark Sheafy", "dark soft Sheafy"]) {
+    assert.deepEqual((await (await login(name)).json()).profile, { ...sheafy, softMode: true, darkMode: true });
+  }
+  assert.deepEqual((await (await login("Sheafy")).json()).profile, sheafy);
+  assert.deepEqual(
+    (await (await worker.fetch(new Request("http://localhost/api/profiles"), environment, createContext())).json()).profiles,
+    [sheafy],
+  );
+  for (const name of ["dark", "dark ", "dark You", "soft dark", `dark ${"x".repeat(51)}`]) {
     assert.equal((await login(name)).status, 400);
   }
 });

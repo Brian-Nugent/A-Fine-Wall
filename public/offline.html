@@ -6,6 +6,8 @@
     <meta name="theme-color" content="#ffffff" />
     <title>Offline | A Fine Wall</title>
     <style>
+      :root { color-scheme: light; --page: #ffffff; --ink: #111111; --muted: #6b6b6b; }
+      :root[data-theme="dark"] { color-scheme: dark; --page: #121212; --ink: #f1f1f1; --muted: #a3a3a3; }
       * { box-sizing: border-box; }
       body {
         min-width: 320px;
@@ -15,8 +17,8 @@
         padding: max(2rem, env(safe-area-inset-top)) 1.25rem max(2rem, env(safe-area-inset-bottom));
         display: grid;
         place-items: center;
-        background: #ffffff;
-        color: #111111;
+        background: var(--page);
+        color: var(--ink);
         font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
       main {
@@ -28,7 +30,7 @@
       }
       .brand { font-size: 0.72rem; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
       h1 { margin: 0; font-size: 2.25rem; letter-spacing: -0.05em; }
-      p { margin: 0; color: #6b6b6b; line-height: 1.5; }
+      p { margin: 0; color: var(--muted); line-height: 1.5; }
       a {
         display: inline-flex;
         min-height: 2.75rem;
@@ -36,13 +38,22 @@
         justify-content: center;
         padding: 0.65rem 1rem;
         border-radius: 999px;
-        background: #111111;
-        color: #ffffff;
+        background: var(--ink);
+        color: var(--page);
         font-size: 0.85rem;
         font-weight: 700;
         text-decoration: none;
       }
     </style>
+    <script>
+      // Match the app: dark only for a "dark " login saved in this browser.
+      try {
+        if (JSON.parse(localStorage.getItem("a-fine-wall:user-profile:v1"))?.darkMode === true) {
+          document.documentElement.dataset.theme = "dark";
+          document.querySelector('meta[name="theme-color"]').content = "#121212";
+        }
+      } catch {}
+    </script>
   </head>
   <body>
     <main>

@@ -17,6 +17,9 @@ The app runs at
   immediately when the user signs in with `soft NAME` (for example, `soft Sheafy`).
   Soft mode uses the same NAME profile and send history, persists on that browser,
   and shows `soft mode enabled` beside Climbs. Sign in without `soft ` to turn it off.
+- Sign in with `dark NAME` (for example, `dark Sheafy`) to use the dark theme.
+  Like soft mode, it uses the same NAME profile and persists on that browser;
+  every other login uses the light theme. Combine both as `soft dark NAME`.
 - Log a send with a proposed grade and rating.
 - View consensus grades and community ratings from send entries.
 - Per-climb logbook with each climber's grade and stars.
