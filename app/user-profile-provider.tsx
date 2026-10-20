@@ -145,7 +145,7 @@ export default function UserProfileProvider({
 
     function handleStorage(event: StorageEvent) {
       if (event.key !== USER_PROFILE_KEY) return;
-      let nextProfile: UserProfile | null = null;
+      let nextProfile: UserProfile | null;
       try {
         nextProfile = readUserProfile(window.localStorage);
       } catch {

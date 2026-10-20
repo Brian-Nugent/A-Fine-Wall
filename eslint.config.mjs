@@ -6,6 +6,7 @@ import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import reactPackage from "react/package.json" with { type: "json" };
 
 const eslintConfig = defineConfig([
   globalIgnores([
@@ -59,7 +60,9 @@ const eslintConfig = defineConfig([
   {
     settings: {
       react: {
-        version: "detect",
+        // eslint-plugin-react's "detect" calls context.getFilename(), which
+        // ESLint 10 removed, so read the installed version directly.
+        version: reactPackage.version,
       },
     },
     rules: {
