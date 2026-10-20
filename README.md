@@ -95,7 +95,8 @@ The Cloudflare Vite plugin supplies local versions of the bindings declared in
 Local Wrangler and Miniflare state is kept in the ignored `.wrangler/`
 directory. A fresh D1 schema is initialized on the first app-data request. If
 no wall photo has been uploaded locally, the app falls back to
-`public/wall-prototype.png`.
+`public/wall-default.webp`, the display copy of the live wall photo traced in
+`data/wall-layouts/2026-10-live-wall.json`. Replace it after a wall reset.
 
 The fresh local database contains no climbs, and the bundled demo list is
 empty. To populate it through the UI, create the `Admin` profile, configure the

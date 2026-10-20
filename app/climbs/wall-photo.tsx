@@ -8,7 +8,7 @@ import { outlinePoints } from "./hold-outlines";
 
 export const WALL_PHOTO_ENDPOINT = "/api/wall-photo";
 export const WALL_DISPLAY_PHOTO_ENDPOINT = `${WALL_PHOTO_ENDPOINT}?view=display`;
-export const DEFAULT_WALL_PHOTO = "/wall-prototype.png";
+export const DEFAULT_WALL_PHOTO = "/wall-default.webp";
 
 type WallPhotoProps = Omit<
   ImgHTMLAttributes<HTMLImageElement>,

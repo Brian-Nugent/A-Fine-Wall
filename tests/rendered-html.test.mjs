@@ -2654,7 +2654,7 @@ test("serves smaller display photos only for their matching original and preserv
   assert.equal(response.status, 307);
 });
 
-test("redirects to the bundled test wall when no photo has been uploaded", async () => {
+test("redirects to the bundled live wall when no photo has been uploaded", async () => {
   const worker = await loadWorker();
   const environment = createEnvironment({
     WALL_PHOTOS: createMemoryWallPhotoBucket(),
@@ -2667,7 +2667,7 @@ test("redirects to the bundled test wall when no photo has been uploaded", async
   );
 
   assert.equal(response.status, 307);
-  assert.equal(response.headers.get("location"), "/wall-prototype.png");
+  assert.equal(response.headers.get("location"), "/wall-default.webp");
   assert.equal(response.headers.get("cache-control"), "no-store");
 });
 
@@ -4780,7 +4780,7 @@ async function verifySharedClimbAccess(adminName) {
 
 test("includes the wall, app icon, and social preview image assets", async () => {
   for (const relativePath of [
-    "../public/wall-prototype.png",
+    "../public/wall-default.webp",
     "../public/a-fine-wall-icon.png",
   ]) {
     const asset = await stat(new URL(relativePath, import.meta.url));
