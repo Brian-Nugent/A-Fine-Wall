@@ -18,13 +18,13 @@ const softSheafy = { ...sheafy, softMode: true };
 
 test("soft login recognizes a separate, case-insensitive prefix and validates the underlying name", () => {
   for (const name of ["soft Sheafy", "  SOFT   Sheafy  ", "Soft Sheafy"]) {
-    assert.deepEqual(parseUserLogin(name), { name: "Sheafy", softMode: true });
+    assert.deepEqual(parseUserLogin(name), { name: "Sheafy", softMode: true, darkMode: false });
   }
-  assert.deepEqual(parseUserLogin("Sheafy"), { name: "Sheafy", softMode: false });
-  assert.deepEqual(parseUserLogin("Softball"), { name: "Softball", softMode: false });
-  assert.deepEqual(parseUserLogin("soft Zoë O’Connor"), { name: "Zoë O’Connor", softMode: true });
+  assert.deepEqual(parseUserLogin("Sheafy"), { name: "Sheafy", softMode: false, darkMode: false });
+  assert.deepEqual(parseUserLogin("Softball"), { name: "Softball", softMode: false, darkMode: false });
+  assert.deepEqual(parseUserLogin("soft Zoë O’Connor"), { name: "Zoë O’Connor", softMode: true, darkMode: false });
   assert.deepEqual(parseUserLogin(`soft ${"x".repeat(MAX_USER_NAME_LENGTH)}`), {
-    name: "x".repeat(MAX_USER_NAME_LENGTH), softMode: true,
+    name: "x".repeat(MAX_USER_NAME_LENGTH), softMode: true, darkMode: false,
   });
   for (const invalid of [null, "", "soft", "soft   ", "soft You", "soft Bad\nName", "soft Bad\u200bName", `soft ${"x".repeat(51)}`]) {
     assert.equal(parseUserLogin(invalid), null);

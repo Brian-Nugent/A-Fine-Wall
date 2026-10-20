@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "a-fine-wall-offline-";
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const OFFLINE_URL = new URL("/offline.html", self.location.origin).href;
 
 self.addEventListener("install", (event) => {

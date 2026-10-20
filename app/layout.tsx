@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import PwaRegistration from "./pwa-registration";
 import UserProfileProvider from "./user-profile-provider";
 import { parseUserProfileCookie } from "./user-profile";
+import { THEME_COLORS, themeForProfile } from "./theme-preference";
 import "./globals.css";
 
 const title = "A Fine Wall";
@@ -69,11 +70,15 @@ export const metadata: Metadata = {
   },
 };
 
-export const viewport: Viewport = {
-  initialScale: undefined,
-  themeColor: "#ffffff",
-  width: undefined,
-};
+export async function generateViewport(): Promise<Viewport> {
+  const requestHeaders = await headers();
+  const theme = themeForProfile(parseUserProfileCookie(requestHeaders.get("cookie")));
+  return {
+    initialScale: undefined,
+    themeColor: THEME_COLORS[theme],
+    width: undefined,
+  };
+}
 
 export default async function RootLayout({
   children,
@@ -84,7 +89,7 @@ export default async function RootLayout({
   const initialProfile = parseUserProfileCookie(requestHeaders.get("cookie"));
 
   return (
-    <html lang="en">
+    <html data-theme={themeForProfile(initialProfile)} lang="en">
       <body>
         <UserProfileProvider initialProfile={initialProfile}>
           {children}

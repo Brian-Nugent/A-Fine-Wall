@@ -1,6 +1,7 @@
 import {
   isProfileId,
   normalizeUserName,
+  sessionModes,
   type UserProfile,
 } from "./user-profile";
 
@@ -12,7 +13,7 @@ function parseProfile(profile: unknown): UserProfile | null {
   const record = profile as Record<string, unknown>;
   const name = normalizeUserName(record.name);
   return isProfileId(record.id) && name
-    ? { id: record.id, name, ...(record.softMode === true ? { softMode: true } : {}) }
+    ? { id: record.id, name, ...sessionModes(record) }
     : null;
 }
 

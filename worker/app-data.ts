@@ -12,7 +12,7 @@ import {
 } from "../app/user-access";
 
 import { isHoldOutline, type HoldPoint } from "../app/climbs/hold-geometry";
-import { parseUserLogin } from "../app/user-profile";
+import { parseUserLogin, sessionModes } from "../app/user-profile";
 import { hasCompleteCircuitSequence, hasValidCircuitHolds, isCircuitOrder } from "../app/climbs/climb-circuits";
 
 const WALL_HOLDS_PATH = "/api/wall-holds";
@@ -1118,7 +1118,7 @@ async function handleProfiles(request: Request, db: D1Database) {
   }
 
   requireSameOrigin(request);
-  const { name, softMode } = parseProfileBody(
+  const { name, ...modes } = parseProfileBody(
     await readLimitedJson(request, MAX_PROFILE_BODY_BYTES),
   );
   const candidate: Profile = {
@@ -1139,7 +1139,7 @@ async function handleProfiles(request: Request, db: D1Database) {
     .first<ProfileRow>();
   const sessionProfile = (row: ProfileRow) => ({
     ...rowToProfile(row),
-    ...(softMode ? { softMode: true } : {}),
+    ...sessionModes(modes),
   });
   if (inserted) return json({ profile: sessionProfile(inserted) }, 201);
 

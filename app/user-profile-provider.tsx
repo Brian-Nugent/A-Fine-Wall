@@ -25,6 +25,7 @@ import {
   serializeUserProfileCookie,
   type UserProfile,
 } from "./user-profile";
+import { THEME_COLORS, themeForProfile, type Theme } from "./theme-preference";
 
 type UserProfileContextValue = {
   profile: UserProfile | null;
@@ -34,6 +35,12 @@ type UserProfileContextValue = {
 
 const UserProfileContext = createContext<UserProfileContextValue | null>(null);
 const USER_PROFILE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+function applyTheme(theme: Theme) {
+  document.documentElement.dataset.theme = theme;
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+    meta.content = THEME_COLORS[theme];
+  });
+}
 
 function syncUserProfileCookie(profile: UserProfile | null) {
   try {
@@ -116,7 +123,8 @@ export default function UserProfileProvider({
           setProfile((current) =>
             current?.id === refreshedProfile.id &&
             current.name === refreshedProfile.name &&
-            current.softMode === refreshedProfile.softMode
+            current.softMode === refreshedProfile.softMode &&
+            current.darkMode === refreshedProfile.darkMode
               ? current
               : refreshedProfile,
           );
@@ -157,6 +165,11 @@ export default function UserProfileProvider({
     };
   }, [initialProfile]);
 
+  const theme = themeForProfile(profile);
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
   useEffect(() => {
     if (status !== "ready" || (profile && !isEditing)) return;
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -167,7 +180,11 @@ export default function UserProfileProvider({
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
-    setName(profile ? `${profile.softMode ? "soft " : ""}${profile.name}` : "");
+    setName(
+      profile
+        ? `${profile.softMode ? "soft " : ""}${profile.darkMode ? "dark " : ""}${profile.name}`
+        : "",
+    );
     setError("");
     setIsEditing(true);
   }
